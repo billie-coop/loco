@@ -3,8 +3,8 @@ package chat
 import (
 	"strings"
 
-	"github.com/charmbracelet/glamour"
-	"github.com/charmbracelet/glamour/ansi"
+	"github.com/charmbracelet/glamour/v2"
+	"github.com/charmbracelet/glamour/v2/ansi"
 )
 
 // getMarkdownRenderer returns a glamour renderer configured for the given width
@@ -33,6 +33,16 @@ func getMarkdownStyle() ansi.StyleConfig {
 		},
 		Paragraph: ansi.StyleBlock{
 			StylePrimitive: ansi.StylePrimitive{},
+		},
+		List: ansi.StyleList{
+			LevelIndent: 2,
+		},
+		Item: ansi.StylePrimitive{
+			BlockPrefix: "• ",
+		},
+		Enumeration: ansi.StylePrimitive{
+			BlockPrefix: ". ",
+			Color:       stringPtr("#8BE9FD"),
 		},
 		Code: ansi.StyleBlock{
 			StylePrimitive: ansi.StylePrimitive{

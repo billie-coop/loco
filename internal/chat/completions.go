@@ -11,6 +11,8 @@ var slashCommands = []struct {
 	command     string
 	description string
 }{
+	{"/analyze", "Re-analyze project with deep file reading"},
+	{"/debug", "Toggle debug metadata visibility"},
 	{"/list", "List all chat sessions"},
 	{"/new", "Start a new chat session"},
 	{"/switch", "Switch to session number N"},

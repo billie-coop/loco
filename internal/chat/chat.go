@@ -16,8 +16,11 @@ import (
 	"github.com/charmbracelet/lipgloss/v2"
 
 	"github.com/billie-coop/loco/internal/llm"
+	"github.com/billie-coop/loco/internal/orchestrator"
+	"github.com/billie-coop/loco/internal/parser"
 	"github.com/billie-coop/loco/internal/project"
 	"github.com/billie-coop/loco/internal/session"
+	"github.com/billie-coop/loco/internal/tools"
 )
 
 var (
@@ -51,19 +54,28 @@ type errorMsg struct {
 type Model struct {
 	viewport       viewport.Model
 	messages       []llm.Message
+	messagesMeta   map[int]*MessageMetadata // Metadata for each message by index
 	input          textarea.Model
 	spinner        spinner.Model
 	llmClient      llm.Client
 	modelName      string
+	modelSize      llm.ModelSize // T-shirt size of current model
+	availableModels map[llm.ModelSize][]llm.ModelInfo // All available models by size
+	allModels      []llm.Model  // All available models (for sidebar display)
+	modelUsage     map[string]int // Track usage count per model ID
 	width          int
 	height         int
 	isStreaming    bool
 	streamingMsg   string // Current streaming message content
 	streamingTokens int   // Token count for current stream
+	streamingStart time.Time // When streaming started
 	err            error
-	debugLog       []string
+	showDebug      bool   // Toggle for showing metadata
 	sessionManager *session.Manager
 	projectContext *project.ProjectContext
+	toolRegistry   *tools.Registry
+	orchestrator   *orchestrator.Orchestrator
+	parser         *parser.Parser
 }
 
 // New creates a new chat model
@@ -74,17 +86,25 @@ func New() *Model {
 // SetModelName sets the model name for display
 func (m *Model) SetModelName(name string) {
 	m.modelName = name
+	m.modelSize = llm.DetectModelSize(name)
+	// Track usage
+	m.modelUsage[name]++
 }
 
-// log adds a debug message to the log
-func (m *Model) log(format string, args ...interface{}) {
-	msg := fmt.Sprintf(format, args...)
-	timestamp := time.Now().Format("15:04:05")
-	m.debugLog = append(m.debugLog, fmt.Sprintf("[%s] %s", timestamp, msg))
-	// Keep only last 10 messages
-	if len(m.debugLog) > 10 {
-		m.debugLog = m.debugLog[len(m.debugLog)-10:]
+// SetAvailableModels sets all available models for display in sidebar
+func (m *Model) SetAvailableModels(models []llm.Model) {
+	m.allModels = models
+	// Initialize usage counters
+	for _, model := range models {
+		if _, exists := m.modelUsage[model.ID]; !exists {
+			m.modelUsage[model.ID] = 0
+		}
 	}
+}
+
+// addMessageMetadata adds metadata for a message
+func (m *Model) addMessageMetadata(index int, meta *MessageMetadata) {
+	m.messagesMeta[index] = meta
 }
 
 // NewWithClient creates a new chat model with a specific client
@@ -114,11 +134,28 @@ func NewWithClient(client llm.Client) *Model {
 		fmt.Printf("Warning: failed to initialize sessions: %v\n", err)
 	}
 
+	// Initialize tools
+	toolReg := tools.NewRegistry(workingDir)
+	toolReg.Register(tools.NewReadTool(workingDir))
+	toolReg.Register(tools.NewWriteTool(workingDir))
+	toolReg.Register(tools.NewListTool(workingDir))
+
+	// Initialize orchestrator
+	orch := orchestrator.NewOrchestrator("", toolReg)
+	orch.SetupDefaultModels()
+
 	// Initialize project analyzer
 	analyzer := project.NewAnalyzer()
 
-	// Base system prompt
-	systemPrompt := "You are Loco, a helpful AI coding assistant running locally via LM Studio."
+	// Base system prompt with tool information
+	systemPrompt := `You are Loco, a helpful AI coding assistant running locally via LM Studio.
+
+You have access to the following tools. When you need to use a tool, output it in this format:
+<tool>{"name": "tool_name", "params": {"param1": "value1"}}</tool>
+
+You can include explanation before or after the tool call. The tool will be executed and results shown to you.
+
+` + getToolPrompt(toolReg)
 
 	// Try to load or analyze project context
 	var projectCtx *project.ProjectContext
@@ -149,14 +186,19 @@ func NewWithClient(client llm.Client) *Model {
 	m := &Model{
 		viewport:       vp,
 		messages:       messages,
+		messagesMeta:   make(map[int]*MessageMetadata),
 		input:          ta,
 		spinner:        s,
 		llmClient:      client,
 		width:          0, // Will be set by WindowSizeMsg
 		height:         0, // Will be set by WindowSizeMsg
-		debugLog:       []string{},
+		showDebug:      true, // Show debug by default
+		modelUsage:     make(map[string]int),
 		sessionManager: sessionMgr,
 		projectContext: projectCtx,
+		toolRegistry:   toolReg,
+		orchestrator:   orch,
+		parser:         parser.New(),
 	}
 	
 	// Save initial system message to session
@@ -166,20 +208,28 @@ func NewWithClient(client llm.Client) *Model {
 	
 	// Add initial content
 	m.viewport.SetContent(m.renderMessages())
-	m.log("Chat initialized with session: %s", currentSession.ID)
 	
 	return m
 }
 
 // Init initializes the model
 func (m *Model) Init() tea.Cmd {
-	// Check LM Studio health
-	if err := m.llmClient.(*llm.LMStudioClient).HealthCheck(); err != nil {
+	// Check LM Studio health and get available models
+	lmClient := m.llmClient.(*llm.LMStudioClient)
+	if err := lmClient.HealthCheck(); err != nil {
 		m.err = err
-		m.log("LM Studio health check failed: %v", err)
 	} else {
-		m.log("LM Studio connected")
+		// Get available models and detect their sizes
+		if models, err := lmClient.GetModels(); err == nil {
+			// Extract model IDs
+			var modelIDs []string
+			for _, model := range models {
+				modelIDs = append(modelIDs, model.ID)
+			}
+			m.availableModels = llm.GetModelsBySize(modelIDs)
+		}
 	}
+	
 	return tea.Batch(
 		textarea.Blink, 
 		m.spinner.Tick,
@@ -220,7 +270,6 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return m.handleSlashCommand(m.input.Value())
 				}
 				
-				m.log("Sending message: %s", m.input.Value())
 				cmd := m.sendMessage()
 				return m, tea.Batch(cmd, m.spinner.Tick)
 			}
@@ -229,7 +278,6 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
-		m.log("Window resized to %dx%d", msg.Width, msg.Height)
 		
 		// Calculate sidebar width (20% of screen, min 20, max 30)
 		sidebarWidth := msg.Width / 5
@@ -270,6 +318,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case streamStartMsg:
 		// Start the actual streaming
+		m.streamingStart = time.Now()
 		return m, m.doStream()
 		
 	case streamChunkMsg:
@@ -289,18 +338,88 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		
 		if finalMsg != "" {
-			m.log("Received response: %d chars, ~%d tokens", len(finalMsg), m.streamingTokens)
-			m.messages = append(m.messages, llm.Message{
-				Role:    "assistant",
-				Content: finalMsg,
-			})
+			// Calculate response duration
+			duration := time.Since(m.streamingStart).Seconds()
+			
+			// Parse for tool calls
+			parseResult, err := m.parser.Parse(finalMsg)
+			
+			// Create metadata for this message
+			metadata := &MessageMetadata{
+				Timestamp:  time.Now(),
+				Duration:   duration,
+				TokenCount: m.streamingTokens,
+			}
+			
+			if err != nil {
+				metadata.Error = err.Error()
+			} else {
+				metadata.ParseMethod = parseResult.Method
+				metadata.ToolsFound = len(parseResult.ToolCalls)
+				
+				if len(parseResult.ToolCalls) > 0 {
+					// Collect tool names
+					for _, tc := range parseResult.ToolCalls {
+						metadata.ToolNames = append(metadata.ToolNames, tc.Name)
+					}
+					
+					// Execute tools and collect results
+					var toolResults []string
+					for _, toolCall := range parseResult.ToolCalls {
+						result := m.toolRegistry.Execute(toolCall.Name, toolCall.Params)
+						if result.Success {
+							toolResults = append(toolResults, result.Output)
+						} else {
+							toolResults = append(toolResults, fmt.Sprintf("Error executing %s: %s", toolCall.Name, result.Error))
+						}
+					}
+				
+					// Add the assistant's message (with cleaned text)
+					msgIndex := len(m.messages)
+					m.messages = append(m.messages, llm.Message{
+						Role:    "assistant",
+						Content: parseResult.Text,
+					})
+					m.addMessageMetadata(msgIndex, metadata)
+					
+					// Add tool results as a system message
+					if len(toolResults) > 0 {
+						toolResultMsg := strings.Join(toolResults, "\n\n")
+						m.messages = append(m.messages, llm.Message{
+							Role:    "system",
+							Content: fmt.Sprintf("Tool results:\n%s", toolResultMsg),
+						})
+						
+						// Continue the conversation with tool results
+						m.isStreaming = true
+						m.streamingMsg = ""
+						m.streamingTokens = 0
+						m.viewport.SetContent(m.renderMessages())
+						m.viewport.GotoBottom()
+						
+						// Save to session
+						if m.sessionManager != nil {
+							m.sessionManager.UpdateCurrentMessages(m.messages)
+						}
+						
+						// Stream a follow-up response
+						return m, m.streamResponse()
+					}
+				} else {
+					// No tools found
+					msgIndex := len(m.messages)
+					m.messages = append(m.messages, llm.Message{
+						Role:    "assistant",
+						Content: finalMsg,
+					})
+					m.addMessageMetadata(msgIndex, metadata)
+				}
+			}
 			
 			// Save to session
 			if m.sessionManager != nil {
 				m.sessionManager.UpdateCurrentMessages(m.messages)
 			}
-		} else {
-			m.log("ERROR: Empty response from LLM")
 		}
 		m.isStreaming = false
 		m.streamingMsg = ""
@@ -311,7 +430,6 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case errorMsg:
 		m.err = msg.err
-		m.log("ERROR: %v", msg.err)
 		m.isStreaming = false
 		return m, nil
 	}
@@ -448,21 +566,15 @@ func (m *Model) captureScreen() tea.Cmd {
 			screen.WriteString("Loco: [Thinking...]\n\n")
 		}
 		
-		// Add debug logs
-		if len(m.debugLog) > 0 {
-			screen.WriteString("\n--- Debug Logs ---\n")
-			for _, log := range m.debugLog {
-				screen.WriteString(log + "\n")
-			}
-		}
+		// No debug logs in capture - metadata is per-message now
 		
 		// Try to copy to clipboard (macOS specific)
 		cmd := exec.Command("pbcopy")
 		cmd.Stdin = strings.NewReader(screen.String())
 		if err := cmd.Run(); err != nil {
-			m.log("Failed to copy to clipboard: %v", err)
+			// Could add error handling here if needed
 		} else {
-			m.log("Screen captured to clipboard! Paste it anywhere.")
+			// Could add success feedback here if needed
 		}
 		
 		return nil
@@ -473,10 +585,14 @@ func (m *Model) sendMessage() tea.Cmd {
 	userMsg := m.input.Value()
 	m.input.Reset()
 	
-	// Add user message
+	// Add user message with metadata
+	msgIndex := len(m.messages)
 	m.messages = append(m.messages, llm.Message{
 		Role:    "user",
 		Content: userMsg,
+	})
+	m.addMessageMetadata(msgIndex, &MessageMetadata{
+		Timestamp: time.Now(),
 	})
 	
 	// Save to session
@@ -544,8 +660,8 @@ func (m *Model) waitForNextChunk() tea.Cmd {
 func (m *Model) renderMessages() string {
 	var sb strings.Builder
 	
-	// Style for debug logs
-	debugStyle := lipgloss.NewStyle().
+	// Style for metadata
+	metaStyle := lipgloss.NewStyle().
 		Foreground(lipgloss.Color("239")).
 		Italic(true)
 	
@@ -566,39 +682,35 @@ func (m *Model) renderMessages() string {
 		sb.WriteString(welcome)
 		sb.WriteString("\n\n")
 		
-		// Show initial debug logs
-		for _, log := range m.debugLog {
-			sb.WriteString(debugStyle.Render("DEBUG: " + log))
-			sb.WriteString("\n")
-		}
-		
 		return sb.String()
 	}
 	
-	// Track which debug logs we've shown
-	debugIndex := 0
-	
-	// Render messages with debug logs interspersed
+	// Render messages with metadata
 	for i, msg := range m.messages {
-		// Show any debug logs that happened before this message
-		for debugIndex < len(m.debugLog) {
-			// Simple heuristic: show debug logs between messages
-			if i > 0 && debugIndex < len(m.debugLog) {
-				sb.WriteString(debugStyle.Render("🔍 " + m.debugLog[debugIndex]))
-				sb.WriteString("\n")
-				debugIndex++
-				// Only show a few logs at a time to not overwhelm
-				if debugIndex % 2 == 0 {
-					break
-				}
-			} else {
-				break
-			}
-		}
-		
 		switch msg.Role {
 		case "system":
-			// Skip system messages in display
+			// Only show tool results and other user-initiated system messages
+			if strings.HasPrefix(msg.Content, "Tool results:") {
+				sb.WriteString(systemStyle.Render("📊 Tool Results:"))
+				sb.WriteString("\n")
+				// Extract just the results part
+				results := strings.TrimPrefix(msg.Content, "Tool results:\n")
+				sb.WriteString(systemStyle.Render(results))
+				sb.WriteString("\n\n")
+			} else if strings.Contains(msg.Content, "Commands:") || 
+					  strings.Contains(msg.Content, "Usage:") ||
+					  strings.Contains(msg.Content, "Available sessions:") ||
+					  strings.Contains(msg.Content, "Unknown command") ||
+					  strings.Contains(msg.Content, "Failed to") ||
+					  strings.Contains(msg.Content, "Invalid") ||
+					  strings.Contains(msg.Content, "out of range") ||
+					  strings.Contains(msg.Content, "Project reset") ||
+					  strings.HasPrefix(msg.Content, "📁 Project Context:") {
+				// Show user-initiated system messages (commands, errors, help, etc.)
+				sb.WriteString(systemStyle.Render(msg.Content))
+				sb.WriteString("\n\n")
+			}
+			// Skip all other system messages (like initial project context)
 			continue
 		case "user":
 			sb.WriteString(userStyle.Render("You:"))
@@ -610,6 +722,15 @@ func (m *Model) renderMessages() string {
 			}
 			wrappedContent := renderMarkdown(msg.Content, textWidth)
 			sb.WriteString(wrappedContent)
+			
+			// Add metadata if available and debug is enabled
+			if m.showDebug {
+				if meta, exists := m.messagesMeta[i]; exists && meta != nil {
+					sb.WriteString("\n")
+					sb.WriteString(metaStyle.Render(meta.Format()))
+				}
+			}
+			
 		case "assistant":
 			sb.WriteString(assistantStyle.Render("Loco:"))
 			sb.WriteString("\n")
@@ -620,15 +741,16 @@ func (m *Model) renderMessages() string {
 			}
 			wrappedContent := renderMarkdown(msg.Content, textWidth)
 			sb.WriteString(wrappedContent)
+			
+			// Add metadata if available and debug is enabled
+			if m.showDebug {
+				if meta, exists := m.messagesMeta[i]; exists && meta != nil {
+					sb.WriteString("\n")
+					sb.WriteString(metaStyle.Render(meta.Format()))
+				}
+			}
 		}
 		sb.WriteString("\n\n")
-	}
-	
-	// Show remaining debug logs
-	for debugIndex < len(m.debugLog) {
-		sb.WriteString(debugStyle.Render("DEBUG: " + m.debugLog[debugIndex]))
-		sb.WriteString("\n")
-		debugIndex++
 	}
 	
 	// Show streaming content (without spinner/token counter - that's in status line now)
@@ -683,6 +805,11 @@ func (m *Model) handleSlashCommand(input string) (tea.Model, tea.Cmd) {
 	command := strings.ToLower(parts[0])
 	
 	switch command {
+	case "/debug":
+		// Toggle debug metadata visibility
+		m.showDebug = !m.showDebug
+		m.viewport.SetContent(m.renderMessages())
+		return m, nil
 	case "/list":
 		// List all sessions
 		sessions := m.sessionManager.ListSessions()
@@ -704,9 +831,9 @@ func (m *Model) handleSlashCommand(input string) (tea.Model, tea.Cmd) {
 		
 	case "/new":
 		// Create new session
-		newSession, err := m.sessionManager.NewSession(m.modelName)
+		_, err := m.sessionManager.NewSession(m.modelName)
 		if err != nil {
-			m.log("Failed to create new session: %v", err)
+			// Session creation failed, but continue
 			return m, nil
 		}
 		
@@ -726,32 +853,49 @@ func (m *Model) handleSlashCommand(input string) (tea.Model, tea.Cmd) {
 		m.sessionManager.UpdateCurrentMessages(m.messages)
 		m.viewport.SetContent(m.renderMessages())
 		m.viewport.GotoBottom()
-		m.log("Created new session: %s", newSession.ID)
+		// New session created successfully
 		
 	case "/switch":
 		// Switch to a different session
 		if len(parts) < 2 {
-			m.log("Usage: /switch <session-number>")
+			// Show usage in chat
+			m.messages = append(m.messages, llm.Message{
+				Role:    "system",
+				Content: "Usage: /switch <session-number>",
+			})
+			m.viewport.SetContent(m.renderMessages())
 			return m, nil
 		}
 		
 		// Parse session number
 		var sessionNum int
 		if _, err := fmt.Sscanf(parts[1], "%d", &sessionNum); err != nil {
-			m.log("Invalid session number")
+			m.messages = append(m.messages, llm.Message{
+				Role:    "system",
+				Content: "Invalid session number",
+			})
+			m.viewport.SetContent(m.renderMessages())
 			return m, nil
 		}
 		
 		sessions := m.sessionManager.ListSessions()
 		if sessionNum < 1 || sessionNum > len(sessions) {
-			m.log("Session number out of range")
+			m.messages = append(m.messages, llm.Message{
+				Role:    "system",
+				Content: "Session number out of range",
+			})
+			m.viewport.SetContent(m.renderMessages())
 			return m, nil
 		}
 		
 		// Switch to selected session
 		selectedSession := sessions[sessionNum-1]
 		if err := m.sessionManager.SetCurrent(selectedSession.ID); err != nil {
-			m.log("Failed to switch session: %v", err)
+			m.messages = append(m.messages, llm.Message{
+				Role:    "system",
+				Content: fmt.Sprintf("Failed to switch session: %v", err),
+			})
+			m.viewport.SetContent(m.renderMessages())
 			return m, nil
 		}
 		
@@ -759,12 +903,16 @@ func (m *Model) handleSlashCommand(input string) (tea.Model, tea.Cmd) {
 		m.messages = selectedSession.Messages
 		m.viewport.SetContent(m.renderMessages())
 		m.viewport.GotoBottom()
-		m.log("Switched to session: %s", selectedSession.Title)
+		// Session switched successfully
 		
 	case "/project":
 		// Refresh project context
 		if m.projectContext == nil {
-			m.log("No project context available")
+			m.messages = append(m.messages, llm.Message{
+				Role:    "system",
+				Content: "No project context available",
+			})
+			m.viewport.SetContent(m.renderMessages())
 			return m, nil
 		}
 		
@@ -777,21 +925,68 @@ func (m *Model) handleSlashCommand(input string) (tea.Model, tea.Cmd) {
 		m.viewport.SetContent(m.renderMessages())
 		m.viewport.GotoBottom()
 		
+	case "/analyze":
+		// Force re-analyze the project with deep file reading
+		workingDir, _ := os.Getwd()
+		if workingDir == "" {
+			m.messages = append(m.messages, llm.Message{
+				Role:    "system",
+				Content: "Cannot determine working directory for analysis",
+			})
+			m.viewport.SetContent(m.renderMessages())
+			return m, nil
+		}
+		
+		m.messages = append(m.messages, llm.Message{
+			Role:    "system",
+			Content: "🔍 Re-analyzing project with deep file reading...",
+		})
+		m.viewport.SetContent(m.renderMessages())
+		m.viewport.GotoBottom()
+		
+		// Create fresh analyzer and force analysis
+		analyzer := project.NewAnalyzer()
+		ctx, err := analyzer.AnalyzeProject(workingDir)
+		if err != nil {
+			m.messages = append(m.messages, llm.Message{
+				Role:    "system",
+				Content: fmt.Sprintf("❌ Analysis failed: %v", err),
+			})
+		} else {
+			m.projectContext = ctx
+			m.messages = append(m.messages, llm.Message{
+				Role:    "system",
+				Content: fmt.Sprintf("✅ Project re-analyzed successfully!\n\n📁 Updated Context:\n%s", ctx.FormatForPrompt()),
+			})
+		}
+		m.viewport.SetContent(m.renderMessages())
+		m.viewport.GotoBottom()
+		
 	case "/reset":
 		// Move all sessions to trash and start fresh
 		if err := m.resetProject(); err != nil {
-			m.log("Failed to reset project: %v", err)
+			m.messages = append(m.messages, llm.Message{
+				Role:    "system",
+				Content: fmt.Sprintf("Failed to reset project: %v", err),
+			})
+			m.viewport.SetContent(m.renderMessages())
 			return m, nil
 		}
 		
 		// Create new session
 		m.handleSlashCommand("/new")
-		m.log("Project reset - all sessions moved to trash")
+		m.messages = append(m.messages, llm.Message{
+			Role:    "system",
+			Content: "Project reset - all sessions moved to trash",
+		})
+		m.viewport.SetContent(m.renderMessages())
 		
 	case "/help":
 		// Show available commands
 		help := `🚂 Loco Commands:
 		
+/debug    - Toggle debug metadata visibility
+/analyze  - Re-analyze project with deep file reading
 /list     - List all chat sessions
 /new      - Start a new chat session
 /switch N - Switch to session number N
@@ -807,7 +1002,11 @@ func (m *Model) handleSlashCommand(input string) (tea.Model, tea.Cmd) {
 		m.viewport.GotoBottom()
 		
 	default:
-		m.log("Unknown command: %s", command)
+		m.messages = append(m.messages, llm.Message{
+			Role:    "system",
+			Content: fmt.Sprintf("Unknown command: %s", command),
+		})
+		m.viewport.SetContent(m.renderMessages())
 		m.handleSlashCommand("/help")
 	}
 	
@@ -844,6 +1043,17 @@ func (m *Model) resetProject() error {
 	// Reinitialize session manager
 	m.sessionManager = session.NewManager(m.sessionManager.ProjectPath)
 	return m.sessionManager.Initialize()
+}
+
+func getToolPrompt(registry *tools.Registry) string {
+	var sb strings.Builder
+	sb.WriteString("Available tools:\n")
+	
+	for _, desc := range registry.GetToolDescriptions() {
+		sb.WriteString(fmt.Sprintf("\n%s:\n%s\n", desc["name"], desc["description"]))
+	}
+	
+	return sb.String()
 }
 
 func (m *Model) renderSidebar(width, height int) string {
@@ -912,9 +1122,9 @@ func (m *Model) renderSidebar(width, height int) string {
 	}
 	content.WriteString("\n\n")
 	
-	// Model info
+	// Current Model info
 	if m.modelName != "" {
-		content.WriteString(labelStyle.Render("Model: "))
+		content.WriteString(labelStyle.Render("Current: "))
 		// Truncate long model names
 		modelDisplay := m.modelName
 		maxLen := width - 10
@@ -922,7 +1132,38 @@ func (m *Model) renderSidebar(width, height int) string {
 			modelDisplay = modelDisplay[:maxLen-3] + "..."
 		}
 		content.WriteString(statusStyle.Render(modelDisplay))
+		content.WriteString(" ")
+		content.WriteString(dimStyle.Render(fmt.Sprintf("(%s)", m.modelSize)))
 		content.WriteString("\n\n")
+	}
+	
+	// Available Models info
+	if len(m.allModels) > 0 {
+		content.WriteString(labelStyle.Render("Models:"))
+		content.WriteString("\n")
+		
+		// Group models by size for display
+		modelsBySize := make(map[llm.ModelSize][]llm.Model)
+		for _, model := range m.allModels {
+			size := llm.DetectModelSize(model.ID)
+			modelsBySize[size] = append(modelsBySize[size], model)
+		}
+		
+		// Show each size group
+		sizes := []llm.ModelSize{llm.SizeXS, llm.SizeS, llm.SizeM, llm.SizeL, llm.SizeXL}
+		for _, size := range sizes {
+			if models, exists := modelsBySize[size]; exists && len(models) > 0 {
+				content.WriteString(dimStyle.Render(fmt.Sprintf("  %s: %d", size, len(models))))
+				
+				// Show usage count for the first model of this size
+				usage := m.modelUsage[models[0].ID]
+				if usage > 0 {
+					content.WriteString(dimStyle.Render(fmt.Sprintf(" (used %d×)", usage)))
+				}
+				content.WriteString("\n")
+			}
+		}
+		content.WriteString("\n")
 	}
 	
 	// Session info
@@ -938,6 +1179,24 @@ func (m *Model) renderSidebar(width, height int) string {
 			content.WriteString(statusStyle.Render(truncTitle))
 			content.WriteString("\n\n")
 		}
+	}
+	
+	// Project info
+	if m.projectContext != nil {
+		content.WriteString(labelStyle.Render("Project:"))
+		content.WriteString("\n")
+		
+		// Project name/description
+		projectDesc := m.projectContext.Description
+		if len(projectDesc) > width-6 {
+			projectDesc = projectDesc[:width-9] + "..."
+		}
+		content.WriteString(statusStyle.Render(projectDesc))
+		content.WriteString("\n")
+		
+		// File count
+		content.WriteString(dimStyle.Render(fmt.Sprintf("%d files", m.projectContext.FileCount)))
+		content.WriteString("\n\n")
 	}
 	
 	// Message counts

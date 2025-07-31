@@ -91,7 +91,7 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case StateModelSelect:
 		switch msg := msg.(type) {
 		case modelselect.ModelSelectedMsg:
-			// Model selected, switch to chat
+			// Model selected manually, switch to chat
 			a.llmClient.SetModel(msg.Model.ID)
 			chatModel := chat.NewWithClient(a.llmClient)
 			chatModel.SetModelName(msg.Model.ID)
@@ -111,6 +111,30 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 			return a, tea.Batch(cmds...)
+		case modelselect.AutoSelectMsg:
+			// Model auto-selected, switch to chat
+			if msg.SelectedModel != nil {
+				a.llmClient.SetModel(msg.SelectedModel.ID)
+				chatModel := chat.NewWithClient(a.llmClient)
+				chatModel.SetModelName(msg.SelectedModel.ID)
+				chatModel.SetAvailableModels(msg.AllModels) // Pass all models for sidebar display
+				a.chat = chatModel
+				a.state = StateChat
+				
+				// Send window size to chat immediately after creation
+				var cmds []tea.Cmd
+				cmds = append(cmds, a.chat.Init())
+				if a.width > 0 && a.height > 0 {
+					_, cmd := a.chat.Update(tea.WindowSizeMsg{
+						Width:  a.width,
+						Height: a.height,
+					})
+					if cmd != nil {
+						cmds = append(cmds, cmd)
+					}
+				}
+				return a, tea.Batch(cmds...)
+			}
 		default:
 			var cmd tea.Cmd
 			model, cmd := a.modelSelect.Update(msg)

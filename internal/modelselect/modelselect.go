@@ -35,22 +35,39 @@ type ModelSelectedMsg struct {
 	Model llm.Model
 }
 
+// AutoSelectMsg is sent when auto-selection should happen
+type AutoSelectMsg struct {
+	SelectedModel *llm.Model
+	AllModels     []llm.Model
+}
+
 // Model represents the model selector
 type Model struct {
-	models   []llm.Model
-	cursor   int
-	client   *llm.LMStudioClient
-	err      error
-	loading  bool
-	width    int
-	height   int
+	models     []llm.Model
+	cursor     int
+	client     *llm.LMStudioClient
+	err        error
+	loading    bool
+	autoSelect bool // If true, automatically select best model
+	width      int
+	height     int
 }
 
 // New creates a new model selector
 func New(client *llm.LMStudioClient) Model {
 	return Model{
-		client:  client,
-		loading: true,
+		client:     client,
+		loading:    true,
+		autoSelect: true, // Enable auto-selection by default
+	}
+}
+
+// NewWithManualSelection creates a model selector that requires manual selection
+func NewWithManualSelection(client *llm.LMStudioClient) Model {
+	return Model{
+		client:     client,
+		loading:    true,
+		autoSelect: false,
 	}
 }
 
@@ -95,6 +112,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.models = msg.models
 		if len(m.models) == 0 {
 			m.err = fmt.Errorf("no models available in LM Studio")
+		} else if m.autoSelect {
+			// Auto-select the best model
+			selectedModel := AutoSelectBestModel(m.models)
+			if selectedModel != nil {
+				return m, func() tea.Msg {
+					return AutoSelectMsg{
+						SelectedModel: selectedModel,
+						AllModels:     m.models,
+					}
+				}
+			}
 		}
 
 	case errorMsg:
@@ -113,7 +141,11 @@ func (m Model) View() tea.View {
 	s.WriteString("\n\n")
 
 	if m.loading {
-		s.WriteString(dimStyle.Render("Loading models from LM Studio..."))
+		if m.autoSelect {
+			s.WriteString(dimStyle.Render("🔍 Auto-selecting best model from LM Studio..."))
+		} else {
+			s.WriteString(dimStyle.Render("Loading models from LM Studio..."))
+		}
 		return tea.NewView(s.String())
 	}
 
@@ -166,4 +198,40 @@ func (m Model) fetchModels() tea.Msg {
 		return errorMsg{err: err}
 	}
 	return modelsLoadedMsg{models: models}
+}
+
+// AutoSelectBestModel returns the best model based on smart selection rules
+func AutoSelectBestModel(models []llm.Model) *llm.Model {
+	if len(models) == 0 {
+		return nil
+	}
+	
+	// If only one model, use it
+	if len(models) == 1 {
+		return &models[0]
+	}
+	
+	// Group models by size
+	var modelIDs []string
+	for _, model := range models {
+		modelIDs = append(modelIDs, model.ID)
+	}
+	modelsBySize := llm.GetModelsBySize(modelIDs)
+	
+	// Priority order: M (best balance) > L (powerful) > S (fast) > XL (slow) > XS (limited)
+	priorities := []llm.ModelSize{llm.SizeM, llm.SizeL, llm.SizeS, llm.SizeXL, llm.SizeXS}
+	
+	for _, size := range priorities {
+		if sizedModels, exists := modelsBySize[size]; exists && len(sizedModels) > 0 {
+			// Find the original Model struct for this model ID
+			for _, model := range models {
+				if model.ID == sizedModels[0].ID {
+					return &model
+				}
+			}
+		}
+	}
+	
+	// Fallback: use first model
+	return &models[0]
 }
