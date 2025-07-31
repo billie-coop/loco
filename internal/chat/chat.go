@@ -123,11 +123,15 @@ func NewWithClient(client llm.Client) *Model {
 	// Try to load or analyze project context
 	var projectCtx *project.ProjectContext
 	if workingDir != "" {
+		fmt.Printf("🔍 Analyzing project in %s...\n", workingDir)
 		ctx, err := analyzer.AnalyzeProject(workingDir)
 		if err == nil {
 			projectCtx = ctx
 			// Add project context to system prompt
 			systemPrompt += "\n\n" + ctx.FormatForPrompt()
+			fmt.Printf("✅ Project analyzed: %s\n", ctx.Description)
+		} else {
+			fmt.Printf("⚠️  Could not analyze project: %v\n", err)
 		}
 	}
 
@@ -694,12 +698,8 @@ func (m *Model) handleSlashCommand(input string) (tea.Model, tea.Cmd) {
 				i+1, s.Title, current, s.Created.Format("Jan 2 15:04")))
 		}
 		
-		// Add as system message temporarily
-		m.messages = append(m.messages, llm.Message{
-			Role:    "system",
-			Content: msg.String(),
-		})
-		m.viewport.SetContent(m.renderMessages())
+		// Show in viewport without adding to messages
+		m.viewport.SetContent(msg.String())
 		m.viewport.GotoBottom()
 		
 	case "/new":
@@ -923,6 +923,21 @@ func (m *Model) renderSidebar(width, height int) string {
 		}
 		content.WriteString(statusStyle.Render(modelDisplay))
 		content.WriteString("\n\n")
+	}
+	
+	// Session info
+	if m.sessionManager != nil {
+		currentSession, _ := m.sessionManager.GetCurrent()
+		if currentSession != nil {
+			content.WriteString(labelStyle.Render("Session:"))
+			content.WriteString("\n")
+			truncTitle := currentSession.Title
+			if len(truncTitle) > width-8 {
+				truncTitle = truncTitle[:width-11] + "..."
+			}
+			content.WriteString(statusStyle.Render(truncTitle))
+			content.WriteString("\n\n")
+		}
 	}
 	
 	// Message counts
