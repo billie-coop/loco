@@ -33,23 +33,31 @@ type streamDoneMsg struct{
 	response string
 }
 
+type streamChunkMsg struct {
+	chunk string
+}
+
+type streamStartMsg struct{}
+
 type errorMsg struct {
 	err error
 }
 
 // Model represents the chat interface
 type Model struct {
-	viewport    viewport.Model
-	messages    []llm.Message
-	input       textarea.Model
-	spinner     spinner.Model
-	llmClient   llm.Client
-	modelName   string
-	width       int
-	height      int
-	isStreaming bool
-	err         error
-	debugLog    []string
+	viewport       viewport.Model
+	messages       []llm.Message
+	input          textarea.Model
+	spinner        spinner.Model
+	llmClient      llm.Client
+	modelName      string
+	width          int
+	height         int
+	isStreaming    bool
+	streamingMsg   string // Current streaming message content
+	streamingTokens int   // Token count for current stream
+	err            error
+	debugLog       []string
 }
 
 // New creates a new chat model
@@ -87,10 +95,8 @@ func NewWithClient(client llm.Client) *Model {
 	// Don't set initial size, wait for WindowSizeMsg
 	vp := viewport.New()
 	
-	// Create spinner
-	s := spinner.New()
-	s.Spinner = spinner.Dot
-	s.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("205"))
+	// Create a cool animated spinner
+	s := newStyledSpinner()
 
 	// Add welcome message
 	messages := []llm.Message{
@@ -203,18 +209,38 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.input.SetWidth(mainWidth - 2)
 		m.input.SetHeight(3) // Allow 3 lines
 
+	case streamStartMsg:
+		// Start the actual streaming
+		return m, m.doStream()
+		
+	case streamChunkMsg:
+		// Append chunk to streaming message
+		m.streamingMsg += msg.chunk
+		m.streamingTokens++ // Rough estimate: 1 chunk ≈ 1 token
+		m.viewport.SetContent(m.renderMessages())
+		m.viewport.GotoBottom()
+		// Continue listening for more chunks
+		return m, m.waitForNextChunk()
+
 	case streamDoneMsg:
-		// Add the assistant's response
-		if msg.response != "" {
-			m.log("Received response: %d chars", len(msg.response))
+		// Add the complete assistant's response
+		finalMsg := m.streamingMsg
+		if finalMsg == "" {
+			finalMsg = msg.response
+		}
+		
+		if finalMsg != "" {
+			m.log("Received response: %d chars, ~%d tokens", len(finalMsg), m.streamingTokens)
 			m.messages = append(m.messages, llm.Message{
 				Role:    "assistant",
-				Content: msg.response,
+				Content: finalMsg,
 			})
 		} else {
 			m.log("ERROR: Empty response from LLM")
 		}
 		m.isStreaming = false
+		m.streamingMsg = ""
+		m.streamingTokens = 0
 		m.viewport.SetContent(m.renderMessages())
 		m.viewport.GotoBottom()
 		return m, nil
@@ -385,19 +411,59 @@ func (m *Model) sendMessage() tea.Cmd {
 	})
 	
 	m.isStreaming = true
+	m.streamingMsg = ""
+	m.streamingTokens = 0
 	m.viewport.SetContent(m.renderMessages())
 	m.viewport.GotoBottom()
 
+	return m.streamResponse()
+}
+
+// Model needs a channel to receive streaming chunks
+var streamChannel chan tea.Msg
+
+func (m *Model) streamResponse() tea.Cmd {
+	// Initialize the stream channel
+	streamChannel = make(chan tea.Msg, 100)
+	
+	// Return a command that starts streaming
+	return func() tea.Msg {
+		return streamStartMsg{}
+	}
+}
+
+func (m *Model) doStream() tea.Cmd {
 	return func() tea.Msg {
 		ctx := context.Background()
 		
-		// For now, just use Complete instead of Stream to get it working
-		response, err := m.llmClient.Complete(ctx, m.messages)
-		if err != nil {
-			return errorMsg{err: err}
-		}
+		// Start streaming in a goroutine
+		go func() {
+			defer close(streamChannel)
+			
+			err := m.llmClient.Stream(ctx, m.messages, func(chunk string) {
+				// Send each chunk as a message
+				streamChannel <- streamChunkMsg{chunk: chunk}
+			})
+			
+			if err != nil {
+				streamChannel <- errorMsg{err: err}
+			} else {
+				streamChannel <- streamDoneMsg{response: m.streamingMsg}
+			}
+		}()
 		
-		return streamDoneMsg{response: response}
+		// Return first chunk
+		return m.waitForNextChunk()()
+	}
+}
+
+func (m *Model) waitForNextChunk() tea.Cmd {
+	return func() tea.Msg {
+		msg, ok := <-streamChannel
+		if !ok {
+			return nil
+		}
+		return msg
 	}
 }
 
@@ -491,12 +557,29 @@ func (m *Model) renderMessages() string {
 		debugIndex++
 	}
 	
-	// Show loading indicator with spinner
+	// Show loading indicator with spinner or streaming content
 	if m.isStreaming {
-		sb.WriteString(assistantStyle.Render("Loco: "))
-		sb.WriteString(m.spinner.View())
-		sb.WriteString(" ")
-		sb.WriteString(systemStyle.Render("Thinking..."))
+		sb.WriteString(assistantStyle.Render("Loco:"))
+		sb.WriteString("\n")
+		
+		if m.streamingMsg != "" {
+			// Show partial streaming content
+			textWidth := m.viewport.Width() - 4
+			if textWidth < 40 {
+				textWidth = 40
+			}
+			wrappedContent := renderMarkdown(m.streamingMsg, textWidth)
+			sb.WriteString(wrappedContent)
+			sb.WriteString("\n")
+			// Show token counter
+			tokenInfo := fmt.Sprintf(" %s ~%d tokens", m.spinner.View(), m.streamingTokens)
+			sb.WriteString(systemStyle.Render(tokenInfo))
+		} else {
+			// Just show spinner if no content yet
+			sb.WriteString(m.spinner.View())
+			sb.WriteString(" ")
+			sb.WriteString(systemStyle.Render("Thinking..."))
+		}
 		sb.WriteString("\n")
 	}
 	
