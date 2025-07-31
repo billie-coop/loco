@@ -81,7 +81,8 @@ func NewWithClient(client llm.Client) *Model {
 	ta.Prompt = "" // No prompt since we're rendering it separately
 	ta.CharLimit = -1 // No limit
 	ta.ShowLineNumbers = false
-	ta.SetHeight(2) // Just 2 lines
+	ta.SetHeight(3) // Allow 3 lines for better multi-line input
+	ta.KeyMap.InsertNewline.SetEnabled(true) // Enable multi-line input
 
 	// Don't set initial size, wait for WindowSizeMsg
 	vp := viewport.New()
@@ -153,6 +154,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// Save current screen to clipboard (text representation)
 			return m, m.captureScreen()
 		case "enter":
+			// Send message on plain Enter
 			if !m.isStreaming && m.input.Value() != "" {
 				m.log("Sending message: %s", m.input.Value())
 				cmd := m.sendMessage()
@@ -180,8 +182,8 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			mainWidth = 40
 		}
 		
-		// Input area is just 2 lines + help text
-		inputHeight := 3 // 2 for input + 1 for help
+		// Input area is just 3 lines + help text
+		inputHeight := 4 // 3 for input + 1 for help
 		
 		// Calculate viewport height  
 		viewportHeight := msg.Height - inputHeight - 1
@@ -199,7 +201,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		
 		// Set input width (leave space for prompt "> ")
 		m.input.SetWidth(mainWidth - 2)
-		m.input.SetHeight(2) // Just 2 lines
+		m.input.SetHeight(3) // Allow 3 lines
 
 	case streamDoneMsg:
 		// Add the assistant's response
@@ -253,8 +255,8 @@ func (m *Model) View() tea.View {
 		mainWidth = 40
 	}
 	
-	// Input area is just 2 lines + help text
-	inputHeight := 3 // 2 for input + 1 for help
+	// Input area is just 3 lines + help text
+	inputHeight := 4 // 3 for input + 1 for help
 	
 	// Calculate viewport height
 	viewportHeight := m.height - inputHeight - 1
@@ -459,11 +461,25 @@ func (m *Model) renderMessages() string {
 			// Skip system messages in display
 			continue
 		case "user":
-			sb.WriteString(userStyle.Render("You: "))
-			sb.WriteString(msg.Content)
+			sb.WriteString(userStyle.Render("You:"))
+			sb.WriteString("\n")
+			// Calculate available width for text (viewport width minus some padding)
+			textWidth := m.viewport.Width() - 4
+			if textWidth < 40 {
+				textWidth = 40
+			}
+			wrappedContent := renderMarkdown(msg.Content, textWidth)
+			sb.WriteString(wrappedContent)
 		case "assistant":
-			sb.WriteString(assistantStyle.Render("Loco: "))
-			sb.WriteString(msg.Content)
+			sb.WriteString(assistantStyle.Render("Loco:"))
+			sb.WriteString("\n")
+			// Calculate available width for text (viewport width minus some padding)
+			textWidth := m.viewport.Width() - 4
+			if textWidth < 40 {
+				textWidth = 40
+			}
+			wrappedContent := renderMarkdown(msg.Content, textWidth)
+			sb.WriteString(wrappedContent)
 		}
 		sb.WriteString("\n\n")
 	}
