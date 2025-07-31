@@ -693,7 +693,10 @@ func (m *Model) sendMessage() tea.Cmd {
 
 	// Save to session
 	if m.sessionManager != nil {
-		m.sessionManager.UpdateCurrentMessages(m.messages)
+		if err := m.sessionManager.UpdateCurrentMessages(m.messages); err != nil {
+			// Log but continue
+			fmt.Printf("Warning: failed to update messages: %v\n", err)
+		}
 	}
 
 	m.isStreaming = true
@@ -950,7 +953,10 @@ func (m *Model) handleSlashCommand(input string) (tea.Model, tea.Cmd) {
 			},
 		}
 
-		m.sessionManager.UpdateCurrentMessages(m.messages)
+		if err := m.sessionManager.UpdateCurrentMessages(m.messages); err != nil {
+			// Log but continue
+			fmt.Printf("Warning: failed to update messages: %v\n", err)
+		}
 		m.viewport.SetContent(m.renderMessages())
 		m.viewport.GotoBottom()
 		// New session created successfully

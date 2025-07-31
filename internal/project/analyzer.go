@@ -144,59 +144,6 @@ func (a *Analyzer) getGitFiles(projectPath string) ([]string, error) {
 	return files, nil
 }
 
-// analyzeWithLLM sends files to LLM for analysis.
-func (a *Analyzer) analyzeWithLLM(ctx context.Context, files []string) (*ProjectContext, error) {
-	// Limit files sent to LLM (first 150 to keep tokens reasonable)
-	fileList := files
-	if len(fileList) > 150 {
-		fileList = fileList[:150]
-	}
-
-	prompt := fmt.Sprintf(`Analyze this codebase and return a JSON object with the following structure:
-{
-  "description": "A 2-3 sentence summary of what this project does",
-  "tech_stack": ["main", "technologies", "and", "frameworks"],
-  "key_files": ["top", "10", "most", "important", "files"],
-  "entry_points": ["main", "entry", "point", "files"]
-}
-
-Here are the files in the project (%d total, showing first %d):
-%s
-
-Return ONLY valid JSON, no additional text.`,
-		len(files), len(fileList), strings.Join(fileList, "\n"))
-
-	messages := []llm.Message{
-		{
-			Role:    "system",
-			Content: "You are a code analyzer. Output valid JSON only, no markdown formatting.",
-		},
-		{
-			Role:    "user",
-			Content: prompt,
-		},
-	}
-
-	response, err := a.fastClient.Complete(ctx, messages)
-	if err != nil {
-		return nil, err
-	}
-
-	// Clean response (remove markdown if present)
-	response = strings.TrimSpace(response)
-	response = strings.TrimPrefix(response, "```json")
-	response = strings.TrimPrefix(response, "```")
-	response = strings.TrimSuffix(response, "```")
-	response = strings.TrimSpace(response)
-
-	// Parse JSON
-	var result ProjectContext
-	if err := json.Unmarshal([]byte(response), &result); err != nil {
-		return nil, fmt.Errorf("failed to parse LLM response as JSON: %w\nResponse: %s", err, response)
-	}
-
-	return &result, nil
-}
 
 // readKeyFiles spawns little agents to read important project files.
 func (a *Analyzer) readKeyFiles(projectPath string, allFiles []string) map[string]string {

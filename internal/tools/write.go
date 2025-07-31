@@ -90,8 +90,8 @@ func (w *WriteTool) Execute(params map[string]interface{}) (string, error) {
 	}
 
 	// Check if file exists
-	_, err = os.Stat(absPath)
-	fileExists := err == nil
+	_, statErr := os.Stat(absPath)
+	fileExists := statErr == nil
 
 	// Write the file
 	if err := os.WriteFile(absPath, []byte(content), 0o644); err != nil {

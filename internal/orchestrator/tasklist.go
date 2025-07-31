@@ -127,6 +127,8 @@ func (tl *TaskList) UpdateStatus(taskID string, status TaskStatus) error {
 		task.StartedAt = &now
 	case StatusCompleted, StatusFailed:
 		task.CompletedAt = &now
+	case StatusPending:
+		// No timestamps to update for pending status
 	}
 
 	return nil
