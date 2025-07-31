@@ -1,0 +1,42 @@
+# Pre-commit hooks - NOTHING gets through!
+repos:
+  # Go formatters and linters
+  - repo: https://github.com/dnephin/pre-commit-golang
+    rev: v0.5.1
+    hooks:
+      - id: go-fmt         # Format code
+      - id: go-vet         # Vet code
+      - id: go-imports     # Fix imports
+      - id: go-cyclo       # Check cyclomatic complexity
+        args: [-over=15]
+      - id: go-mod-tidy    # Keep go.mod clean
+      - id: go-unit-tests  # Run tests
+      - id: golangci-lint  # THE BIG ONE
+
+  # Security scanning
+  - repo: https://github.com/Bahjat/pre-commit-golang
+    rev: v1.0.2
+    hooks:
+      - id: go-sec-scan    # Security vulnerabilities
+
+  # General file checks
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.5.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-added-large-files
+        args: ['--maxkb=500']
+      - id: check-case-conflict
+      - id: check-merge-conflict
+      - id: detect-private-key
+      - id: mixed-line-ending
+        args: ['--fix=lf']
+
+  # Markdown
+  - repo: https://github.com/markdownlint/markdownlint
+    rev: v0.13.0
+    hooks:
+      - id: markdownlint
+        args: ['--fix']
