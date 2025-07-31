@@ -136,14 +136,16 @@ func TestParserAccuracy(t *testing.T) {
 	}
 
 	// Analyze all responses
-	filepath.Walk(testdataDir, func(path string, info os.FileInfo, err error) error {
+	err := filepath.Walk(testdataDir, func(path string, info os.FileInfo, err error) error {
 		if err != nil || info.IsDir() || filepath.Ext(path) != ".json" {
 			return nil
 		}
 
 		data, _ := os.ReadFile(path)
 		var captured CapturedResponse
-		json.Unmarshal(data, &captured)
+		if err := json.Unmarshal(data, &captured); err != nil {
+			return nil // Skip invalid files
+		}
 
 		s.total++
 
@@ -171,6 +173,9 @@ func TestParserAccuracy(t *testing.T) {
 
 		return nil
 	})
+	if err != nil {
+		t.Logf("Warning: error walking test data: %v", err)
+	}
 
 	// Report
 	t.Logf("\n=== Parser Accuracy Report ===")
