@@ -87,3 +87,8 @@ Check `roadmap_test.go` for the full plan!
 - Performance matters - this should feel instant
 
 Good luck! The compiler is your friend! 🚂
+
+## Important Notes for Claude
+
+- **Don't run commands automatically** - I prefer to run things myself (like `make run`, `make test`, etc.) unless I specifically ask you to run them
+- Just tell me what command to run and I'll do it!
