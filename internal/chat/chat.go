@@ -129,7 +129,11 @@ func NewWithClient(client llm.Client) *Model {
 	s := newStyledSpinner()
 
 	// Get current working directory for project context
-	workingDir, _ := os.Getwd()
+	workingDir, err := os.Getwd()
+	if err != nil {
+		// Fall back to current directory
+		workingDir = "."
+	}
 
 	// Initialize session manager
 	sessionMgr := session.NewManager(workingDir)
@@ -177,7 +181,11 @@ You can include explanation before or after the tool call. The tool will be exec
 	}
 
 	// Create new session
-	currentSession, _ := sessionMgr.NewSession("")
+	currentSession, err := sessionMgr.NewSession("")
+	if err != nil {
+		// This is critical - we need a session
+		panic(fmt.Sprintf("Failed to create initial session: %v", err))
+	}
 
 	// Add system message
 	messages := []llm.Message{
@@ -207,7 +215,10 @@ You can include explanation before or after the tool call. The tool will be exec
 
 	// Save initial system message to session
 	if currentSession != nil {
-		sessionMgr.UpdateCurrentMessages(messages)
+		if err := sessionMgr.UpdateCurrentMessages(messages); err != nil {
+			// Log but continue - not critical
+			fmt.Printf("Warning: failed to update session messages: %v\n", err)
+		}
 	}
 
 	// Add initial content
@@ -219,7 +230,11 @@ You can include explanation before or after the tool call. The tool will be exec
 // Init initializes the model.
 func (m *Model) Init() tea.Cmd {
 	// Check LM Studio health and get available models
-	lmClient := m.llmClient.(*llm.LMStudioClient)
+	lmClient, ok := m.llmClient.(*llm.LMStudioClient)
+	if !ok {
+		m.err = fmt.Errorf("expected LMStudioClient, got %T", m.llmClient)
+		return nil
+	}
 	if err := lmClient.HealthCheck(); err != nil {
 		m.err = err
 	} else {
@@ -403,7 +418,10 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 						// Save to session
 						if m.sessionManager != nil {
-							m.sessionManager.UpdateCurrentMessages(m.messages)
+							if err := m.sessionManager.UpdateCurrentMessages(m.messages); err != nil {
+								// Log but continue
+								fmt.Printf("Warning: failed to update messages: %v\n", err)
+							}
 						}
 
 						// Stream a follow-up response
@@ -422,7 +440,10 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 			// Save to session
 			if m.sessionManager != nil {
-				m.sessionManager.UpdateCurrentMessages(m.messages)
+				if err := m.sessionManager.UpdateCurrentMessages(m.messages); err != nil {
+				// Log but continue
+				fmt.Printf("Warning: failed to update messages: %v\n", err)
+			}
 			}
 		}
 		m.isStreaming = false
@@ -458,8 +479,14 @@ func (m *Model) View() tea.View {
 		return tea.NewView("Initializing...")
 	}
 
-	if m.err != nil && m.llmClient.(*llm.LMStudioClient).HealthCheck() != nil {
-		return tea.NewView(fmt.Sprintf("\n❌ Error: %v\n\nMake sure LM Studio is running on http://localhost:1234\n\nPress Ctrl+C to exit.\n", m.err))
+	if m.err != nil {
+		// Check if it's an LM Studio connectivity issue
+		if lmClient, ok := m.llmClient.(*llm.LMStudioClient); ok {
+			if lmClient.HealthCheck() != nil {
+				return tea.NewView(fmt.Sprintf("\n❌ Error: %v\n\nMake sure LM Studio is running on http://localhost:1234\n\nPress Ctrl+C to exit.\n", m.err))
+			}
+		}
+			return tea.NewView(fmt.Sprintf("\n❌ Error: %v\n\nPress Ctrl+C to exit.\n", m.err))
 	}
 
 	// Calculate sidebar width (20% of screen, min 20, max 30)
@@ -565,7 +592,11 @@ func (m *Model) captureScreen() tea.Cmd {
 		screen.WriteString(fmt.Sprintf("Time: %s\n", time.Now().Format("2006-01-02 15:04:05")))
 		screen.WriteString(fmt.Sprintf("Model: %s\n", m.modelName))
 		screen.WriteString(fmt.Sprintf("Size: %dx%d\n", m.width, m.height))
-		currentSession, _ := m.sessionManager.GetCurrent()
+		currentSession, err := m.sessionManager.GetCurrent()
+		if err != nil {
+			// Handle error but continue
+			currentSession = nil
+		}
 		sessionID := "none"
 		if currentSession != nil {
 			sessionID = currentSession.ID
@@ -623,20 +654,24 @@ func (m *Model) captureScreen() tea.Cmd {
 
 		// Save to file in .loco directory
 		screenshotDir := filepath.Join(".loco", "screenshots")
-		os.MkdirAll(screenshotDir, 0o755)
+		if err := os.MkdirAll(screenshotDir, 0o755); err != nil {
+			return fmt.Errorf("failed to create screenshot directory: %w", err)
+		}
 
 		filename := fmt.Sprintf("screenshot-%s.txt", time.Now().Format("20060102-150405"))
 		filepath := filepath.Join(screenshotDir, filename)
 
-		err := os.WriteFile(filepath, []byte(screen.String()), 0o644)
-		if err != nil {
+		if err := os.WriteFile(filepath, []byte(screen.String()), 0o644); err != nil {
 			return statusMsg{content: fmt.Sprintf("Error saving screenshot: %v", err), isError: true}
 		}
 
 		// Also copy to clipboard for convenience
 		cmd := exec.Command("pbcopy")
 		cmd.Stdin = strings.NewReader(screen.String())
-		cmd.Run()
+		if err := cmd.Run(); err != nil {
+			// Log but continue - opening file manager is not critical
+			fmt.Printf("Failed to open file manager: %v\n", err)
+		}
 
 		return statusMsg{content: fmt.Sprintf("Screenshot saved to %s (Ctrl+S)", filepath), isError: false}
 	}
@@ -878,7 +913,11 @@ func (m *Model) handleSlashCommand(input string) (tea.Model, tea.Cmd) {
 		msg.WriteString("📋 Available sessions:\n\n")
 		for i, s := range sessions {
 			current := ""
-			currentSession, _ := m.sessionManager.GetCurrent()
+			currentSession, err := m.sessionManager.GetCurrent()
+		if err != nil {
+			// Handle error but continue
+			currentSession = nil
+		}
 			if currentSession != nil && s.ID == currentSession.ID {
 				current = " (current)"
 			}
@@ -988,8 +1027,8 @@ func (m *Model) handleSlashCommand(input string) (tea.Model, tea.Cmd) {
 
 	case "/analyze":
 		// Force re-analyze the project with deep file reading
-		workingDir, _ := os.Getwd()
-		if workingDir == "" {
+		workingDir, err := os.Getwd()
+		if err != nil || workingDir == "" {
 			m.messages = append(m.messages, llm.Message{
 				Role:    "system",
 				Content: "Cannot determine working directory for analysis",
@@ -1234,7 +1273,11 @@ func (m *Model) renderSidebar(width, height int) string {
 
 	// Session info
 	if m.sessionManager != nil {
-		currentSession, _ := m.sessionManager.GetCurrent()
+		currentSession, err := m.sessionManager.GetCurrent()
+		if err != nil {
+			// Handle error but continue
+			currentSession = nil
+		}
 		if currentSession != nil {
 			content.WriteString(labelStyle.Render("Session:"))
 			content.WriteString("\n")

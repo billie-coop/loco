@@ -116,7 +116,11 @@ func main() {
 			}
 
 			filename := filepath.Join(modelDir, testPrompt.Name+".json")
-			data, _ := json.MarshalIndent(captured, "", "  ")
+			data, err := json.MarshalIndent(captured, "", "  ")
+			if err != nil {
+				fmt.Printf("ERROR marshaling: %v\n", err)
+				continue
+			}
 			if err := os.WriteFile(filename, data, 0o644); err != nil {
 				fmt.Printf("ERROR saving: %v\n", err)
 			} else {
@@ -135,7 +139,10 @@ func main() {
 			}
 
 			variantDir := filepath.Join(modelDir, promptVariant)
-			os.MkdirAll(variantDir, 0o755)
+			if err := os.MkdirAll(variantDir, 0o755); err != nil {
+				fmt.Printf("Failed to create variant directory: %v\n", err)
+				continue
+			}
 
 			fmt.Printf("\nTesting with %s system prompt...\n", promptVariant)
 			for _, promptName := range criticalPrompts {
@@ -170,8 +177,15 @@ func main() {
 				}
 
 				filename := filepath.Join(variantDir, testPrompt.Name+".json")
-				data, _ := json.MarshalIndent(captured, "", "  ")
-				os.WriteFile(filename, data, 0o644)
+				data, err := json.MarshalIndent(captured, "", "  ")
+				if err != nil {
+					fmt.Printf("ERROR marshaling: %v\n", err)
+					continue
+				}
+				if err := os.WriteFile(filename, data, 0o644); err != nil {
+					fmt.Printf("ERROR saving: %v\n", err)
+					continue
+				}
 				fmt.Printf("OK\n")
 			}
 		}

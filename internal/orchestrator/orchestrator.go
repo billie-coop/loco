@@ -297,7 +297,9 @@ func (o *Orchestrator) CreatePlan(ctx context.Context, request string) (*WorkPla
 
 	// Create initial analysis task
 	analysisTask := o.taskList.Add(TaskAnalyze, "Analyze user request", request)
-	o.taskList.UpdateStatus(analysisTask.ID, StatusInProgress)
+	if err := o.taskList.UpdateStatus(analysisTask.ID, StatusInProgress); err != nil {
+		return nil, fmt.Errorf("failed to update task status: %w", err)
+	}
 
 	prompt := fmt.Sprintf(`Analyze this request and create a step-by-step plan.
 
@@ -324,8 +326,12 @@ Be specific and actionable.`, request, o.getToolInfo())
 		return nil, err
 	}
 
-	o.taskList.SetOutput(analysisTask.ID, response)
-	o.taskList.UpdateStatus(analysisTask.ID, StatusCompleted)
+	if err := o.taskList.SetOutput(analysisTask.ID, response); err != nil {
+		return nil, fmt.Errorf("failed to set task output: %w", err)
+	}
+	if err := o.taskList.UpdateStatus(analysisTask.ID, StatusCompleted); err != nil {
+		return nil, fmt.Errorf("failed to update task status: %w", err)
+	}
 
 	// For now, create a simple plan
 	// In a real implementation, we'd parse the response to create specific tasks
@@ -366,7 +372,9 @@ func (o *Orchestrator) ExecutePlan(ctx context.Context, plan *WorkPlan) error {
 		}
 
 		// Update status
-		o.taskList.UpdateStatus(task.ID, StatusInProgress)
+		if err := o.taskList.UpdateStatus(task.ID, StatusInProgress); err != nil {
+			fmt.Printf("Failed to update task status: %v\n", err)
+		}
 
 		// Execute task
 		// In real implementation, this would use the tools
@@ -381,8 +389,12 @@ func (o *Orchestrator) ExecutePlan(ctx context.Context, plan *WorkPlan) error {
 			continue
 		}
 
-		o.taskList.SetOutput(task.ID, response)
-		o.taskList.UpdateStatus(task.ID, StatusCompleted)
+		if err := o.taskList.SetOutput(task.ID, response); err != nil {
+			fmt.Printf("Failed to set task output: %v\n", err)
+		}
+		if err := o.taskList.UpdateStatus(task.ID, StatusCompleted); err != nil {
+			fmt.Printf("Failed to update task status: %v\n", err)
+		}
 	}
 
 	return nil

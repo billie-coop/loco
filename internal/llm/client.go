@@ -72,7 +72,10 @@ func (c *LMStudioClient) Complete(ctx context.Context, messages []Message) (stri
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
+		body, err := io.ReadAll(resp.Body)
+		if err != nil {
+			return "", fmt.Errorf("LM Studio returned status %d but failed to read body: %w", resp.StatusCode, err)
+		}
 		return "", fmt.Errorf("LM Studio error: %s", string(body))
 	}
 
@@ -127,7 +130,10 @@ func (c *LMStudioClient) Stream(ctx context.Context, messages []Message, onChunk
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
+		body, err := io.ReadAll(resp.Body)
+		if err != nil {
+			return fmt.Errorf("LM Studio returned status %d but failed to read body: %w", resp.StatusCode, err)
+		}
 		return fmt.Errorf("LM Studio error: %s", string(body))
 	}
 

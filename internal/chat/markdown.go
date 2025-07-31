@@ -9,17 +9,25 @@ import (
 
 // getMarkdownRenderer returns a glamour renderer configured for the given width.
 func getMarkdownRenderer(width int) *glamour.TermRenderer {
-	r, _ := glamour.NewTermRenderer(
+	r, err := glamour.NewTermRenderer(
 		glamour.WithStyles(getMarkdownStyle()),
 		glamour.WithWordWrap(width),
 	)
+	if err != nil {
+		// Fall back to a basic renderer
+		r, _ = glamour.NewTermRenderer()
+	}
 	return r
 }
 
 // renderMarkdown converts markdown text to styled terminal output with proper wrapping.
 func renderMarkdown(content string, width int) string {
 	r := getMarkdownRenderer(width)
-	rendered, _ := r.Render(content)
+	rendered, err := r.Render(content)
+	if err != nil {
+		// Fall back to plain text
+		return content
+	}
 	return strings.TrimSuffix(rendered, "\n")
 }
 

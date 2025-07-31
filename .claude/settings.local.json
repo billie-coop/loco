@@ -13,7 +13,9 @@
       "WebFetch(domain:pkg.go.dev)",
       "Bash(~/go/bin/golangci-lint run --fix ./...)",
       "Bash(~/go/bin/golangci-lint run ./... --no-config)",
-      "Bash(~/go/bin/golangci-lint run ./...)"
+      "Bash(~/go/bin/golangci-lint run ./...)",
+      "Bash(~/go/bin/golangci-lint linters)",
+      "Bash(grep:*)"
     ],
     "deny": []
   }

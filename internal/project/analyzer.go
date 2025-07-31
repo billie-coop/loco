@@ -261,7 +261,12 @@ func (a *Analyzer) findMatchingFiles(pattern string, files []string) []string {
 	for _, file := range files {
 		if strings.Contains(pattern, "*") {
 			// Simple wildcard matching
-			if matched, _ := filepath.Match(pattern, file); matched {
+			matched, err := filepath.Match(pattern, file)
+			if err != nil {
+				// Invalid pattern, skip it
+				continue
+			}
+			if matched {
 				matches = append(matches, file)
 			}
 		} else if strings.EqualFold(filepath.Base(file), filepath.Base(pattern)) ||

@@ -77,7 +77,10 @@ func printResult(input string, result *parser.ParseResult) {
 	if len(result.ToolCalls) > 0 {
 		fmt.Printf("Tools found: %d\n", len(result.ToolCalls))
 		for i, tool := range result.ToolCalls {
-			params, _ := json.MarshalIndent(tool.Params, "    ", "  ")
+			params, err := json.MarshalIndent(tool.Params, "    ", "  ")
+			if err != nil {
+				params = []byte(fmt.Sprintf("Error: %v", err))
+			}
 			fmt.Printf("  [%d] %s\n", i+1, tool.Name)
 			fmt.Printf("    %s\n", params)
 		}
