@@ -80,6 +80,9 @@ type Model struct {
 	width           int
 	showDebug       bool
 	isStreaming     bool
+	statusMessage   string
+	statusTimer     time.Time
+	pendingWrite    *parser.ToolCall
 }
 
 // New creates a new chat model.
@@ -157,6 +160,13 @@ func NewWithClient(client llm.Client) *Model {
 
 	// Base system prompt with tool information
 	systemPrompt := `You are Loco, a helpful AI coding assistant running locally via LM Studio.
+
+IMPORTANT RULES:
+1. Be conversational and helpful, but NOT proactive with tools
+2. Only use tools when explicitly asked by the user
+3. NEVER use write_file without asking for permission first
+4. For simple greetings like "hi" or "hello", just respond conversationally
+5. Always explain what you're about to do before using any tool
 
 You have access to the following tools. When you need to use a tool, output it in this format:
 <tool>{"name": "tool_name", "params": {"param1": "value1"}}</tool>
@@ -385,6 +395,29 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					// Execute tools and collect results
 					var toolResults []string
 					for _, toolCall := range parseResult.ToolCalls {
+						// Check if this is a write operation that needs confirmation
+						if toolCall.Name == "write_file" {
+							// Show what the AI wants to write
+							pathParam, _ := toolCall.Params["path"].(string)
+							contentParam, _ := toolCall.Params["content"].(string)
+							
+							// Add a warning message
+							toolResults = append(toolResults, fmt.Sprintf(
+								"⚠️  WRITE REQUEST: The AI wants to write to '%s'\n\n"+
+								"Content preview (first 200 chars):\n%s%s\n\n"+
+								"To allow this write, use: /confirm-write\n"+
+								"To deny this write, just continue chatting",
+								pathParam,
+								contentParam[:min(200, len(contentParam))],
+								map[bool]string{true: "...", false: ""}[len(contentParam) > 200],
+							))
+							
+							// Store pending write for later confirmation
+							m.pendingWrite = &toolCall
+							continue
+						}
+						
+						// Execute non-write tools immediately
 						result := m.toolRegistry.Execute(toolCall.Name, toolCall.Params)
 						if result.Success {
 							toolResults = append(toolResults, result.Output)
@@ -459,13 +492,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case statusMsg:
-		// Add status message to chat
-		m.messages = append(m.messages, llm.Message{
-			Role:    "system",
-			Content: msg.content,
-		})
-		m.viewport.SetContent(m.renderMessages())
-		m.viewport.GotoBottom()
+		// Show in status bar instead of chat
+		m.statusMessage = msg.content
+		m.statusTimer = time.Now()
 		return m, nil
 	}
 
@@ -871,27 +900,66 @@ func (m *Model) renderMessages() string {
 }
 
 func (m *Model) renderStatusLine(width int) string {
-	var content string
+	var leftContent string
 	if m.isStreaming {
 		if m.streamingMsg != "" {
 			// Show spinner with token count
-			content = fmt.Sprintf("%s ~%d tokens", m.spinner.View(), m.streamingTokens)
+			leftContent = fmt.Sprintf("%s ~%d tokens", m.spinner.View(), m.streamingTokens)
 		} else {
 			// Just show spinner if no content yet
-			content = m.spinner.View()
+			leftContent = m.spinner.View()
 		}
 	} else {
 		// Empty status when not streaming
-		content = " "
+		leftContent = " "
+	}
+	
+	// Right side status/notifications
+	var rightContent string
+	if m.statusMessage != "" {
+		// Only show status messages for 5 seconds
+		if time.Since(m.statusTimer) < 5*time.Second {
+			rightContent = m.statusMessage
+		} else {
+			m.statusMessage = "" // Clear after timeout
+		}
+	}
+	
+	// Calculate padding for right alignment
+	leftLen := lipgloss.Width(leftContent)
+	rightLen := lipgloss.Width(rightContent)
+	padding := width - leftLen - rightLen - 2 // -2 for borders
+	if padding < 0 {
+		padding = 0
+	}
+	
+	// Combine left and right content
+	content := leftContent
+	if rightContent != "" {
+		content = leftContent + strings.Repeat(" ", padding) + rightContent
 	}
 
-	// Minimal style with just top border and left-aligned content
+	// Minimal style with just top border
 	return lipgloss.NewStyle().
 		Width(width).
 		BorderTop(true).
 		BorderStyle(lipgloss.NormalBorder()).
 		BorderForeground(lipgloss.Color("241")).
 		Render(content)
+}
+
+// showStatus displays a status message in the status bar instead of chat
+func (m *Model) showStatus(message string) {
+	m.statusMessage = message
+	m.statusTimer = time.Now()
+}
+
+// min returns the minimum of two integers
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }
 
 func (m *Model) handleSlashCommand(input string) (tea.Model, tea.Cmd) {
@@ -964,11 +1032,8 @@ func (m *Model) handleSlashCommand(input string) (tea.Model, tea.Cmd) {
 	case "/switch":
 		// Switch to a different session
 		if len(parts) < 2 {
-			// Show usage in chat
-			m.messages = append(m.messages, llm.Message{
-				Role:    "system",
-				Content: "Usage: /switch <session-number>",
-			})
+			// Show usage in status bar
+			m.showStatus("Usage: /switch <session-number>")
 			m.viewport.SetContent(m.renderMessages())
 			return m, nil
 		}
@@ -976,20 +1041,14 @@ func (m *Model) handleSlashCommand(input string) (tea.Model, tea.Cmd) {
 		// Parse session number
 		var sessionNum int
 		if _, err := fmt.Sscanf(parts[1], "%d", &sessionNum); err != nil {
-			m.messages = append(m.messages, llm.Message{
-				Role:    "system",
-				Content: "Invalid session number",
-			})
+			m.showStatus("Invalid session number")
 			m.viewport.SetContent(m.renderMessages())
 			return m, nil
 		}
 
 		sessions := m.sessionManager.ListSessions()
 		if sessionNum < 1 || sessionNum > len(sessions) {
-			m.messages = append(m.messages, llm.Message{
-				Role:    "system",
-				Content: "Session number out of range",
-			})
+			m.showStatus("Session number out of range")
 			m.viewport.SetContent(m.renderMessages())
 			return m, nil
 		}
@@ -997,10 +1056,7 @@ func (m *Model) handleSlashCommand(input string) (tea.Model, tea.Cmd) {
 		// Switch to selected session
 		selectedSession := sessions[sessionNum-1]
 		if err := m.sessionManager.SetCurrent(selectedSession.ID); err != nil {
-			m.messages = append(m.messages, llm.Message{
-				Role:    "system",
-				Content: fmt.Sprintf("Failed to switch session: %v", err),
-			})
+			m.showStatus(fmt.Sprintf("Failed to switch session: %v", err))
 			m.viewport.SetContent(m.renderMessages())
 			return m, nil
 		}
@@ -1091,6 +1147,32 @@ func (m *Model) handleSlashCommand(input string) (tea.Model, tea.Cmd) {
 		// Capture screen
 		return m, m.captureScreen()
 
+	case "/confirm-write":
+		// Confirm pending write operation
+		if m.pendingWrite == nil {
+			m.showStatus("No pending write operation")
+			return m, nil
+		}
+		
+		// Execute the pending write
+		result := m.toolRegistry.Execute(m.pendingWrite.Name, m.pendingWrite.Params)
+		if result.Success {
+			m.messages = append(m.messages, llm.Message{
+				Role:    "system",
+				Content: "✅ Write confirmed: " + result.Output,
+			})
+		} else {
+			m.messages = append(m.messages, llm.Message{
+				Role:    "system",
+				Content: "❌ Write failed: " + result.Error,
+			})
+		}
+		
+		m.pendingWrite = nil
+		m.viewport.SetContent(m.renderMessages())
+		m.viewport.GotoBottom()
+		return m, nil
+
 	case "/help":
 		// Show available commands
 		help := `🚂 Loco Commands:
@@ -1103,6 +1185,7 @@ func (m *Model) handleSlashCommand(input string) (tea.Model, tea.Cmd) {
 /project    - Show project context
 /reset      - Move all sessions to trash and start fresh
 /screenshot - Capture UI state to file (also: Ctrl+S)
+/confirm-write - Confirm a pending file write operation
 /help       - Show this help message`
 
 		m.messages = append(m.messages, llm.Message{
