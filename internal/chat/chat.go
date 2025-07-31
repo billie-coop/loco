@@ -582,13 +582,6 @@ func (m *Model) renderMessages() string {
 }
 
 func (m *Model) renderStatusLine(width int) string {
-	// Create a stylish status line with borders
-	statusStyle := lipgloss.NewStyle().
-		Width(width).
-		BorderStyle(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color("241")).
-		Padding(0, 1)
-	
 	var content string
 	if m.isStreaming {
 		if m.streamingMsg != "" {
@@ -603,13 +596,13 @@ func (m *Model) renderStatusLine(width int) string {
 		content = " "
 	}
 	
-	// Center the content
-	centeredContent := lipgloss.NewStyle().
-		Width(width - 4). // Account for borders and padding
-		Align(lipgloss.Center).
+	// Minimal style with just top border and left-aligned content
+	return lipgloss.NewStyle().
+		Width(width).
+		BorderTop(true).
+		BorderStyle(lipgloss.NormalBorder()).
+		BorderForeground(lipgloss.Color("241")).
 		Render(content)
-	
-	return statusStyle.Render(centeredContent)
 }
 
 func (m *Model) renderSidebar(width, height int) string {
