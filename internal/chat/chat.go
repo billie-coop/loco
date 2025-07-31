@@ -190,9 +190,10 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		
 		// Input area is just 3 lines + help text
 		inputHeight := 4 // 3 for input + 1 for help
+		statusHeight := 1 // For the thinking/token counter status line
 		
 		// Calculate viewport height  
-		viewportHeight := msg.Height - inputHeight - 1
+		viewportHeight := msg.Height - inputHeight - statusHeight - 1
 		if viewportHeight < 5 {
 			viewportHeight = 5 // Minimum height
 		}
@@ -283,9 +284,10 @@ func (m *Model) View() tea.View {
 	
 	// Input area is just 3 lines + help text
 	inputHeight := 4 // 3 for input + 1 for help
+	statusHeight := 1 // For the thinking/token counter status line
 	
 	// Calculate viewport height
-	viewportHeight := m.height - inputHeight - 1
+	viewportHeight := m.height - inputHeight - statusHeight - 1
 	if viewportHeight < 5 {
 		viewportHeight = 5
 	}
@@ -332,10 +334,14 @@ func (m *Model) View() tea.View {
 		Width(mainWidth).
 		Render("Ctrl+C: exit • Enter: send • Ctrl+S: copy chat")
 	
+	// Create status line for thinking/token counter
+	statusLine := m.renderStatusLine(mainWidth)
+	
 	// Combine main area components vertically
 	mainContent := lipgloss.JoinVertical(
 		lipgloss.Left,
 		mainView,
+		statusLine,
 		inputSection,
 		helpText,
 	)
@@ -557,33 +563,53 @@ func (m *Model) renderMessages() string {
 		debugIndex++
 	}
 	
-	// Show loading indicator with spinner or streaming content
-	if m.isStreaming {
+	// Show streaming content (without spinner/token counter - that's in status line now)
+	if m.isStreaming && m.streamingMsg != "" {
 		sb.WriteString(assistantStyle.Render("Loco:"))
 		sb.WriteString("\n")
 		
-		if m.streamingMsg != "" {
-			// Show partial streaming content
-			textWidth := m.viewport.Width() - 4
-			if textWidth < 40 {
-				textWidth = 40
-			}
-			wrappedContent := renderMarkdown(m.streamingMsg, textWidth)
-			sb.WriteString(wrappedContent)
-			sb.WriteString("\n")
-			// Show token counter
-			tokenInfo := fmt.Sprintf(" %s ~%d tokens", m.spinner.View(), m.streamingTokens)
-			sb.WriteString(systemStyle.Render(tokenInfo))
-		} else {
-			// Just show spinner if no content yet
-			sb.WriteString(m.spinner.View())
-			sb.WriteString(" ")
-			sb.WriteString(systemStyle.Render("Thinking..."))
+		// Show partial streaming content
+		textWidth := m.viewport.Width() - 4
+		if textWidth < 40 {
+			textWidth = 40
 		}
+		wrappedContent := renderMarkdown(m.streamingMsg, textWidth)
+		sb.WriteString(wrappedContent)
 		sb.WriteString("\n")
 	}
 	
 	return sb.String()
+}
+
+func (m *Model) renderStatusLine(width int) string {
+	// Create a stylish status line with borders
+	statusStyle := lipgloss.NewStyle().
+		Width(width).
+		BorderStyle(lipgloss.RoundedBorder()).
+		BorderForeground(lipgloss.Color("241")).
+		Padding(0, 1)
+	
+	var content string
+	if m.isStreaming {
+		if m.streamingMsg != "" {
+			// Show spinner with token count
+			content = fmt.Sprintf("%s ~%d tokens", m.spinner.View(), m.streamingTokens)
+		} else {
+			// Just show spinner if no content yet
+			content = m.spinner.View()
+		}
+	} else {
+		// Empty status when not streaming
+		content = " "
+	}
+	
+	// Center the content
+	centeredContent := lipgloss.NewStyle().
+		Width(width - 4). // Account for borders and padding
+		Align(lipgloss.Center).
+		Render(content)
+	
+	return statusStyle.Render(centeredContent)
 }
 
 func (m *Model) renderSidebar(width, height int) string {
