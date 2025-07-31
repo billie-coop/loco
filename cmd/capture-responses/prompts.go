@@ -1,6 +1,6 @@
 package main
 
-// ExtendedTestPrompts contains a comprehensive set of prompts for testing
+// ExtendedTestPrompts contains a comprehensive set of prompts for testing.
 var ExtendedTestPrompts = []TestPrompt{
 	// === READ FILE VARIATIONS ===
 	{
@@ -209,7 +209,7 @@ var ExtendedTestPrompts = []TestPrompt{
 	},
 }
 
-// SystemPromptVariations provides different system prompts to test model behavior
+// SystemPromptVariations provides different system prompts to test model behavior.
 var SystemPromptVariations = map[string]string{
 	"standard": `You are Loco, a helpful AI coding assistant.
 

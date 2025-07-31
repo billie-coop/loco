@@ -9,34 +9,33 @@ import (
 	"strings"
 	"time"
 
-	"github.com/charmbracelet/bubbles/v2/spinner"
-	"github.com/charmbracelet/bubbles/v2/textarea"
-	"github.com/charmbracelet/bubbles/v2/viewport"
-	tea "github.com/charmbracelet/bubbletea/v2"
-	"github.com/charmbracelet/lipgloss/v2"
-
 	"github.com/billie-coop/loco/internal/llm"
 	"github.com/billie-coop/loco/internal/orchestrator"
 	"github.com/billie-coop/loco/internal/parser"
 	"github.com/billie-coop/loco/internal/project"
 	"github.com/billie-coop/loco/internal/session"
 	"github.com/billie-coop/loco/internal/tools"
+	"github.com/charmbracelet/bubbles/v2/spinner"
+	"github.com/charmbracelet/bubbles/v2/textarea"
+	"github.com/charmbracelet/bubbles/v2/viewport"
+	tea "github.com/charmbracelet/bubbletea/v2"
+	"github.com/charmbracelet/lipgloss/v2"
 )
 
 var (
 	userStyle = lipgloss.NewStyle().
-		Foreground(lipgloss.Color("205")).
-		Bold(true)
+			Foreground(lipgloss.Color("205")).
+			Bold(true)
 
 	assistantStyle = lipgloss.NewStyle().
-		Foreground(lipgloss.Color("86"))
+			Foreground(lipgloss.Color("86"))
 
 	systemStyle = lipgloss.NewStyle().
-		Foreground(lipgloss.Color("241")).
-		Italic(true)
+			Foreground(lipgloss.Color("241")).
+			Italic(true)
 )
 
-type streamDoneMsg struct{
+type streamDoneMsg struct {
 	response string
 }
 
@@ -50,40 +49,45 @@ type errorMsg struct {
 	err error
 }
 
-// Model represents the chat interface
-type Model struct {
-	viewport       viewport.Model
-	messages       []llm.Message
-	messagesMeta   map[int]*MessageMetadata // Metadata for each message by index
-	input          textarea.Model
-	spinner        spinner.Model
-	llmClient      llm.Client
-	modelName      string
-	modelSize      llm.ModelSize // T-shirt size of current model
-	availableModels map[llm.ModelSize][]llm.ModelInfo // All available models by size
-	allModels      []llm.Model  // All available models (for sidebar display)
-	modelUsage     map[string]int // Track usage count per model ID
-	width          int
-	height         int
-	isStreaming    bool
-	streamingMsg   string // Current streaming message content
-	streamingTokens int   // Token count for current stream
-	streamingStart time.Time // When streaming started
-	err            error
-	showDebug      bool   // Toggle for showing metadata
-	sessionManager *session.Manager
-	projectContext *project.ProjectContext
-	toolRegistry   *tools.Registry
-	orchestrator   *orchestrator.Orchestrator
-	parser         *parser.Parser
+type statusMsg struct {
+	content string
+	isError bool
 }
 
-// New creates a new chat model
+// Model represents the chat interface.
+type Model struct {
+	input           textarea.Model
+	streamingStart  time.Time
+	llmClient       llm.Client
+	err             error
+	availableModels map[llm.ModelSize][]llm.ModelInfo
+	projectContext  *project.ProjectContext
+	messagesMeta    map[int]*MessageMetadata
+	modelUsage      map[string]int
+	parser          *parser.Parser
+	sessionManager  *session.Manager
+	orchestrator    *orchestrator.Orchestrator
+	toolRegistry    *tools.Registry
+	modelName       string
+	modelSize       llm.ModelSize
+	streamingMsg    string
+	allModels       []llm.Model
+	messages        []llm.Message
+	viewport        viewport.Model
+	spinner         spinner.Model
+	height          int
+	streamingTokens int
+	width           int
+	showDebug       bool
+	isStreaming     bool
+}
+
+// New creates a new chat model.
 func New() *Model {
 	return NewWithClient(llm.NewLMStudioClient())
 }
 
-// SetModelName sets the model name for display
+// SetModelName sets the model name for display.
 func (m *Model) SetModelName(name string) {
 	m.modelName = name
 	m.modelSize = llm.DetectModelSize(name)
@@ -91,7 +95,7 @@ func (m *Model) SetModelName(name string) {
 	m.modelUsage[name]++
 }
 
-// SetAvailableModels sets all available models for display in sidebar
+// SetAvailableModels sets all available models for display in sidebar.
 func (m *Model) SetAvailableModels(models []llm.Model) {
 	m.allModels = models
 	// Initialize usage counters
@@ -102,25 +106,25 @@ func (m *Model) SetAvailableModels(models []llm.Model) {
 	}
 }
 
-// addMessageMetadata adds metadata for a message
+// addMessageMetadata adds metadata for a message.
 func (m *Model) addMessageMetadata(index int, meta *MessageMetadata) {
 	m.messagesMeta[index] = meta
 }
 
-// NewWithClient creates a new chat model with a specific client
+// NewWithClient creates a new chat model with a specific client.
 func NewWithClient(client llm.Client) *Model {
 	ta := textarea.New()
 	ta.Placeholder = "Type a message..."
 	ta.Focus()
-	ta.Prompt = "" // No prompt since we're rendering it separately
+	ta.Prompt = ""    // No prompt since we're rendering it separately
 	ta.CharLimit = -1 // No limit
 	ta.ShowLineNumbers = false
-	ta.SetHeight(3) // Allow 3 lines for better multi-line input
+	ta.SetHeight(3)                          // Allow 3 lines for better multi-line input
 	ta.KeyMap.InsertNewline.SetEnabled(true) // Enable multi-line input
 
 	// Don't set initial size, wait for WindowSizeMsg
 	vp := viewport.New()
-	
+
 	// Create a cool animated spinner
 	s := newStyledSpinner()
 
@@ -190,8 +194,8 @@ You can include explanation before or after the tool call. The tool will be exec
 		input:          ta,
 		spinner:        s,
 		llmClient:      client,
-		width:          0, // Will be set by WindowSizeMsg
-		height:         0, // Will be set by WindowSizeMsg
+		width:          0,    // Will be set by WindowSizeMsg
+		height:         0,    // Will be set by WindowSizeMsg
 		showDebug:      true, // Show debug by default
 		modelUsage:     make(map[string]int),
 		sessionManager: sessionMgr,
@@ -200,19 +204,19 @@ You can include explanation before or after the tool call. The tool will be exec
 		orchestrator:   orch,
 		parser:         parser.New(),
 	}
-	
+
 	// Save initial system message to session
 	if currentSession != nil {
 		sessionMgr.UpdateCurrentMessages(messages)
 	}
-	
+
 	// Add initial content
 	m.viewport.SetContent(m.renderMessages())
-	
+
 	return m
 }
 
-// Init initializes the model
+// Init initializes the model.
 func (m *Model) Init() tea.Cmd {
 	// Check LM Studio health and get available models
 	lmClient := m.llmClient.(*llm.LMStudioClient)
@@ -229,18 +233,18 @@ func (m *Model) Init() tea.Cmd {
 			m.availableModels = llm.GetModelsBySize(modelIDs)
 		}
 	}
-	
+
 	return tea.Batch(
-		textarea.Blink, 
+		textarea.Blink,
 		m.spinner.Tick,
 	)
 }
 
-// Update handles messages
+// Update handles messages.
 func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var (
-		taCmd tea.Cmd
-		vpCmd tea.Cmd
+		taCmd      tea.Cmd
+		vpCmd      tea.Cmd
 		spinnerCmd tea.Cmd
 	)
 
@@ -269,7 +273,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if strings.HasPrefix(m.input.Value(), "/") {
 					return m.handleSlashCommand(m.input.Value())
 				}
-				
+
 				cmd := m.sendMessage()
 				return m, tea.Batch(cmd, m.spinner.Tick)
 			}
@@ -278,7 +282,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
-		
+
 		// Calculate sidebar width (20% of screen, min 20, max 30)
 		sidebarWidth := msg.Width / 5
 		if sidebarWidth < 20 {
@@ -287,23 +291,23 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if sidebarWidth > 30 {
 			sidebarWidth = 30
 		}
-		
+
 		// Calculate main content width
 		mainWidth := msg.Width - sidebarWidth - 1
 		if mainWidth < 40 {
 			mainWidth = 40
 		}
-		
+
 		// Input area is just 3 lines + help text
-		inputHeight := 4 // 3 for input + 1 for help
+		inputHeight := 4  // 3 for input + 1 for help
 		statusHeight := 1 // For the thinking/token counter status line
-		
-		// Calculate viewport height  
+
+		// Calculate viewport height
 		viewportHeight := msg.Height - inputHeight - statusHeight - 1
 		if viewportHeight < 5 {
 			viewportHeight = 5 // Minimum height
 		}
-		
+
 		m.viewport = viewport.New(
 			viewport.WithWidth(mainWidth),
 			viewport.WithHeight(viewportHeight),
@@ -311,7 +315,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.viewport.MouseWheelEnabled = true
 		m.viewport.SetContent(m.renderMessages())
 		m.viewport.GotoBottom()
-		
+
 		// Set input width (leave space for prompt "> ")
 		m.input.SetWidth(mainWidth - 2)
 		m.input.SetHeight(3) // Allow 3 lines
@@ -320,7 +324,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Start the actual streaming
 		m.streamingStart = time.Now()
 		return m, m.doStream()
-		
+
 	case streamChunkMsg:
 		// Append chunk to streaming message
 		m.streamingMsg += msg.chunk
@@ -336,33 +340,33 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if finalMsg == "" {
 			finalMsg = msg.response
 		}
-		
+
 		if finalMsg != "" {
 			// Calculate response duration
 			duration := time.Since(m.streamingStart).Seconds()
-			
+
 			// Parse for tool calls
 			parseResult, err := m.parser.Parse(finalMsg)
-			
+
 			// Create metadata for this message
 			metadata := &MessageMetadata{
 				Timestamp:  time.Now(),
 				Duration:   duration,
 				TokenCount: m.streamingTokens,
 			}
-			
+
 			if err != nil {
 				metadata.Error = err.Error()
 			} else {
 				metadata.ParseMethod = parseResult.Method
 				metadata.ToolsFound = len(parseResult.ToolCalls)
-				
+
 				if len(parseResult.ToolCalls) > 0 {
 					// Collect tool names
 					for _, tc := range parseResult.ToolCalls {
 						metadata.ToolNames = append(metadata.ToolNames, tc.Name)
 					}
-					
+
 					// Execute tools and collect results
 					var toolResults []string
 					for _, toolCall := range parseResult.ToolCalls {
@@ -373,7 +377,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 							toolResults = append(toolResults, fmt.Sprintf("Error executing %s: %s", toolCall.Name, result.Error))
 						}
 					}
-				
+
 					// Add the assistant's message (with cleaned text)
 					msgIndex := len(m.messages)
 					m.messages = append(m.messages, llm.Message{
@@ -381,27 +385,27 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						Content: parseResult.Text,
 					})
 					m.addMessageMetadata(msgIndex, metadata)
-					
+
 					// Add tool results as a system message
 					if len(toolResults) > 0 {
 						toolResultMsg := strings.Join(toolResults, "\n\n")
 						m.messages = append(m.messages, llm.Message{
 							Role:    "system",
-							Content: fmt.Sprintf("Tool results:\n%s", toolResultMsg),
+							Content: "Tool results:\n" + toolResultMsg,
 						})
-						
+
 						// Continue the conversation with tool results
 						m.isStreaming = true
 						m.streamingMsg = ""
 						m.streamingTokens = 0
 						m.viewport.SetContent(m.renderMessages())
 						m.viewport.GotoBottom()
-						
+
 						// Save to session
 						if m.sessionManager != nil {
 							m.sessionManager.UpdateCurrentMessages(m.messages)
 						}
-						
+
 						// Stream a follow-up response
 						return m, m.streamResponse()
 					}
@@ -415,7 +419,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.addMessageMetadata(msgIndex, metadata)
 				}
 			}
-			
+
 			// Save to session
 			if m.sessionManager != nil {
 				m.sessionManager.UpdateCurrentMessages(m.messages)
@@ -432,18 +436,28 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.err = msg.err
 		m.isStreaming = false
 		return m, nil
+
+	case statusMsg:
+		// Add status message to chat
+		m.messages = append(m.messages, llm.Message{
+			Role:    "system",
+			Content: msg.content,
+		})
+		m.viewport.SetContent(m.renderMessages())
+		m.viewport.GotoBottom()
+		return m, nil
 	}
 
 	return m, tea.Batch(taCmd, vpCmd, spinnerCmd)
 }
 
-// View renders the UI
+// View renders the UI.
 func (m *Model) View() tea.View {
 	// If we haven't received window size yet, show a loading message
 	if m.width == 0 || m.height == 0 {
 		return tea.NewView("Initializing...")
 	}
-	
+
 	if m.err != nil && m.llmClient.(*llm.LMStudioClient).HealthCheck() != nil {
 		return tea.NewView(fmt.Sprintf("\n❌ Error: %v\n\nMake sure LM Studio is running on http://localhost:1234\n\nPress Ctrl+C to exit.\n", m.err))
 	}
@@ -456,23 +470,23 @@ func (m *Model) View() tea.View {
 	if sidebarWidth > 30 {
 		sidebarWidth = 30
 	}
-	
+
 	// Calculate main content width (account for sidebar and spacing)
 	mainWidth := m.width - sidebarWidth - 1
 	if mainWidth < 40 {
 		mainWidth = 40
 	}
-	
+
 	// Input area is just 3 lines + help text
-	inputHeight := 4 // 3 for input + 1 for help
+	inputHeight := 4  // 3 for input + 1 for help
 	statusHeight := 1 // For the thinking/token counter status line
-	
+
 	// Calculate viewport height
 	viewportHeight := m.height - inputHeight - statusHeight - 1
 	if viewportHeight < 5 {
 		viewportHeight = 5
 	}
-	
+
 	// Make sure viewport has correct dimensions
 	if m.viewport.Width() != mainWidth || m.viewport.Height() != viewportHeight {
 		m.viewport = viewport.New(
@@ -483,23 +497,23 @@ func (m *Model) View() tea.View {
 		m.viewport.SetContent(m.renderMessages())
 		m.viewport.GotoBottom()
 	}
-	
+
 	// Create sidebar (full height)
 	sidebar := m.renderSidebar(sidebarWidth, m.height)
-	
+
 	// Create main content area with proper styling
 	mainViewStyle := lipgloss.NewStyle().
 		Width(mainWidth).
 		Height(viewportHeight)
 	mainView := mainViewStyle.Render(m.viewport.View())
-	
+
 	// Create compact input area
 	inputStyle := lipgloss.NewStyle().
 		Foreground(lipgloss.Color("86"))
-		
+
 	prompt := inputStyle.Render("> ")
 	inputView := lipgloss.JoinHorizontal(lipgloss.Left, prompt, m.input.View())
-	
+
 	// Style the input section with full width
 	inputSection := lipgloss.NewStyle().
 		Width(mainWidth).
@@ -508,16 +522,16 @@ func (m *Model) View() tea.View {
 			strings.Repeat("─", mainWidth),
 			inputView,
 		))
-	
+
 	helpText := lipgloss.NewStyle().
 		Foreground(lipgloss.Color("241")).
 		Italic(true).
 		Width(mainWidth).
 		Render("Ctrl+C: exit • Enter: send • Ctrl+S: copy chat")
-	
+
 	// Create status line for thinking/token counter
 	statusLine := m.renderStatusLine(mainWidth)
-	
+
 	// Combine main area components vertically
 	mainContent := lipgloss.JoinVertical(
 		lipgloss.Left,
@@ -526,12 +540,12 @@ func (m *Model) View() tea.View {
 		inputSection,
 		helpText,
 	)
-	
+
 	// Style the main content to ensure it takes full space
 	mainContentStyle := lipgloss.NewStyle().
 		Width(mainWidth).
 		Height(m.height)
-	
+
 	// Join sidebar and main content horizontally
 	return tea.NewView(lipgloss.JoinHorizontal(
 		lipgloss.Top,
@@ -543,48 +557,95 @@ func (m *Model) View() tea.View {
 
 func (m *Model) captureScreen() tea.Cmd {
 	return func() tea.Msg {
-		// Build the screen content manually
+		// Capture the entire UI state
 		var screen strings.Builder
-		
+
 		// Add a header
-		screen.WriteString("=== Loco Screenshot ===\n")
+		screen.WriteString("=== Loco UI Screenshot ===\n")
 		screen.WriteString(fmt.Sprintf("Time: %s\n", time.Now().Format("2006-01-02 15:04:05")))
 		screen.WriteString(fmt.Sprintf("Model: %s\n", m.modelName))
-		screen.WriteString("======================\n\n")
-		
-		// Add the messages
+		screen.WriteString(fmt.Sprintf("Size: %dx%d\n", m.width, m.height))
+		currentSession, _ := m.sessionManager.GetCurrent()
+		sessionID := "none"
+		if currentSession != nil {
+			sessionID = currentSession.ID
+		}
+		screen.WriteString(fmt.Sprintf("Session: %s\n", sessionID))
+		screen.WriteString("===========================\n\n")
+
+		// Render the full UI as it appears on screen
+		screen.WriteString("[FULL UI RENDER]\n")
+		// We can't directly render the View here as it returns tea.View
+		// Instead, let's manually recreate the layout
+		screen.WriteString(fmt.Sprintf("Terminal Size: %dx%d\n", m.width, m.height))
+		screen.WriteString("=== Messages ===\n")
 		for _, msg := range m.messages {
 			switch msg.Role {
 			case "user":
-				screen.WriteString("You: " + msg.Content + "\n\n")
+				screen.WriteString("You: " + msg.Content + "\n")
 			case "assistant":
-				screen.WriteString("Loco: " + msg.Content + "\n\n")
+				screen.WriteString("Loco: " + msg.Content + "\n")
+			case "system":
+				screen.WriteString("System: " + msg.Content + "\n")
 			}
 		}
-		
 		if m.isStreaming {
-			screen.WriteString("Loco: [Thinking...]\n\n")
+			screen.WriteString("Loco: " + m.streamingMsg + " [streaming...]\n")
 		}
-		
-		// No debug logs in capture - metadata is per-message now
-		
-		// Try to copy to clipboard (macOS specific)
+		screen.WriteString("\n[END UI RENDER]\n\n")
+
+		// Also include raw state for debugging
+		screen.WriteString("[RAW STATE]\n")
+		screen.WriteString(fmt.Sprintf("Input: %q\n", m.input.Value()))
+		screen.WriteString(fmt.Sprintf("IsStreaming: %v\n", m.isStreaming))
+		screen.WriteString(fmt.Sprintf("ShowDebug: %v\n", m.showDebug))
+		screen.WriteString(fmt.Sprintf("Messages: %d\n", len(m.messages)))
+
+		// Messages with metadata
+		for i, msg := range m.messages {
+			screen.WriteString(fmt.Sprintf("\nMessage %d:\n", i+1))
+			screen.WriteString(fmt.Sprintf("  Role: %s\n", msg.Role))
+			screen.WriteString(fmt.Sprintf("  Content: %s\n", msg.Content))
+			// Show metadata if available
+			if meta, ok := m.messagesMeta[i]; ok && meta != nil {
+				if len(meta.ToolNames) > 0 {
+					screen.WriteString(fmt.Sprintf("  Tools: %v\n", meta.ToolNames))
+				}
+				if meta.TokenCount > 0 {
+					screen.WriteString(fmt.Sprintf("  Tokens: %d\n", meta.TokenCount))
+				}
+				if meta.Duration > 0 {
+					screen.WriteString(fmt.Sprintf("  Duration: %.2fs\n", meta.Duration))
+				}
+			}
+		}
+		screen.WriteString("[END RAW STATE]\n")
+
+		// Save to file in .loco directory
+		screenshotDir := filepath.Join(".loco", "screenshots")
+		os.MkdirAll(screenshotDir, 0o755)
+
+		filename := fmt.Sprintf("screenshot-%s.txt", time.Now().Format("20060102-150405"))
+		filepath := filepath.Join(screenshotDir, filename)
+
+		err := os.WriteFile(filepath, []byte(screen.String()), 0o644)
+		if err != nil {
+			return statusMsg{content: fmt.Sprintf("Error saving screenshot: %v", err), isError: true}
+		}
+
+		// Also copy to clipboard for convenience
 		cmd := exec.Command("pbcopy")
 		cmd.Stdin = strings.NewReader(screen.String())
-		if err := cmd.Run(); err != nil {
-			// Could add error handling here if needed
-		} else {
-			// Could add success feedback here if needed
-		}
-		
-		return nil
+		cmd.Run()
+
+		return statusMsg{content: fmt.Sprintf("Screenshot saved to %s (Ctrl+S)", filepath), isError: false}
 	}
 }
 
 func (m *Model) sendMessage() tea.Cmd {
 	userMsg := m.input.Value()
 	m.input.Reset()
-	
+
 	// Add user message with metadata
 	msgIndex := len(m.messages)
 	m.messages = append(m.messages, llm.Message{
@@ -594,12 +655,12 @@ func (m *Model) sendMessage() tea.Cmd {
 	m.addMessageMetadata(msgIndex, &MessageMetadata{
 		Timestamp: time.Now(),
 	})
-	
+
 	// Save to session
 	if m.sessionManager != nil {
 		m.sessionManager.UpdateCurrentMessages(m.messages)
 	}
-	
+
 	m.isStreaming = true
 	m.streamingMsg = ""
 	m.streamingTokens = 0
@@ -609,13 +670,13 @@ func (m *Model) sendMessage() tea.Cmd {
 	return m.streamResponse()
 }
 
-// Model needs a channel to receive streaming chunks
+// Model needs a channel to receive streaming chunks.
 var streamChannel chan tea.Msg
 
 func (m *Model) streamResponse() tea.Cmd {
 	// Initialize the stream channel
 	streamChannel = make(chan tea.Msg, 100)
-	
+
 	// Return a command that starts streaming
 	return func() tea.Msg {
 		return streamStartMsg{}
@@ -625,23 +686,23 @@ func (m *Model) streamResponse() tea.Cmd {
 func (m *Model) doStream() tea.Cmd {
 	return func() tea.Msg {
 		ctx := context.Background()
-		
+
 		// Start streaming in a goroutine
 		go func() {
 			defer close(streamChannel)
-			
+
 			err := m.llmClient.Stream(ctx, m.messages, func(chunk string) {
 				// Send each chunk as a message
 				streamChannel <- streamChunkMsg{chunk: chunk}
 			})
-			
+
 			if err != nil {
 				streamChannel <- errorMsg{err: err}
 			} else {
 				streamChannel <- streamDoneMsg{response: m.streamingMsg}
 			}
 		}()
-		
+
 		// Return first chunk
 		return m.waitForNextChunk()()
 	}
@@ -659,12 +720,12 @@ func (m *Model) waitForNextChunk() tea.Cmd {
 
 func (m *Model) renderMessages() string {
 	var sb strings.Builder
-	
+
 	// Style for metadata
 	metaStyle := lipgloss.NewStyle().
 		Foreground(lipgloss.Color("239")).
 		Italic(true)
-	
+
 	// Count non-system messages
 	visibleMessages := 0
 	for _, msg := range m.messages {
@@ -672,7 +733,7 @@ func (m *Model) renderMessages() string {
 			visibleMessages++
 		}
 	}
-	
+
 	// Show welcome message if no conversation yet
 	if visibleMessages == 0 && !m.isStreaming {
 		welcome := lipgloss.NewStyle().
@@ -681,10 +742,10 @@ func (m *Model) renderMessages() string {
 			Render("Ready to chat. Running locally via LM Studio.")
 		sb.WriteString(welcome)
 		sb.WriteString("\n\n")
-		
+
 		return sb.String()
 	}
-	
+
 	// Render messages with metadata
 	for i, msg := range m.messages {
 		switch msg.Role {
@@ -697,15 +758,15 @@ func (m *Model) renderMessages() string {
 				results := strings.TrimPrefix(msg.Content, "Tool results:\n")
 				sb.WriteString(systemStyle.Render(results))
 				sb.WriteString("\n\n")
-			} else if strings.Contains(msg.Content, "Commands:") || 
-					  strings.Contains(msg.Content, "Usage:") ||
-					  strings.Contains(msg.Content, "Available sessions:") ||
-					  strings.Contains(msg.Content, "Unknown command") ||
-					  strings.Contains(msg.Content, "Failed to") ||
-					  strings.Contains(msg.Content, "Invalid") ||
-					  strings.Contains(msg.Content, "out of range") ||
-					  strings.Contains(msg.Content, "Project reset") ||
-					  strings.HasPrefix(msg.Content, "📁 Project Context:") {
+			} else if strings.Contains(msg.Content, "Commands:") ||
+				strings.Contains(msg.Content, "Usage:") ||
+				strings.Contains(msg.Content, "Available sessions:") ||
+				strings.Contains(msg.Content, "Unknown command") ||
+				strings.Contains(msg.Content, "Failed to") ||
+				strings.Contains(msg.Content, "Invalid") ||
+				strings.Contains(msg.Content, "out of range") ||
+				strings.Contains(msg.Content, "Project reset") ||
+				strings.HasPrefix(msg.Content, "📁 Project Context:") {
 				// Show user-initiated system messages (commands, errors, help, etc.)
 				sb.WriteString(systemStyle.Render(msg.Content))
 				sb.WriteString("\n\n")
@@ -722,7 +783,7 @@ func (m *Model) renderMessages() string {
 			}
 			wrappedContent := renderMarkdown(msg.Content, textWidth)
 			sb.WriteString(wrappedContent)
-			
+
 			// Add metadata if available and debug is enabled
 			if m.showDebug {
 				if meta, exists := m.messagesMeta[i]; exists && meta != nil {
@@ -730,7 +791,7 @@ func (m *Model) renderMessages() string {
 					sb.WriteString(metaStyle.Render(meta.Format()))
 				}
 			}
-			
+
 		case "assistant":
 			sb.WriteString(assistantStyle.Render("Loco:"))
 			sb.WriteString("\n")
@@ -741,7 +802,7 @@ func (m *Model) renderMessages() string {
 			}
 			wrappedContent := renderMarkdown(msg.Content, textWidth)
 			sb.WriteString(wrappedContent)
-			
+
 			// Add metadata if available and debug is enabled
 			if m.showDebug {
 				if meta, exists := m.messagesMeta[i]; exists && meta != nil {
@@ -752,12 +813,12 @@ func (m *Model) renderMessages() string {
 		}
 		sb.WriteString("\n\n")
 	}
-	
+
 	// Show streaming content (without spinner/token counter - that's in status line now)
 	if m.isStreaming && m.streamingMsg != "" {
 		sb.WriteString(assistantStyle.Render("Loco:"))
 		sb.WriteString("\n")
-		
+
 		// Show partial streaming content
 		textWidth := m.viewport.Width() - 4
 		if textWidth < 40 {
@@ -767,7 +828,7 @@ func (m *Model) renderMessages() string {
 		sb.WriteString(wrappedContent)
 		sb.WriteString("\n")
 	}
-	
+
 	return sb.String()
 }
 
@@ -785,7 +846,7 @@ func (m *Model) renderStatusLine(width int) string {
 		// Empty status when not streaming
 		content = " "
 	}
-	
+
 	// Minimal style with just top border and left-aligned content
 	return lipgloss.NewStyle().
 		Width(width).
@@ -803,7 +864,7 @@ func (m *Model) handleSlashCommand(input string) (tea.Model, tea.Cmd) {
 	}
 
 	command := strings.ToLower(parts[0])
-	
+
 	switch command {
 	case "/debug":
 		// Toggle debug metadata visibility
@@ -821,14 +882,14 @@ func (m *Model) handleSlashCommand(input string) (tea.Model, tea.Cmd) {
 			if currentSession != nil && s.ID == currentSession.ID {
 				current = " (current)"
 			}
-			msg.WriteString(fmt.Sprintf("%d. %s%s\n   Created: %s\n", 
+			msg.WriteString(fmt.Sprintf("%d. %s%s\n   Created: %s\n",
 				i+1, s.Title, current, s.Created.Format("Jan 2 15:04")))
 		}
-		
+
 		// Show in viewport without adding to messages
 		m.viewport.SetContent(msg.String())
 		m.viewport.GotoBottom()
-		
+
 	case "/new":
 		// Create new session
 		_, err := m.sessionManager.NewSession(m.modelName)
@@ -836,25 +897,25 @@ func (m *Model) handleSlashCommand(input string) (tea.Model, tea.Cmd) {
 			// Session creation failed, but continue
 			return m, nil
 		}
-		
+
 		// Reset messages with system prompt
 		systemPrompt := "You are Loco, a helpful AI coding assistant running locally via LM Studio."
 		if m.projectContext != nil {
 			systemPrompt += "\n\n" + m.projectContext.FormatForPrompt()
 		}
-		
+
 		m.messages = []llm.Message{
 			{
 				Role:    "system",
 				Content: systemPrompt,
 			},
 		}
-		
+
 		m.sessionManager.UpdateCurrentMessages(m.messages)
 		m.viewport.SetContent(m.renderMessages())
 		m.viewport.GotoBottom()
 		// New session created successfully
-		
+
 	case "/switch":
 		// Switch to a different session
 		if len(parts) < 2 {
@@ -866,7 +927,7 @@ func (m *Model) handleSlashCommand(input string) (tea.Model, tea.Cmd) {
 			m.viewport.SetContent(m.renderMessages())
 			return m, nil
 		}
-		
+
 		// Parse session number
 		var sessionNum int
 		if _, err := fmt.Sscanf(parts[1], "%d", &sessionNum); err != nil {
@@ -877,7 +938,7 @@ func (m *Model) handleSlashCommand(input string) (tea.Model, tea.Cmd) {
 			m.viewport.SetContent(m.renderMessages())
 			return m, nil
 		}
-		
+
 		sessions := m.sessionManager.ListSessions()
 		if sessionNum < 1 || sessionNum > len(sessions) {
 			m.messages = append(m.messages, llm.Message{
@@ -887,7 +948,7 @@ func (m *Model) handleSlashCommand(input string) (tea.Model, tea.Cmd) {
 			m.viewport.SetContent(m.renderMessages())
 			return m, nil
 		}
-		
+
 		// Switch to selected session
 		selectedSession := sessions[sessionNum-1]
 		if err := m.sessionManager.SetCurrent(selectedSession.ID); err != nil {
@@ -898,13 +959,13 @@ func (m *Model) handleSlashCommand(input string) (tea.Model, tea.Cmd) {
 			m.viewport.SetContent(m.renderMessages())
 			return m, nil
 		}
-		
+
 		// Load messages from the session
 		m.messages = selectedSession.Messages
 		m.viewport.SetContent(m.renderMessages())
 		m.viewport.GotoBottom()
 		// Session switched successfully
-		
+
 	case "/project":
 		// Refresh project context
 		if m.projectContext == nil {
@@ -915,16 +976,16 @@ func (m *Model) handleSlashCommand(input string) (tea.Model, tea.Cmd) {
 			m.viewport.SetContent(m.renderMessages())
 			return m, nil
 		}
-		
+
 		// Show project info
-		info := fmt.Sprintf("📁 Project Context:\n%s", m.projectContext.FormatForPrompt())
+		info := "📁 Project Context:\n" + m.projectContext.FormatForPrompt()
 		m.messages = append(m.messages, llm.Message{
 			Role:    "system",
 			Content: info,
 		})
 		m.viewport.SetContent(m.renderMessages())
 		m.viewport.GotoBottom()
-		
+
 	case "/analyze":
 		// Force re-analyze the project with deep file reading
 		workingDir, _ := os.Getwd()
@@ -936,14 +997,14 @@ func (m *Model) handleSlashCommand(input string) (tea.Model, tea.Cmd) {
 			m.viewport.SetContent(m.renderMessages())
 			return m, nil
 		}
-		
+
 		m.messages = append(m.messages, llm.Message{
 			Role:    "system",
 			Content: "🔍 Re-analyzing project with deep file reading...",
 		})
 		m.viewport.SetContent(m.renderMessages())
 		m.viewport.GotoBottom()
-		
+
 		// Create fresh analyzer and force analysis
 		analyzer := project.NewAnalyzer()
 		ctx, err := analyzer.AnalyzeProject(workingDir)
@@ -956,12 +1017,12 @@ func (m *Model) handleSlashCommand(input string) (tea.Model, tea.Cmd) {
 			m.projectContext = ctx
 			m.messages = append(m.messages, llm.Message{
 				Role:    "system",
-				Content: fmt.Sprintf("✅ Project re-analyzed successfully!\n\n📁 Updated Context:\n%s", ctx.FormatForPrompt()),
+				Content: "✅ Project re-analyzed successfully!\n\n📁 Updated Context:\n" + ctx.FormatForPrompt(),
 			})
 		}
 		m.viewport.SetContent(m.renderMessages())
 		m.viewport.GotoBottom()
-		
+
 	case "/reset":
 		// Move all sessions to trash and start fresh
 		if err := m.resetProject(); err != nil {
@@ -972,7 +1033,7 @@ func (m *Model) handleSlashCommand(input string) (tea.Model, tea.Cmd) {
 			m.viewport.SetContent(m.renderMessages())
 			return m, nil
 		}
-		
+
 		// Create new session
 		m.handleSlashCommand("/new")
 		m.messages = append(m.messages, llm.Message{
@@ -980,36 +1041,41 @@ func (m *Model) handleSlashCommand(input string) (tea.Model, tea.Cmd) {
 			Content: "Project reset - all sessions moved to trash",
 		})
 		m.viewport.SetContent(m.renderMessages())
-		
+
+	case "/screenshot":
+		// Capture screen
+		return m, m.captureScreen()
+
 	case "/help":
 		// Show available commands
 		help := `🚂 Loco Commands:
 		
-/debug    - Toggle debug metadata visibility
-/analyze  - Re-analyze project with deep file reading
-/list     - List all chat sessions
-/new      - Start a new chat session
-/switch N - Switch to session number N
-/project  - Show project context
-/reset    - Move all sessions to trash and start fresh
-/help     - Show this help message`
-		
+/debug      - Toggle debug metadata visibility
+/analyze    - Re-analyze project with deep file reading
+/list       - List all chat sessions
+/new        - Start a new chat session
+/switch N   - Switch to session number N
+/project    - Show project context
+/reset      - Move all sessions to trash and start fresh
+/screenshot - Capture UI state to file (also: Ctrl+S)
+/help       - Show this help message`
+
 		m.messages = append(m.messages, llm.Message{
 			Role:    "system",
 			Content: help,
 		})
 		m.viewport.SetContent(m.renderMessages())
 		m.viewport.GotoBottom()
-		
+
 	default:
 		m.messages = append(m.messages, llm.Message{
 			Role:    "system",
-			Content: fmt.Sprintf("Unknown command: %s", command),
+			Content: "Unknown command: " + command,
 		})
 		m.viewport.SetContent(m.renderMessages())
 		m.handleSlashCommand("/help")
 	}
-	
+
 	return m, nil
 }
 
@@ -1019,27 +1085,27 @@ func (m *Model) resetProject() error {
 	if err != nil {
 		return err
 	}
-	
+
 	sessionsPath := filepath.Join(m.sessionManager.ProjectPath, ".loco", "sessions")
 	trashPath := filepath.Join(homeDir, ".loco", "trash")
-	
+
 	// Create trash directory if it doesn't exist
-	if err := os.MkdirAll(trashPath, 0755); err != nil {
+	if err := os.MkdirAll(trashPath, 0o755); err != nil {
 		return err
 	}
-	
+
 	// Generate timestamp for trash folder
 	timestamp := time.Now().Format("20060102_150405")
 	projectName := filepath.Base(m.sessionManager.ProjectPath)
 	trashedSessions := filepath.Join(trashPath, fmt.Sprintf("%s_sessions_%s", projectName, timestamp))
-	
+
 	// Move sessions to trash (if they exist)
 	if _, err := os.Stat(sessionsPath); err == nil {
 		if err := os.Rename(sessionsPath, trashedSessions); err != nil {
 			return err
 		}
 	}
-	
+
 	// Reinitialize session manager
 	m.sessionManager = session.NewManager(m.sessionManager.ProjectPath)
 	return m.sessionManager.Initialize()
@@ -1048,11 +1114,11 @@ func (m *Model) resetProject() error {
 func getToolPrompt(registry *tools.Registry) string {
 	var sb strings.Builder
 	sb.WriteString("Available tools:\n")
-	
+
 	for _, desc := range registry.GetToolDescriptions() {
 		sb.WriteString(fmt.Sprintf("\n%s:\n%s\n", desc["name"], desc["description"]))
 	}
-	
+
 	return sb.String()
 }
 
@@ -1063,7 +1129,7 @@ func (m *Model) renderSidebar(width, height int) string {
 		BorderStyle(lipgloss.RoundedBorder()).
 		BorderForeground(lipgloss.Color("86")).
 		Padding(1)
-	
+
 	// Count messages
 	userMessages := 0
 	assistantMessages := 0
@@ -1075,10 +1141,10 @@ func (m *Model) renderSidebar(width, height int) string {
 			assistantMessages++
 		}
 	}
-	
+
 	// Build content
 	var content strings.Builder
-	
+
 	// Title
 	titleStyle := lipgloss.NewStyle().
 		Bold(true).
@@ -1087,7 +1153,7 @@ func (m *Model) renderSidebar(width, height int) string {
 		Align(lipgloss.Center)
 	content.WriteString(titleStyle.Render("🚂 Loco"))
 	content.WriteString("\n")
-	
+
 	subtitleStyle := lipgloss.NewStyle().
 		Foreground(lipgloss.Color("241")).
 		Italic(true).
@@ -1095,7 +1161,7 @@ func (m *Model) renderSidebar(width, height int) string {
 		Align(lipgloss.Center)
 	content.WriteString(subtitleStyle.Render("Local AI Companion"))
 	content.WriteString("\n\n")
-	
+
 	// Status
 	statusStyle := lipgloss.NewStyle().
 		Foreground(lipgloss.Color("86"))
@@ -1104,7 +1170,7 @@ func (m *Model) renderSidebar(width, height int) string {
 	dimStyle := lipgloss.NewStyle().
 		Foreground(lipgloss.Color("239")).
 		Italic(true)
-	
+
 	content.WriteString(labelStyle.Render("Status: "))
 	if m.isStreaming {
 		content.WriteString(statusStyle.Render("✨ Thinking..."))
@@ -1112,7 +1178,7 @@ func (m *Model) renderSidebar(width, height int) string {
 		content.WriteString(statusStyle.Render("✅ Ready"))
 	}
 	content.WriteString("\n\n")
-	
+
 	// LM Studio connection
 	content.WriteString(labelStyle.Render("LM Studio: "))
 	if m.err != nil {
@@ -1121,7 +1187,7 @@ func (m *Model) renderSidebar(width, height int) string {
 		content.WriteString(statusStyle.Render("✅ Connected"))
 	}
 	content.WriteString("\n\n")
-	
+
 	// Current Model info
 	if m.modelName != "" {
 		content.WriteString(labelStyle.Render("Current: "))
@@ -1136,25 +1202,25 @@ func (m *Model) renderSidebar(width, height int) string {
 		content.WriteString(dimStyle.Render(fmt.Sprintf("(%s)", m.modelSize)))
 		content.WriteString("\n\n")
 	}
-	
+
 	// Available Models info
 	if len(m.allModels) > 0 {
 		content.WriteString(labelStyle.Render("Models:"))
 		content.WriteString("\n")
-		
+
 		// Group models by size for display
 		modelsBySize := make(map[llm.ModelSize][]llm.Model)
 		for _, model := range m.allModels {
 			size := llm.DetectModelSize(model.ID)
 			modelsBySize[size] = append(modelsBySize[size], model)
 		}
-		
+
 		// Show each size group
 		sizes := []llm.ModelSize{llm.SizeXS, llm.SizeS, llm.SizeM, llm.SizeL, llm.SizeXL}
 		for _, size := range sizes {
 			if models, exists := modelsBySize[size]; exists && len(models) > 0 {
 				content.WriteString(dimStyle.Render(fmt.Sprintf("  %s: %d", size, len(models))))
-				
+
 				// Show usage count for the first model of this size
 				usage := m.modelUsage[models[0].ID]
 				if usage > 0 {
@@ -1165,7 +1231,7 @@ func (m *Model) renderSidebar(width, height int) string {
 		}
 		content.WriteString("\n")
 	}
-	
+
 	// Session info
 	if m.sessionManager != nil {
 		currentSession, _ := m.sessionManager.GetCurrent()
@@ -1180,12 +1246,12 @@ func (m *Model) renderSidebar(width, height int) string {
 			content.WriteString("\n\n")
 		}
 	}
-	
+
 	// Project info
 	if m.projectContext != nil {
 		content.WriteString(labelStyle.Render("Project:"))
 		content.WriteString("\n")
-		
+
 		// Project name/description
 		projectDesc := m.projectContext.Description
 		if len(projectDesc) > width-6 {
@@ -1193,23 +1259,23 @@ func (m *Model) renderSidebar(width, height int) string {
 		}
 		content.WriteString(statusStyle.Render(projectDesc))
 		content.WriteString("\n")
-		
+
 		// File count
 		content.WriteString(dimStyle.Render(fmt.Sprintf("%d files", m.projectContext.FileCount)))
 		content.WriteString("\n\n")
 	}
-	
+
 	// Message counts
 	content.WriteString(labelStyle.Render("Messages:"))
 	content.WriteString("\n")
 	content.WriteString(fmt.Sprintf("  👤 User: %d\n", userMessages))
 	content.WriteString(fmt.Sprintf("  🤖 Assistant: %d\n", assistantMessages))
 	content.WriteString("\n\n")
-	
+
 	// Screenshot hint
 	content.WriteString(labelStyle.Render("Tip:"))
 	content.WriteString("\n")
 	content.WriteString(dimStyle.Render("Press Ctrl+S to\ncopy screen to\nclipboard"))
-	
+
 	return sidebarStyle.Render(content.String())
 }

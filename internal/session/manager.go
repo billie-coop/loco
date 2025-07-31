@@ -2,6 +2,7 @@ package session
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -12,25 +13,25 @@ import (
 	"github.com/billie-coop/loco/internal/llm"
 )
 
-// Session represents a chat session
+// Session represents a chat session.
 type Session struct {
-	ID          string        `json:"id"`
-	Title       string        `json:"title"`
-	Messages    []llm.Message `json:"messages"`
 	Created     time.Time     `json:"created"`
 	LastUpdated time.Time     `json:"last_updated"`
+	ID          string        `json:"id"`
+	Title       string        `json:"title"`
 	Model       string        `json:"model,omitempty"`
+	Messages    []llm.Message `json:"messages"`
 }
 
-// Manager handles multiple chat sessions
+// Manager handles multiple chat sessions.
 type Manager struct {
-	ProjectPath   string // Exported for access
-	sessionsPath  string
-	currentID     string
-	sessions      map[string]*Session
+	sessions     map[string]*Session
+	ProjectPath  string
+	sessionsPath string
+	currentID    string
 }
 
-// NewManager creates a new session manager
+// NewManager creates a new session manager.
 func NewManager(projectPath string) *Manager {
 	return &Manager{
 		ProjectPath:  projectPath,
@@ -39,10 +40,10 @@ func NewManager(projectPath string) *Manager {
 	}
 }
 
-// Initialize sets up the session directory and loads existing sessions
+// Initialize sets up the session directory and loads existing sessions.
 func (m *Manager) Initialize() error {
 	// Create sessions directory if it doesn't exist
-	if err := os.MkdirAll(m.sessionsPath, 0755); err != nil {
+	if err := os.MkdirAll(m.sessionsPath, 0o755); err != nil {
 		return fmt.Errorf("failed to create sessions directory: %w", err)
 	}
 
@@ -50,7 +51,7 @@ func (m *Manager) Initialize() error {
 	return m.loadSessions()
 }
 
-// NewSession creates a new chat session
+// NewSession creates a new chat session.
 func (m *Manager) NewSession(model string) (*Session, error) {
 	session := &Session{
 		ID:          m.generateID(),
@@ -73,7 +74,7 @@ func (m *Manager) NewSession(model string) (*Session, error) {
 	return session, nil
 }
 
-// GetCurrent returns the current session
+// GetCurrent returns the current session.
 func (m *Manager) GetCurrent() (*Session, error) {
 	if m.currentID == "" {
 		// No current session, create a new one
@@ -88,7 +89,7 @@ func (m *Manager) GetCurrent() (*Session, error) {
 	return session, nil
 }
 
-// GetSession returns a specific session by ID
+// GetSession returns a specific session by ID.
 func (m *Manager) GetSession(id string) (*Session, error) {
 	session, exists := m.sessions[id]
 	if !exists {
@@ -97,7 +98,7 @@ func (m *Manager) GetSession(id string) (*Session, error) {
 	return session, nil
 }
 
-// SetCurrent sets the current session
+// SetCurrent sets the current session.
 func (m *Manager) SetCurrent(id string) error {
 	if _, exists := m.sessions[id]; !exists {
 		return fmt.Errorf("session not found: %s", id)
@@ -106,7 +107,7 @@ func (m *Manager) SetCurrent(id string) error {
 	return nil
 }
 
-// ListSessions returns all sessions sorted by last updated
+// ListSessions returns all sessions sorted by last updated.
 func (m *Manager) ListSessions() []*Session {
 	sessions := make([]*Session, 0, len(m.sessions))
 	for _, session := range m.sessions {
@@ -121,7 +122,7 @@ func (m *Manager) ListSessions() []*Session {
 	return sessions
 }
 
-// AddMessage adds a message to the current session
+// AddMessage adds a message to the current session.
 func (m *Manager) AddMessage(msg llm.Message) error {
 	session, err := m.GetCurrent()
 	if err != nil {
@@ -139,7 +140,7 @@ func (m *Manager) AddMessage(msg llm.Message) error {
 	return m.saveSession(session)
 }
 
-// UpdateCurrentMessages replaces all messages in the current session
+// UpdateCurrentMessages replaces all messages in the current session.
 func (m *Manager) UpdateCurrentMessages(messages []llm.Message) error {
 	session, err := m.GetCurrent()
 	if err != nil {
@@ -162,14 +163,14 @@ func (m *Manager) UpdateCurrentMessages(messages []llm.Message) error {
 	return m.saveSession(session)
 }
 
-// DeleteSession removes a session
+// DeleteSession removes a session.
 func (m *Manager) DeleteSession(id string) error {
 	if id == m.currentID {
-		return fmt.Errorf("cannot delete current session")
+		return errors.New("cannot delete current session")
 	}
 
 	delete(m.sessions, id)
-	
+
 	// Remove file
 	sessionPath := filepath.Join(m.sessionsPath, id+".json")
 	return os.Remove(sessionPath)
@@ -216,13 +217,13 @@ func (m *Manager) loadSessions() error {
 
 func (m *Manager) saveSession(session *Session) error {
 	sessionPath := filepath.Join(m.sessionsPath, session.ID+".json")
-	
+
 	data, err := json.MarshalIndent(session, "", "  ")
 	if err != nil {
 		return err
 	}
 
-	return os.WriteFile(sessionPath, data, 0644)
+	return os.WriteFile(sessionPath, data, 0o644)
 }
 
 func (m *Manager) generateID() string {
@@ -236,9 +237,9 @@ func (m *Manager) generateTitle(firstMessage string) string {
 	if len(title) > 50 {
 		title = title[:47] + "..."
 	}
-	
+
 	// Clean up newlines
 	title = strings.ReplaceAll(title, "\n", " ")
-	
+
 	return title
 }

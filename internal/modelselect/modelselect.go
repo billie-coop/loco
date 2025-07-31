@@ -1,59 +1,58 @@
 package modelselect
 
 import (
-	"fmt"
+	"errors"
 	"strings"
 
+	"github.com/billie-coop/loco/internal/llm"
 	tea "github.com/charmbracelet/bubbletea/v2"
 	"github.com/charmbracelet/lipgloss/v2"
-
-	"github.com/billie-coop/loco/internal/llm"
 )
 
 var (
 	titleStyle = lipgloss.NewStyle().
-		Bold(true).
-		Foreground(lipgloss.Color("205")).
-		MarginBottom(2)
+			Bold(true).
+			Foreground(lipgloss.Color("205")).
+			MarginBottom(2)
 
 	selectedStyle = lipgloss.NewStyle().
-		Foreground(lipgloss.Color("205")).
-		Bold(true)
+			Foreground(lipgloss.Color("205")).
+			Bold(true)
 
 	normalStyle = lipgloss.NewStyle().
-		Foreground(lipgloss.Color("252"))
+			Foreground(lipgloss.Color("252"))
 
 	dimStyle = lipgloss.NewStyle().
-		Foreground(lipgloss.Color("241"))
+			Foreground(lipgloss.Color("241"))
 
 	errorStyle = lipgloss.NewStyle().
-		Foreground(lipgloss.Color("196"))
+			Foreground(lipgloss.Color("196"))
 )
 
-// ModelSelectedMsg is sent when a model is selected
+// ModelSelectedMsg is sent when a model is selected.
 type ModelSelectedMsg struct {
 	Model llm.Model
 }
 
-// AutoSelectMsg is sent when auto-selection should happen
+// AutoSelectMsg is sent when auto-selection should happen.
 type AutoSelectMsg struct {
 	SelectedModel *llm.Model
 	AllModels     []llm.Model
 }
 
-// Model represents the model selector
+// Model represents the model selector.
 type Model struct {
+	err        error
+	client     *llm.LMStudioClient
 	models     []llm.Model
 	cursor     int
-	client     *llm.LMStudioClient
-	err        error
-	loading    bool
-	autoSelect bool // If true, automatically select best model
 	width      int
 	height     int
+	loading    bool
+	autoSelect bool
 }
 
-// New creates a new model selector
+// New creates a new model selector.
 func New(client *llm.LMStudioClient) Model {
 	return Model{
 		client:     client,
@@ -62,7 +61,7 @@ func New(client *llm.LMStudioClient) Model {
 	}
 }
 
-// NewWithManualSelection creates a model selector that requires manual selection
+// NewWithManualSelection creates a model selector that requires manual selection.
 func NewWithManualSelection(client *llm.LMStudioClient) Model {
 	return Model{
 		client:     client,
@@ -71,12 +70,12 @@ func NewWithManualSelection(client *llm.LMStudioClient) Model {
 	}
 }
 
-// Init initializes the model
+// Init initializes the model.
 func (m Model) Init() tea.Cmd {
 	return m.fetchModels
 }
 
-// Update handles messages
+// Update handles messages.
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
@@ -111,7 +110,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.loading = false
 		m.models = msg.models
 		if len(m.models) == 0 {
-			m.err = fmt.Errorf("no models available in LM Studio")
+			m.err = errors.New("no models available in LM Studio")
 		} else if m.autoSelect {
 			// Auto-select the best model
 			selectedModel := AutoSelectBestModel(m.models)
@@ -133,7 +132,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// View renders the UI
+// View renders the UI.
 func (m Model) View() tea.View {
 	var s strings.Builder
 
@@ -200,27 +199,27 @@ func (m Model) fetchModels() tea.Msg {
 	return modelsLoadedMsg{models: models}
 }
 
-// AutoSelectBestModel returns the best model based on smart selection rules
+// AutoSelectBestModel returns the best model based on smart selection rules.
 func AutoSelectBestModel(models []llm.Model) *llm.Model {
 	if len(models) == 0 {
 		return nil
 	}
-	
+
 	// If only one model, use it
 	if len(models) == 1 {
 		return &models[0]
 	}
-	
+
 	// Group models by size
 	var modelIDs []string
 	for _, model := range models {
 		modelIDs = append(modelIDs, model.ID)
 	}
 	modelsBySize := llm.GetModelsBySize(modelIDs)
-	
+
 	// Priority order: M (best balance) > L (powerful) > S (fast) > XL (slow) > XS (limited)
 	priorities := []llm.ModelSize{llm.SizeM, llm.SizeL, llm.SizeS, llm.SizeXL, llm.SizeXS}
-	
+
 	for _, size := range priorities {
 		if sizedModels, exists := modelsBySize[size]; exists && len(sizedModels) > 0 {
 			// Find the original Model struct for this model ID
@@ -231,7 +230,7 @@ func AutoSelectBestModel(models []llm.Model) *llm.Model {
 			}
 		}
 	}
-	
+
 	// Fallback: use first model
 	return &models[0]
 }

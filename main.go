@@ -5,26 +5,25 @@ import (
 	"fmt"
 	"os"
 
-	tea "github.com/charmbracelet/bubbletea/v2"
-	"github.com/charmbracelet/lipgloss/v2"
-	
 	"github.com/billie-coop/loco/internal/chat"
 	"github.com/billie-coop/loco/internal/llm"
 	"github.com/billie-coop/loco/internal/modelselect"
+	tea "github.com/charmbracelet/bubbletea/v2"
+	"github.com/charmbracelet/lipgloss/v2"
 )
 
 // Style definitions for the UI.
 var (
 	titleStyle = lipgloss.NewStyle().
-		Bold(true).
-		Foreground(lipgloss.Color("205")).
-		MarginLeft(2)
+			Bold(true).
+			Foreground(lipgloss.Color("205")).
+			MarginLeft(2)
 
 	helpStyle = lipgloss.NewStyle().
-		Foreground(lipgloss.Color("241"))
+			Foreground(lipgloss.Color("241"))
 )
 
-// AppState represents the current state of the application
+// AppState represents the current state of the application.
 type AppState int
 
 const (
@@ -32,17 +31,17 @@ const (
 	StateChat
 )
 
-// App is the main application model
+// App is the main application model.
 type App struct {
-	state       AppState
 	llmClient   *llm.LMStudioClient
-	modelSelect modelselect.Model
 	chat        *chat.Model
+	modelSelect modelselect.Model
+	state       AppState
 	width       int
 	height      int
 }
 
-// New creates a new app
+// New creates a new app.
 func NewApp() App {
 	client := llm.NewLMStudioClient()
 	return App{
@@ -52,27 +51,27 @@ func NewApp() App {
 	}
 }
 
-// Init initializes the app
+// Init initializes the app.
 func (a App) Init() tea.Cmd {
 	return a.modelSelect.Init()
 }
 
-// Update handles messages
+// Update handles messages.
 func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	// Handle window size messages globally
 	if wsMsg, ok := msg.(tea.WindowSizeMsg); ok {
 		a.width = wsMsg.Width
 		a.height = wsMsg.Height
-		
+
 		var cmds []tea.Cmd
-		
+
 		// Always update model select with window size
 		model, cmd := a.modelSelect.Update(msg)
 		a.modelSelect = model.(modelselect.Model)
 		if cmd != nil {
 			cmds = append(cmds, cmd)
 		}
-		
+
 		// If chat is initialized, update it too
 		if a.chat != nil {
 			_, cmd = a.chat.Update(msg)
@@ -80,13 +79,13 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				cmds = append(cmds, cmd)
 			}
 		}
-		
+
 		// Continue with normal state handling
 		if a.state == StateChat && a.chat != nil {
 			return a, tea.Batch(cmds...)
 		}
 	}
-	
+
 	switch a.state {
 	case StateModelSelect:
 		switch msg := msg.(type) {
@@ -97,7 +96,7 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			chatModel.SetModelName(msg.Model.ID)
 			a.chat = chatModel
 			a.state = StateChat
-			
+
 			// Send window size to chat immediately after creation
 			var cmds []tea.Cmd
 			cmds = append(cmds, a.chat.Init())
@@ -120,7 +119,7 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				chatModel.SetAvailableModels(msg.AllModels) // Pass all models for sidebar display
 				a.chat = chatModel
 				a.state = StateChat
-				
+
 				// Send window size to chat immediately after creation
 				var cmds []tea.Cmd
 				cmds = append(cmds, a.chat.Init())
@@ -141,17 +140,17 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			a.modelSelect = model.(modelselect.Model)
 			return a, cmd
 		}
-		
+
 	case StateChat:
 		var cmd tea.Cmd
 		_, cmd = a.chat.Update(msg)
 		return a, cmd
 	}
-	
+
 	return a, nil
 }
 
-// View renders the current view
+// View renders the current view.
 func (a App) View() tea.View {
 	switch a.state {
 	case StateModelSelect:
@@ -181,11 +180,11 @@ func main() {
 	fmt.Println()
 
 	// Create and run the app
-	p := tea.NewProgram(NewApp(), 
+	p := tea.NewProgram(NewApp(),
 		tea.WithAltScreen(),
 		tea.WithMouseCellMotion(),
 	)
-	
+
 	if _, err := p.Run(); err != nil {
 		fmt.Printf("Error: %v\n", err)
 		os.Exit(1)

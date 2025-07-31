@@ -7,24 +7,24 @@ import (
 	"strings"
 )
 
-// ListTool implements directory listing functionality
+// ListTool implements directory listing functionality.
 type ListTool struct {
 	workingDir string
 }
 
-// NewListTool creates a new directory listing tool
+// NewListTool creates a new directory listing tool.
 func NewListTool(workingDir string) *ListTool {
 	return &ListTool{
 		workingDir: workingDir,
 	}
 }
 
-// Name returns the tool name
+// Name returns the tool name.
 func (l *ListTool) Name() string {
 	return "list_directory"
 }
 
-// Description returns the tool description for the AI
+// Description returns the tool description for the AI.
 func (l *ListTool) Description() string {
 	return `Lists files and directories in a given path.
 
@@ -36,7 +36,7 @@ Example:
 <tool>{"name": "list_directory", "params": {"path": "internal/tools"}}</tool>`
 }
 
-// Execute lists the directory with the given parameters
+// Execute lists the directory with the given parameters.
 func (l *ListTool) Execute(params map[string]interface{}) (string, error) {
 	// Extract path parameter (optional)
 	path := l.workingDir
@@ -45,12 +45,12 @@ func (l *ListTool) Execute(params map[string]interface{}) (string, error) {
 			path = p
 		}
 	}
-	
+
 	// Handle relative paths
 	if !filepath.IsAbs(path) {
 		path = filepath.Join(l.workingDir, path)
 	}
-	
+
 	// Check if directory exists
 	info, err := os.Stat(path)
 	if err != nil {
@@ -59,20 +59,20 @@ func (l *ListTool) Execute(params map[string]interface{}) (string, error) {
 		}
 		return "", fmt.Errorf("error accessing directory: %w", err)
 	}
-	
+
 	if !info.IsDir() {
 		return "", fmt.Errorf("path is not a directory: %s", path)
 	}
-	
+
 	// Read directory
 	entries, err := os.ReadDir(path)
 	if err != nil {
 		return "", fmt.Errorf("error reading directory: %w", err)
 	}
-	
+
 	var result strings.Builder
 	result.WriteString(fmt.Sprintf("=== %s ===\n", path))
-	
+
 	// Separate directories and files
 	var dirs, files []os.DirEntry
 	for _, entry := range entries {
@@ -80,14 +80,14 @@ func (l *ListTool) Execute(params map[string]interface{}) (string, error) {
 		if strings.HasPrefix(entry.Name(), ".") {
 			continue
 		}
-		
+
 		if entry.IsDir() {
 			dirs = append(dirs, entry)
 		} else {
 			files = append(files, entry)
 		}
 	}
-	
+
 	// List directories first
 	if len(dirs) > 0 {
 		result.WriteString("\nDirectories:\n")
@@ -95,14 +95,14 @@ func (l *ListTool) Execute(params map[string]interface{}) (string, error) {
 			result.WriteString(fmt.Sprintf("  📁 %s/\n", dir.Name()))
 		}
 	}
-	
+
 	// Then list files
 	if len(files) > 0 {
 		result.WriteString("\nFiles:\n")
 		for _, file := range files {
 			icon := "📄"
 			name := file.Name()
-			
+
 			// Add icons based on file extension
 			switch {
 			case strings.HasSuffix(name, ".go"):
@@ -116,7 +116,7 @@ func (l *ListTool) Execute(params map[string]interface{}) (string, error) {
 			case strings.HasSuffix(name, ".sh"):
 				icon = "🔧"
 			}
-			
+
 			// Get file size
 			if info, err := file.Info(); err == nil {
 				size := formatSize(info.Size())
@@ -126,13 +126,13 @@ func (l *ListTool) Execute(params map[string]interface{}) (string, error) {
 			}
 		}
 	}
-	
+
 	if len(dirs) == 0 && len(files) == 0 {
 		result.WriteString("(empty directory)\n")
 	}
-	
+
 	result.WriteString(fmt.Sprintf("\nTotal: %d directories, %d files\n", len(dirs), len(files)))
-	
+
 	return result.String(), nil
 }
 

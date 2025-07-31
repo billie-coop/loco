@@ -58,7 +58,7 @@ This will show the configuration.`,
 	for i, example := range examples {
 		fmt.Printf("Example %d:\n", i+1)
 		fmt.Println("─────────")
-		
+
 		result, err := p.Parse(example)
 		if err != nil {
 			fmt.Printf("ERROR: %v\n", err)
@@ -73,7 +73,7 @@ This will show the configuration.`,
 func printResult(input string, result *parser.ParseResult) {
 	fmt.Printf("Input: %q\n", truncate(input, 60))
 	fmt.Printf("Method: %s\n", result.Method)
-	
+
 	if len(result.ToolCalls) > 0 {
 		fmt.Printf("Tools found: %d\n", len(result.ToolCalls))
 		for i, tool := range result.ToolCalls {
@@ -84,7 +84,7 @@ func printResult(input string, result *parser.ParseResult) {
 	} else {
 		fmt.Println("Tools found: none")
 	}
-	
+
 	if result.Text != input && result.Text != "" {
 		fmt.Printf("Cleaned text: %q\n", truncate(result.Text, 60))
 	}

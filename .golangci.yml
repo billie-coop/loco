@@ -1,69 +1,49 @@
-# MAXIMUM STRICTNESS - We want ALL the checks!
+# Pretty strict - we want high quality code!
 run:
   timeout: 5m
   tests: true
-  skip-dirs-use-default: true
 
 linters:
   enable-all: true
   disable:
-    # These are TOO annoying or conflicting
-    - wsl                # Whitespace linter (too opinionated)
-    - wrapcheck          # Forces wrapping errors everywhere
-    - varnamelen         # Short var names are fine sometimes
+    # These ones are actually too much
+    - wsl                # Whitespace linter (too opinionated about blank lines)
+    - nlreturn           # Blank line before every return is silly
+    - varnamelen         # i, j, k are fine for loops
     - testpackage        # Tests in same package are fine
-    - paralleltest       # Not all tests need t.Parallel()
-    - nlreturn           # Blank lines before return (too much)
-    - gomnd              # Magic numbers - we'll document when needed
-    - godox              # TODO/FIXME comments are fine for now
-    - gochecknoglobals   # Some globals are fine
-    - exhaustivestruct   # Don't need to init every field
-    - funlen             # Function length - we'll be reasonable
-    - gocognit           # Cognitive complexity - we'll be reasonable
-    - cyclop             # Cyclomatic complexity - we'll be reasonable
-    - depguard           # We'll manage our deps responsibly
+    - paralleltest       # Not every test needs parallel
+    - exhaustruct        # Don't need to initialize every struct field
+    - gomnd              # We'll use constants where it makes sense
+    - mnd                # Same as gomnd
+    - godox              # TODO/FIXME comments are useful
+    - funlen             # Some functions are naturally long
+    - containedctx       # Context in structs is sometimes needed
+    - tagliatelle        # Struct tag naming is project-specific
+    - nonamedreturns     # Named returns can be useful
+    - depguard           # We manage our own dependencies
+    
+    # Deprecated linters
+    - deadcode
+    - structcheck
+    - varcheck
+    - ifshort
+    - golint
+    - maligned
+    - scopelint
+    - exhaustivestruct
 
 linters-settings:
-  # Make error messages better
   errcheck:
     check-type-assertions: true
     check-blank: true
   
-  # Catch shadowed variables
   govet:
-    check-shadowing: true
     enable-all: true
   
-  # Style rules
-  revive:
-    severity: error
-    enable-all-rules: true
-    rules:
-      # Maybe too strict
-      - name: cognitive-complexity
-        disabled: true
-      - name: function-length
-        disabled: true
-      - name: max-public-structs
-        disabled: true
-      - name: file-header
-        disabled: true
-      - name: add-constant
-        disabled: true
-      - name: flag-parameter
-        disabled: true
-      - name: unhandled-error
-        disabled: true
+  gosec:
+    severity: low      # Catch even minor security issues
+    confidence: low
   
-  # Enforce test coverage
-  gocover:
-    threshold: 80
-  
-  # Complexity limits
-  gocyclo:
-    min-complexity: 15
-  
-  # Better naming
   gocritic:
     enabled-tags:
       - diagnostic
@@ -72,33 +52,70 @@ linters-settings:
       - experimental
       - opinionated
   
-  # Security
-  gosec:
-    severity: high
-    confidence: medium
+  gocyclo:
+    min-complexity: 15  # Functions should be simple
   
-  # No naked returns!
-  nakedret:
-    max-func-lines: 0  # No naked returns EVER
+  gocognit:
+    min-complexity: 20  # Cognitive complexity limit
   
-  # Struct tags
-  tagliatelle:
-    case:
-      rules:
-        json: snake
-        yaml: snake
+  dupl:
+    threshold: 100      # Catch duplicate code
   
-  # Line length
   lll:
-    line-length: 120
+    line-length: 120    # Reasonable line length
     tab-width: 4
+  
+  nakedret:
+    max-func-lines: 0   # No naked returns at all!
+  
+  prealloc:
+    simple: true
+    range-loops: true
+    for-loops: true
+  
+  revive:
+    enable-all-rules: true
+    rules:
+      # Only disable the truly annoying ones
+      - name: line-length-limit
+        disabled: true
+      - name: function-length
+        disabled: true
+      - name: cognitive-complexity
+        disabled: true
+      - name: cyclomatic
+        disabled: true
+      - name: file-header
+        disabled: true
+      - name: max-public-structs
+        disabled: true
+      - name: add-constant
+        disabled: true
+      - name: flag-parameter
+        disabled: true
+      - name: unhandled-error
+        disabled: true
 
-# Specific issues to ignore
 issues:
+  # Don't skip any issues
+  max-issues-per-linter: 0
+  max-same-issues: 0
+  
+  # Be strict but reasonable about certain patterns
   exclude-rules:
-    # Test files can be more relaxed
+    # Test files can skip some checks
     - path: _test\.go
       linters:
-        - dupl
-        - gosec
-        - goconst
+        - dupl         # Test code can be repetitive
+        - gosec        # Test code can be less secure
+        - errcheck     # Tests might ignore errors
+    
+    # Don't check error returns in deferred cleanup
+    - source: "defer .*.Close"
+      linters:
+        - errcheck
+    
+    # Allow fmt.Print in main
+    - path: main\.go
+      linters:
+        - forbidigo

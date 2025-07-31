@@ -10,7 +10,10 @@
       "Bash(git commit:*)",
       "Bash(go run:*)",
       "WebFetch(domain:github.com)",
-      "WebFetch(domain:pkg.go.dev)"
+      "WebFetch(domain:pkg.go.dev)",
+      "Bash(~/go/bin/golangci-lint run --fix ./...)",
+      "Bash(~/go/bin/golangci-lint run ./... --no-config)",
+      "Bash(~/go/bin/golangci-lint run ./...)"
     ],
     "deny": []
   }

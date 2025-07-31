@@ -12,9 +12,9 @@ func TestParser_Parse(t *testing.T) {
 	tests := []struct {
 		name           string
 		input          string
-		expectedTools  []ToolCall
 		expectedMethod string
 		description    string
+		expectedTools  []ToolCall
 	}{
 		{
 			name:  "direct_json",
@@ -39,7 +39,7 @@ This will show us the application structure.`,
 			description:    "Should extract tool from <tool> tags",
 		},
 		{
-			name: "markdown_json",
+			name:  "markdown_json",
 			input: "Sure, I'll read the configuration file for you:\n\n```json\n{\n  \"name\": \"read_file\",\n  \"params\": {\n    \"path\": \"config.yaml\"\n  }\n}\n```\n\nThis should contain the settings.",
 			expectedTools: []ToolCall{
 				{Name: "read_file", Params: map[string]interface{}{"path": "config.yaml"}},
@@ -101,8 +101,8 @@ And also:
 			description:    "Should handle multiple tool calls",
 		},
 		{
-			name: "malformed_json_in_tags",
-			input: `<tool>{"name": "read_file", params: {"path": "broken.go"}}</tool>`,
+			name:           "malformed_json_in_tags",
+			input:          `<tool>{"name": "read_file", params: {"path": "broken.go"}}</tool>`,
 			expectedTools:  []ToolCall{},
 			expectedMethod: "no_tools",
 			description:    "Should handle malformed JSON gracefully",
@@ -153,9 +153,9 @@ func TestParser_EdgeCases(t *testing.T) {
 	p := New()
 
 	tests := []struct {
+		check func(t *testing.T, result *ParseResult)
 		name  string
 		input string
-		check func(t *testing.T, result *ParseResult)
 	}{
 		{
 			name:  "empty_response",
@@ -206,7 +206,7 @@ func TestParser_EdgeCases(t *testing.T) {
 	}
 }
 
-// TestParser_RealWorldExamples tests with actual AI responses
+// TestParser_RealWorldExamples tests with actual AI responses.
 func TestParser_RealWorldExamples(t *testing.T) {
 	p := New()
 
@@ -214,8 +214,8 @@ func TestParser_RealWorldExamples(t *testing.T) {
 	examples := []struct {
 		name          string
 		input         string
-		expectedTools int
 		description   string
+		expectedTools int
 	}{
 		{
 			name: "claude_style",
@@ -228,20 +228,20 @@ Now let me analyze what we found...`,
 			description:   "Claude-style response with tool tags",
 		},
 		{
-			name: "chatgpt_style",
-			input: "I'll examine the main.go file to understand the structure:\n\n```json\n{\n  \"name\": \"read_file\",\n  \"params\": {\n    \"path\": \"main.go\"\n  }\n}\n```",
+			name:          "chatgpt_style",
+			input:         "I'll examine the main.go file to understand the structure:\n\n```json\n{\n  \"name\": \"read_file\",\n  \"params\": {\n    \"path\": \"main.go\"\n  }\n}\n```",
 			expectedTools: 1,
 			description:   "ChatGPT-style with markdown JSON",
 		},
 		{
-			name: "conversational",
-			input: `Sure! I'll read the README.md file to see what this project is about.`,
+			name:          "conversational",
+			input:         `Sure! I'll read the README.md file to see what this project is about.`,
 			expectedTools: 1,
 			description:   "Natural conversational style",
 		},
 		{
-			name: "mixed_content",
-			input: `Let me check what's in your project. First, I'll list the files in src/ to get an overview, then I'll read main.go to understand the entry point.`,
+			name:          "mixed_content",
+			input:         `Let me check what's in your project. First, I'll list the files in src/ to get an overview, then I'll read main.go to understand the entry point.`,
 			expectedTools: 2,
 			description:   "Multiple actions in natural language",
 		},

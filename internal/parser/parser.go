@@ -6,30 +6,30 @@ import (
 	"strings"
 )
 
-// ToolCall represents a parsed tool invocation
+// ToolCall represents a parsed tool invocation.
 type ToolCall struct {
-	Name   string                 `json:"name"`
 	Params map[string]interface{} `json:"params"`
+	Name   string                 `json:"name"`
 }
 
-// ParseResult contains the parsed content and any tool calls found
+// ParseResult contains the parsed content and any tool calls found.
 type ParseResult struct {
-	Text      string     // Clean text without tool calls
-	ToolCalls []ToolCall // Any tool calls found
-	Method    string     // How we parsed it (for debugging)
+	Text      string
+	Method    string
+	ToolCalls []ToolCall
 }
 
-// Parser handles extracting tool calls from AI responses
+// Parser handles extracting tool calls from AI responses.
 type Parser struct {
 	// We'll add more fields as we evolve
 }
 
-// New creates a new parser
+// New creates a new parser.
 func New() *Parser {
 	return &Parser{}
 }
 
-// Parse extracts tool calls from an AI response
+// Parse extracts tool calls from an AI response.
 func (p *Parser) Parse(response string) (*ParseResult, error) {
 	result := &ParseResult{
 		Text:      response,
@@ -76,7 +76,7 @@ func (p *Parser) Parse(response string) (*ParseResult, error) {
 	return result, nil
 }
 
-// parseToolTags looks for <tool>...</tool> blocks
+// parseToolTags looks for <tool>...</tool> blocks.
 func (p *Parser) parseToolTags(response string) ([]ToolCall, string) {
 	var tools []ToolCall
 	text := response
@@ -104,7 +104,7 @@ func (p *Parser) parseToolTags(response string) ([]ToolCall, string) {
 	return tools, text
 }
 
-// parseMarkdownJSON looks for ```json blocks
+// parseMarkdownJSON looks for ```json blocks.
 func (p *Parser) parseMarkdownJSON(response string) ([]ToolCall, string) {
 	var tools []ToolCall
 	text := response
@@ -135,15 +135,15 @@ func (p *Parser) parseMarkdownJSON(response string) ([]ToolCall, string) {
 	return tools, text
 }
 
-// parseNaturalLanguage looks for common phrases that indicate tool use
+// parseNaturalLanguage looks for common phrases that indicate tool use.
 func (p *Parser) parseNaturalLanguage(response string) ([]ToolCall, string) {
 	var tools []ToolCall
-	
+
 	// Common patterns
 	patterns := []struct {
 		regex  *regexp.Regexp
-		name   string
 		params func(matches []string) map[string]interface{}
+		name   string
 	}{
 		{
 			// "I'll read main.go" or "Let me read the main.go file"

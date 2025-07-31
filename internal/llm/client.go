@@ -5,32 +5,33 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"strings"
 )
 
-// Message represents a chat message
+// Message represents a chat message.
 type Message struct {
 	Role    string `json:"role"`
 	Content string `json:"content"`
 }
 
-// Client interface for LLM operations
+// Client interface for LLM operations.
 type Client interface {
 	Complete(ctx context.Context, messages []Message) (string, error)
 	Stream(ctx context.Context, messages []Message, onChunk func(string)) error
 }
 
-// LMStudioClient implements the Client interface for LM Studio
+// LMStudioClient implements the Client interface for LM Studio.
 type LMStudioClient struct {
+	client  *http.Client
 	baseURL string
 	model   string
-	client  *http.Client
 }
 
-// NewLMStudioClient creates a new LM Studio client
+// NewLMStudioClient creates a new LM Studio client.
 func NewLMStudioClient() *LMStudioClient {
 	return &LMStudioClient{
 		baseURL: "http://localhost:1234",
@@ -39,7 +40,7 @@ func NewLMStudioClient() *LMStudioClient {
 	}
 }
 
-// Complete sends messages and returns the full response
+// Complete sends messages and returns the full response.
 func (c *LMStudioClient) Complete(ctx context.Context, messages []Message) (string, error) {
 	payload := map[string]interface{}{
 		"messages":    messages,
@@ -47,7 +48,7 @@ func (c *LMStudioClient) Complete(ctx context.Context, messages []Message) (stri
 		"max_tokens":  -1,
 		"stream":      false,
 	}
-	
+
 	// Add model if specified
 	if c.model != "" {
 		payload["model"] = c.model
@@ -58,7 +59,7 @@ func (c *LMStudioClient) Complete(ctx context.Context, messages []Message) (stri
 		return "", err
 	}
 
-	req, err := http.NewRequestWithContext(ctx, "POST", c.baseURL+"/v1/chat/completions", bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/v1/chat/completions", bytes.NewReader(body))
 	if err != nil {
 		return "", err
 	}
@@ -91,10 +92,10 @@ func (c *LMStudioClient) Complete(ctx context.Context, messages []Message) (stri
 		return result.Choices[0].Message.Content, nil
 	}
 
-	return "", fmt.Errorf("no response from LM Studio")
+	return "", errors.New("no response from LM Studio")
 }
 
-// Stream sends messages and streams the response
+// Stream sends messages and streams the response.
 func (c *LMStudioClient) Stream(ctx context.Context, messages []Message, onChunk func(string)) error {
 	payload := map[string]interface{}{
 		"messages":    messages,
@@ -102,7 +103,7 @@ func (c *LMStudioClient) Stream(ctx context.Context, messages []Message, onChunk
 		"max_tokens":  -1,
 		"stream":      true,
 	}
-	
+
 	// Add model if specified
 	if c.model != "" {
 		payload["model"] = c.model
@@ -113,7 +114,7 @@ func (c *LMStudioClient) Stream(ctx context.Context, messages []Message, onChunk
 		return err
 	}
 
-	req, err := http.NewRequestWithContext(ctx, "POST", c.baseURL+"/v1/chat/completions", bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/v1/chat/completions", bytes.NewReader(body))
 	if err != nil {
 		return err
 	}
@@ -161,55 +162,55 @@ func (c *LMStudioClient) Stream(ctx context.Context, messages []Message, onChunk
 	return scanner.Err()
 }
 
-// Model represents an available model in LM Studio
+// Model represents an available model in LM Studio.
 type Model struct {
 	ID      string `json:"id"`
 	Object  string `json:"object"`
-	Created int64  `json:"created"`
 	OwnedBy string `json:"owned_by"`
+	Created int64  `json:"created"`
 }
 
-// ModelsResponse represents the response from /v1/models
+// ModelsResponse represents the response from /v1/models.
 type ModelsResponse struct {
 	Data []Model `json:"data"`
 }
 
-// HealthCheck checks if LM Studio is running
+// HealthCheck checks if LM Studio is running.
 func (c *LMStudioClient) HealthCheck() error {
 	resp, err := c.client.Get(c.baseURL + "/v1/models")
 	if err != nil {
 		return fmt.Errorf("LM Studio not reachable: %w", err)
 	}
 	defer resp.Body.Close()
-	
+
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("LM Studio returned status %d", resp.StatusCode)
 	}
-	
+
 	return nil
 }
 
-// GetModels returns the list of available models
+// GetModels returns the list of available models.
 func (c *LMStudioClient) GetModels() ([]Model, error) {
 	resp, err := c.client.Get(c.baseURL + "/v1/models")
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch models: %w", err)
 	}
 	defer resp.Body.Close()
-	
+
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("LM Studio returned status %d", resp.StatusCode)
 	}
-	
+
 	var modelsResp ModelsResponse
 	if err := json.NewDecoder(resp.Body).Decode(&modelsResp); err != nil {
 		return nil, fmt.Errorf("failed to decode models response: %w", err)
 	}
-	
+
 	return modelsResp.Data, nil
 }
 
-// SetModel sets the model to use for completions
+// SetModel sets the model to use for completions.
 func (c *LMStudioClient) SetModel(modelID string) {
 	c.model = modelID
 }

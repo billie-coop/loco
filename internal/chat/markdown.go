@@ -7,7 +7,7 @@ import (
 	"github.com/charmbracelet/glamour/v2/ansi"
 )
 
-// getMarkdownRenderer returns a glamour renderer configured for the given width
+// getMarkdownRenderer returns a glamour renderer configured for the given width.
 func getMarkdownRenderer(width int) *glamour.TermRenderer {
 	r, _ := glamour.NewTermRenderer(
 		glamour.WithStyles(getMarkdownStyle()),
@@ -16,14 +16,14 @@ func getMarkdownRenderer(width int) *glamour.TermRenderer {
 	return r
 }
 
-// renderMarkdown converts markdown text to styled terminal output with proper wrapping
+// renderMarkdown converts markdown text to styled terminal output with proper wrapping.
 func renderMarkdown(content string, width int) string {
 	r := getMarkdownRenderer(width)
 	rendered, _ := r.Render(content)
 	return strings.TrimSuffix(rendered, "\n")
 }
 
-// getMarkdownStyle returns a simple markdown style configuration
+// getMarkdownStyle returns a simple markdown style configuration.
 func getMarkdownStyle() ansi.StyleConfig {
 	return ansi.StyleConfig{
 		Document: ansi.StyleBlock{
@@ -89,7 +89,7 @@ func getMarkdownStyle() ansi.StyleConfig {
 	}
 }
 
-// Helper functions for creating pointers
+// Helper functions for creating pointers.
 func boolPtr(b bool) *bool       { return &b }
 func stringPtr(s string) *string { return &s }
 func uintPtr(u uint) *uint       { return &u }
