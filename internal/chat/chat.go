@@ -3,7 +3,9 @@ package chat
 import (
 	"context"
 	"fmt"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -14,6 +16,8 @@ import (
 	"github.com/charmbracelet/lipgloss/v2"
 
 	"github.com/billie-coop/loco/internal/llm"
+	"github.com/billie-coop/loco/internal/project"
+	"github.com/billie-coop/loco/internal/session"
 )
 
 var (
@@ -58,6 +62,8 @@ type Model struct {
 	streamingTokens int   // Token count for current stream
 	err            error
 	debugLog       []string
+	sessionManager *session.Manager
+	projectContext *project.ProjectContext
 }
 
 // New creates a new chat model
@@ -98,28 +104,65 @@ func NewWithClient(client llm.Client) *Model {
 	// Create a cool animated spinner
 	s := newStyledSpinner()
 
-	// Add welcome message
+	// Get current working directory for project context
+	workingDir, _ := os.Getwd()
+
+	// Initialize session manager
+	sessionMgr := session.NewManager(workingDir)
+	if err := sessionMgr.Initialize(); err != nil {
+		// Log but continue
+		fmt.Printf("Warning: failed to initialize sessions: %v\n", err)
+	}
+
+	// Initialize project analyzer
+	analyzer := project.NewAnalyzer()
+
+	// Base system prompt
+	systemPrompt := "You are Loco, a helpful AI coding assistant running locally via LM Studio."
+
+	// Try to load or analyze project context
+	var projectCtx *project.ProjectContext
+	if workingDir != "" {
+		ctx, err := analyzer.AnalyzeProject(workingDir)
+		if err == nil {
+			projectCtx = ctx
+			// Add project context to system prompt
+			systemPrompt += "\n\n" + ctx.FormatForPrompt()
+		}
+	}
+
+	// Create new session
+	currentSession, _ := sessionMgr.NewSession("")
+
+	// Add system message
 	messages := []llm.Message{
 		{
 			Role:    "system",
-			Content: "You are Loco, a helpful AI coding assistant running locally via LM Studio.",
+			Content: systemPrompt,
 		},
 	}
 
 	m := &Model{
-		viewport:  vp,
-		messages:  messages,
-		input:     ta,
-		spinner:   s,
-		llmClient: client,
-		width:     0, // Will be set by WindowSizeMsg
-		height:    0, // Will be set by WindowSizeMsg
-		debugLog:  []string{},
+		viewport:       vp,
+		messages:       messages,
+		input:          ta,
+		spinner:        s,
+		llmClient:      client,
+		width:          0, // Will be set by WindowSizeMsg
+		height:         0, // Will be set by WindowSizeMsg
+		debugLog:       []string{},
+		sessionManager: sessionMgr,
+		projectContext: projectCtx,
+	}
+	
+	// Save initial system message to session
+	if currentSession != nil {
+		sessionMgr.UpdateCurrentMessages(messages)
 	}
 	
 	// Add initial content
 	m.viewport.SetContent(m.renderMessages())
-	m.log("Chat initialized")
+	m.log("Chat initialized with session: %s", currentSession.ID)
 	
 	return m
 }
@@ -159,9 +202,20 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "ctrl+s":
 			// Save current screen to clipboard (text representation)
 			return m, m.captureScreen()
+		case "tab":
+			// Handle tab completion for slash commands
+			if !m.isStreaming && strings.HasPrefix(m.input.Value(), "/") {
+				m.handleTabCompletion()
+				return m, nil
+			}
 		case "enter":
 			// Send message on plain Enter
 			if !m.isStreaming && m.input.Value() != "" {
+				// Check for slash commands
+				if strings.HasPrefix(m.input.Value(), "/") {
+					return m.handleSlashCommand(m.input.Value())
+				}
+				
 				m.log("Sending message: %s", m.input.Value())
 				cmd := m.sendMessage()
 				return m, tea.Batch(cmd, m.spinner.Tick)
@@ -236,6 +290,11 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				Role:    "assistant",
 				Content: finalMsg,
 			})
+			
+			// Save to session
+			if m.sessionManager != nil {
+				m.sessionManager.UpdateCurrentMessages(m.messages)
+			}
 		} else {
 			m.log("ERROR: Empty response from LLM")
 		}
@@ -415,6 +474,11 @@ func (m *Model) sendMessage() tea.Cmd {
 		Role:    "user",
 		Content: userMsg,
 	})
+	
+	// Save to session
+	if m.sessionManager != nil {
+		m.sessionManager.UpdateCurrentMessages(m.messages)
+	}
 	
 	m.isStreaming = true
 	m.streamingMsg = ""
@@ -603,6 +667,183 @@ func (m *Model) renderStatusLine(width int) string {
 		BorderStyle(lipgloss.NormalBorder()).
 		BorderForeground(lipgloss.Color("241")).
 		Render(content)
+}
+
+func (m *Model) handleSlashCommand(input string) (tea.Model, tea.Cmd) {
+	m.input.Reset()
+	parts := strings.Fields(input)
+	if len(parts) == 0 {
+		return m, nil
+	}
+
+	command := strings.ToLower(parts[0])
+	
+	switch command {
+	case "/list":
+		// List all sessions
+		sessions := m.sessionManager.ListSessions()
+		var msg strings.Builder
+		msg.WriteString("📋 Available sessions:\n\n")
+		for i, s := range sessions {
+			current := ""
+			currentSession, _ := m.sessionManager.GetCurrent()
+			if currentSession != nil && s.ID == currentSession.ID {
+				current = " (current)"
+			}
+			msg.WriteString(fmt.Sprintf("%d. %s%s\n   Created: %s\n", 
+				i+1, s.Title, current, s.Created.Format("Jan 2 15:04")))
+		}
+		
+		// Add as system message temporarily
+		m.messages = append(m.messages, llm.Message{
+			Role:    "system",
+			Content: msg.String(),
+		})
+		m.viewport.SetContent(m.renderMessages())
+		m.viewport.GotoBottom()
+		
+	case "/new":
+		// Create new session
+		newSession, err := m.sessionManager.NewSession(m.modelName)
+		if err != nil {
+			m.log("Failed to create new session: %v", err)
+			return m, nil
+		}
+		
+		// Reset messages with system prompt
+		systemPrompt := "You are Loco, a helpful AI coding assistant running locally via LM Studio."
+		if m.projectContext != nil {
+			systemPrompt += "\n\n" + m.projectContext.FormatForPrompt()
+		}
+		
+		m.messages = []llm.Message{
+			{
+				Role:    "system",
+				Content: systemPrompt,
+			},
+		}
+		
+		m.sessionManager.UpdateCurrentMessages(m.messages)
+		m.viewport.SetContent(m.renderMessages())
+		m.viewport.GotoBottom()
+		m.log("Created new session: %s", newSession.ID)
+		
+	case "/switch":
+		// Switch to a different session
+		if len(parts) < 2 {
+			m.log("Usage: /switch <session-number>")
+			return m, nil
+		}
+		
+		// Parse session number
+		var sessionNum int
+		if _, err := fmt.Sscanf(parts[1], "%d", &sessionNum); err != nil {
+			m.log("Invalid session number")
+			return m, nil
+		}
+		
+		sessions := m.sessionManager.ListSessions()
+		if sessionNum < 1 || sessionNum > len(sessions) {
+			m.log("Session number out of range")
+			return m, nil
+		}
+		
+		// Switch to selected session
+		selectedSession := sessions[sessionNum-1]
+		if err := m.sessionManager.SetCurrent(selectedSession.ID); err != nil {
+			m.log("Failed to switch session: %v", err)
+			return m, nil
+		}
+		
+		// Load messages from the session
+		m.messages = selectedSession.Messages
+		m.viewport.SetContent(m.renderMessages())
+		m.viewport.GotoBottom()
+		m.log("Switched to session: %s", selectedSession.Title)
+		
+	case "/project":
+		// Refresh project context
+		if m.projectContext == nil {
+			m.log("No project context available")
+			return m, nil
+		}
+		
+		// Show project info
+		info := fmt.Sprintf("📁 Project Context:\n%s", m.projectContext.FormatForPrompt())
+		m.messages = append(m.messages, llm.Message{
+			Role:    "system",
+			Content: info,
+		})
+		m.viewport.SetContent(m.renderMessages())
+		m.viewport.GotoBottom()
+		
+	case "/reset":
+		// Move all sessions to trash and start fresh
+		if err := m.resetProject(); err != nil {
+			m.log("Failed to reset project: %v", err)
+			return m, nil
+		}
+		
+		// Create new session
+		m.handleSlashCommand("/new")
+		m.log("Project reset - all sessions moved to trash")
+		
+	case "/help":
+		// Show available commands
+		help := `🚂 Loco Commands:
+		
+/list     - List all chat sessions
+/new      - Start a new chat session
+/switch N - Switch to session number N
+/project  - Show project context
+/reset    - Move all sessions to trash and start fresh
+/help     - Show this help message`
+		
+		m.messages = append(m.messages, llm.Message{
+			Role:    "system",
+			Content: help,
+		})
+		m.viewport.SetContent(m.renderMessages())
+		m.viewport.GotoBottom()
+		
+	default:
+		m.log("Unknown command: %s", command)
+		m.handleSlashCommand("/help")
+	}
+	
+	return m, nil
+}
+
+func (m *Model) resetProject() error {
+	// Move sessions directory to user-level trash
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return err
+	}
+	
+	sessionsPath := filepath.Join(m.sessionManager.ProjectPath, ".loco", "sessions")
+	trashPath := filepath.Join(homeDir, ".loco", "trash")
+	
+	// Create trash directory if it doesn't exist
+	if err := os.MkdirAll(trashPath, 0755); err != nil {
+		return err
+	}
+	
+	// Generate timestamp for trash folder
+	timestamp := time.Now().Format("20060102_150405")
+	projectName := filepath.Base(m.sessionManager.ProjectPath)
+	trashedSessions := filepath.Join(trashPath, fmt.Sprintf("%s_sessions_%s", projectName, timestamp))
+	
+	// Move sessions to trash (if they exist)
+	if _, err := os.Stat(sessionsPath); err == nil {
+		if err := os.Rename(sessionsPath, trashedSessions); err != nil {
+			return err
+		}
+	}
+	
+	// Reinitialize session manager
+	m.sessionManager = session.NewManager(m.sessionManager.ProjectPath)
+	return m.sessionManager.Initialize()
 }
 
 func (m *Model) renderSidebar(width, height int) string {

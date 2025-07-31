@@ -27,6 +27,9 @@ Thumbs.db
 .loco-debug/
 *.log
 
+# Loco cache and project data
+.loco/
+
 # Temporary files
 *.tmp
 *.temp
