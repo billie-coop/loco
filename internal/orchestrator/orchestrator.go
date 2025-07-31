@@ -297,8 +297,8 @@ func (o *Orchestrator) CreatePlan(ctx context.Context, request string) (*WorkPla
 
 	// Create initial analysis task
 	analysisTask := o.taskList.Add(TaskAnalyze, "Analyze user request", request)
-	if err := o.taskList.UpdateStatus(analysisTask.ID, StatusInProgress); err != nil {
-		return nil, fmt.Errorf("failed to update task status: %w", err)
+	if updateErr := o.taskList.UpdateStatus(analysisTask.ID, StatusInProgress); updateErr != nil {
+		return nil, fmt.Errorf("failed to update task status: %w", updateErr)
 	}
 
 	prompt := fmt.Sprintf(`Analyze this request and create a step-by-step plan.
@@ -372,8 +372,8 @@ func (o *Orchestrator) ExecutePlan(ctx context.Context, plan *WorkPlan) error {
 		}
 
 		// Update status
-		if err := o.taskList.UpdateStatus(task.ID, StatusInProgress); err != nil {
-			fmt.Printf("Failed to update task status: %v\n", err)
+		if updateErr := o.taskList.UpdateStatus(task.ID, StatusInProgress); updateErr != nil {
+			fmt.Printf("Failed to update task status: %v\n", updateErr)
 		}
 
 		// Execute task

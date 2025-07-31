@@ -137,9 +137,9 @@ func NewWithClient(client llm.Client) *Model {
 
 	// Initialize session manager
 	sessionMgr := session.NewManager(workingDir)
-	if err := sessionMgr.Initialize(); err != nil {
+	if initErr := sessionMgr.Initialize(); initErr != nil {
 		// Log but continue
-		fmt.Printf("Warning: failed to initialize sessions: %v\n", err)
+		fmt.Printf("Warning: failed to initialize sessions: %v\n", initErr)
 	}
 
 	// Initialize tools
@@ -169,8 +169,8 @@ You can include explanation before or after the tool call. The tool will be exec
 	var projectCtx *project.ProjectContext
 	if workingDir != "" {
 		fmt.Printf("🔍 Analyzing project in %s...\n", workingDir)
-		ctx, err := analyzer.AnalyzeProject(workingDir)
-		if err == nil {
+		ctx, analyzeErr := analyzer.AnalyzeProject(workingDir)
+		if analyzeErr == nil {
 			projectCtx = ctx
 			// Add project context to system prompt
 			systemPrompt += "\n\n" + ctx.FormatForPrompt()
@@ -441,9 +441,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// Save to session
 			if m.sessionManager != nil {
 				if err := m.sessionManager.UpdateCurrentMessages(m.messages); err != nil {
-				// Log but continue
-				fmt.Printf("Warning: failed to update messages: %v\n", err)
-			}
+					// Log but continue
+					fmt.Printf("Warning: failed to update messages: %v\n", err)
+				}
 			}
 		}
 		m.isStreaming = false
@@ -486,7 +486,7 @@ func (m *Model) View() tea.View {
 				return tea.NewView(fmt.Sprintf("\n❌ Error: %v\n\nMake sure LM Studio is running on http://localhost:1234\n\nPress Ctrl+C to exit.\n", m.err))
 			}
 		}
-			return tea.NewView(fmt.Sprintf("\n❌ Error: %v\n\nPress Ctrl+C to exit.\n", m.err))
+		return tea.NewView(fmt.Sprintf("\n❌ Error: %v\n\nPress Ctrl+C to exit.\n", m.err))
 	}
 
 	// Calculate sidebar width (20% of screen, min 20, max 30)
@@ -917,10 +917,10 @@ func (m *Model) handleSlashCommand(input string) (tea.Model, tea.Cmd) {
 		for i, s := range sessions {
 			current := ""
 			currentSession, err := m.sessionManager.GetCurrent()
-		if err != nil {
-			// Handle error but continue
-			currentSession = nil
-		}
+			if err != nil {
+				// Handle error but continue
+				currentSession = nil
+			}
 			if currentSession != nil && s.ID == currentSession.ID {
 				current = " (current)"
 			}

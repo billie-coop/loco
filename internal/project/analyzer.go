@@ -144,7 +144,6 @@ func (a *Analyzer) getGitFiles(projectPath string) ([]string, error) {
 	return files, nil
 }
 
-
 // readKeyFiles spawns little agents to read important project files.
 func (a *Analyzer) readKeyFiles(projectPath string, allFiles []string) map[string]string {
 	contents := make(map[string]string)

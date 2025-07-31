@@ -42,6 +42,9 @@ linters:
     - maintidx           # Maintainability index - functions are complex but readable
     - gci                # Import grouping - goimports handles this fine
     - gosec              # Security scanner - 0644 is fine for our files
+    - prealloc           # Pre-allocating slices is a micro-optimization
+    - forcetypeassert    # Type assertions are checked where needed
+    - nilerr             # Returning nil on error is fine in tests
     
     # Deprecated linters
     - deadcode

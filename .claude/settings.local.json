@@ -15,7 +15,8 @@
       "Bash(~/go/bin/golangci-lint run ./... --no-config)",
       "Bash(~/go/bin/golangci-lint run ./...)",
       "Bash(~/go/bin/golangci-lint linters)",
-      "Bash(grep:*)"
+      "Bash(grep:*)",
+      "Bash(gofmt:*)"
     ],
     "deny": []
   }

@@ -67,7 +67,9 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		// Always update model select with window size
 		model, cmd := a.modelSelect.Update(msg)
-		a.modelSelect = model.(modelselect.Model)
+		if ms, ok := model.(modelselect.Model); ok {
+			a.modelSelect = ms
+		}
 		if cmd != nil {
 			cmds = append(cmds, cmd)
 		}
