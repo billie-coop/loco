@@ -205,6 +205,93 @@ go build && ./loco</pre>
     
     <p>See the <a href="https://github.com/billie-coop/loco">GitHub repository</a> for more details.</p>
 
+    <div style="margin-top: 80px; border-top: 2px solid #000; padding-top: 40px;">
+        <h1>Loco: Local AI Infrastructure Experiments</h1>
+        <div class="subtitle">replicating cloud AI capabilities with local models</div>
+
+        <p>While DDAID is a philosophy that any AI tool could adopt, Loco is a specific exploration: What would a local AI coding assistant look like if we tried to replicate the sophisticated patterns of cloud AI providers, but entirely offline?</p>
+        
+        <p>It's both a reference implementation of DDAID and a testbed for ideas about local AI orchestration. These are patterns that emerged from asking: "Without Anthropic's infrastructure, how can we still achieve powerful AI assistance?"</p>
+
+        <h2>Progressive Multi-Tier Analysis</h2>
+        
+        <p>Instead of throwing one large model at everything, Loco uses a progressive approach:</p>
+        
+        <div class="box">
+            <p><strong>Tier 1: Quick Overview (3B model, 2-3 seconds)</strong><br>
+            Rapid project structure understanding, language detection, framework identification.</p>
+            
+            <p><strong>Tier 2: Detailed Analysis (7B model, 30s-2min)</strong><br>
+            Parallel file-by-file analysis, importance scoring, dependency mapping.</p>
+            
+            <p><strong>Tier 3: Knowledge Synthesis (14B+ model, 2-5min)</strong><br>
+            Deep architectural understanding, pattern recognition, comprehensive documentation.</p>
+        </div>
+        
+        <p>This mirrors how cloud providers likely handle different tasks with different models, but proves it's possible locally.</p>
+
+        <h2>Diversity of Experts</h2>
+        
+        <p>Rather than one model trying to understand everything, Loco explores using specialized models:</p>
+        
+        <ul>
+            <li>Small, fast models for routine analysis</li>
+            <li>Code-specialized models for understanding</li>
+            <li>Larger models for synthesis and reasoning</li>
+            <li>Future: Domain-specific models (security, performance, etc.)</li>
+        </ul>
+        
+        <p>Each model does what it's best at. Together, they achieve more than any single model could.</p>
+
+        <h2>Incremental Intelligence</h2>
+        
+        <p>Loco pioneered several efficiency techniques that make local AI practical:</p>
+        
+        <ul>
+            <li><strong>Git-based caching</strong> - Only analyze files that actually changed</li>
+            <li><strong>Progressive enhancement</strong> - Start with quick analysis, enhance on demand</li>
+            <li><strong>Parallel processing</strong> - Multiple models analyzing different files simultaneously</li>
+            <li><strong>Smart context windows</strong> - Automatic sizing based on model capabilities</li>
+        </ul>
+        
+        <p>These aren't just optimizations - they're explorations of how to make AI assistance sustainable without cloud resources.</p>
+
+        <h2>Local-First Philosophy</h2>
+        
+        <blockquote>
+            "What if you could have Claude-quality assistance without sending your code anywhere?"
+        </blockquote>
+        
+        <p>Loco experiments with:</p>
+        <ul>
+            <li>LM Studio integration for easy model management</li>
+            <li>Automatic model selection based on task complexity</li>
+            <li>Graceful degradation when large models aren't available</li>
+            <li>Context that lives in your git repo, not the cloud</li>
+        </ul>
+
+        <h2>Why This Matters</h2>
+        
+        <p>Cloud AI providers have massive infrastructure advantages. But Loco demonstrates that with clever orchestration, local models can achieve surprisingly sophisticated results. This isn't just about privacy or offline access - it's about understanding what's possible when we rethink AI assistance from first principles.</p>
+        
+        <p>Every technique in Loco is an experiment: Can we replicate cloud-scale AI capabilities using only what runs on a developer's machine? The answer, increasingly, is yes.</p>
+
+        <h2>Join the Experiment</h2>
+        
+        <p>Loco is open source and actively exploring new ideas:</p>
+        
+        <ul>
+            <li>Better model orchestration strategies</li>
+            <li>New specialized agents for different domains</li>
+            <li>Improved caching and incremental analysis</li>
+            <li>Integration with more local model runners</li>
+        </ul>
+        
+        <p>These are just ideas being explored - not prescriptions. Fork it, modify it, take it in new directions. The goal is to push forward what's possible with local AI.</p>
+        
+        <p>If you're interested in local AI, model orchestration, or just want AI assistance that respects your privacy and works offline, <a href="https://github.com/billie-coop/loco">join us</a>.</p>
+    </div>
+
     <div class="footer">
         <p style="font-size: 14px;">
             build with care • build for each other • build for your idea(l)s<br>

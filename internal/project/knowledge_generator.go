@@ -29,10 +29,10 @@ func NewKnowledgeGenerator(workingDir, mediumModel string, summary *AnalysisSumm
 
 // GenerateAllKnowledge generates all 4 knowledge files in parallel.
 func (kg *KnowledgeGenerator) GenerateAllKnowledge() error {
-	// Create knowledge directory
-	knowledgeDir := filepath.Join(kg.workingDir, ".loco", "knowledge")
+	// Create knowledge/detailed directory
+	knowledgeDir := filepath.Join(kg.workingDir, ".loco", "knowledge", "detailed")
 	if err := os.MkdirAll(knowledgeDir, 0o755); err != nil {
-		return fmt.Errorf("failed to create knowledge directory: %w", err)
+		return fmt.Errorf("failed to create detailed knowledge directory: %w", err)
 	}
 
 	// Generate structure and patterns first (in parallel)

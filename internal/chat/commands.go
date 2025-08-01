@@ -260,45 +260,120 @@ func (m *Model) handleTeamCommand() (tea.Model, tea.Cmd) {
 }
 
 func (m *Model) handleKnowledgeCommand(parts []string) (tea.Model, tea.Cmd) {
-	if m.knowledgeManager == nil {
-		m.showStatus("Knowledge base not initialized")
+	workingDir, err := os.Getwd()
+	if err != nil {
+		m.showStatus("Cannot determine working directory")
 		return m, nil
 	}
 
+	knowledgeBase := filepath.Join(workingDir, ".loco", "knowledge")
 	files := []string{"overview.md", "structure.md", "patterns.md", "context.md"}
+	tiers := []string{"quick", "detailed", "deep"}
+
 	var content strings.Builder
 
-	// Check if specific file requested
-	if len(parts) > 1 && strings.HasSuffix(parts[1], ".md") {
-		fileContent, err := m.knowledgeManager.GetFile(parts[1])
-		if err == nil {
-			content.WriteString(fmt.Sprintf("📄 %s:\n\n%s", parts[1], fileContent))
-			m.viewport.SetContent(content.String())
-			m.viewport.GotoTop()
-			return m, nil
-		}
-	}
+	// Check if specific file requested (e.g., /knowledge detailed/structure.md)
+	if len(parts) > 1 {
+		requestedPath := parts[1]
 
-	// Show all files overview
-	content.WriteString("📚 Knowledge Base Files:\n\n")
+		// Try direct file path first (for backward compatibility)
+		if strings.HasSuffix(requestedPath, ".md") {
+			// Check in root knowledge dir first (old location)
+			fullPath := filepath.Join(knowledgeBase, requestedPath)
+			if fileContent, err := os.ReadFile(fullPath); err == nil {
+				content.WriteString(fmt.Sprintf("📄 %s:\n\n%s", requestedPath, string(fileContent)))
+				m.viewport.SetContent(content.String())
+				m.viewport.GotoTop()
+				return m, nil
+			}
 
-	for _, file := range files {
-		fileContent, err := m.knowledgeManager.GetFile(file)
-		if err != nil {
-			content.WriteString(fmt.Sprintf("❌ %s: Error reading file\n", file))
-		} else {
-			lines := strings.Split(fileContent, "\n")
-			preview := ""
-			if len(lines) > 0 {
-				preview = strings.TrimSpace(lines[0])
-				if len(preview) > 50 {
-					preview = preview[:47] + "..."
+			// Check in tier directories
+			for _, tier := range tiers {
+				fullPath = filepath.Join(knowledgeBase, tier, requestedPath)
+				if fileContent, err := os.ReadFile(fullPath); err == nil {
+					content.WriteString(fmt.Sprintf("📄 %s/%s:\n\n%s", tier, requestedPath, string(fileContent)))
+					m.viewport.SetContent(content.String())
+					m.viewport.GotoTop()
+					return m, nil
 				}
 			}
-			content.WriteString(fmt.Sprintf("📄 %s: %s\n", file, preview))
+		}
+
+		// Check for tier/file format
+		if strings.Contains(requestedPath, "/") {
+			fullPath := filepath.Join(knowledgeBase, requestedPath)
+			if fileContent, err := os.ReadFile(fullPath); err == nil {
+				content.WriteString(fmt.Sprintf("📄 %s:\n\n%s", requestedPath, string(fileContent)))
+				m.viewport.SetContent(content.String())
+				m.viewport.GotoTop()
+				return m, nil
+			}
 		}
 	}
-	content.WriteString("\nUse /knowledge <filename> to view full content")
+
+	// Show overview of all tiers
+	content.WriteString("📚 Knowledge Base - Tiered Analysis:\n\n")
+
+	for _, tier := range tiers {
+		tierPath := filepath.Join(knowledgeBase, tier)
+
+		// Check if tier exists
+		if _, err := os.Stat(tierPath); err != nil {
+			continue
+		}
+
+		tierIcon := "📁"
+		tierDesc := ""
+		switch tier {
+		case "quick":
+			tierIcon = "⚡"
+			tierDesc = " (2-3s overview)"
+		case "detailed":
+			tierIcon = "📊"
+			tierDesc = " (comprehensive)"
+		case "deep":
+			tierIcon = "💎"
+			tierDesc = " (refined insights)"
+		}
+
+		content.WriteString(fmt.Sprintf("%s **%s**%s\n", tierIcon, tier, tierDesc))
+
+		// Show files in this tier
+		for _, file := range files {
+			fullPath := filepath.Join(tierPath, file)
+			if fileContent, err := os.ReadFile(fullPath); err == nil {
+				lines := strings.Split(string(fileContent), "\n")
+				preview := ""
+				if len(lines) > 0 {
+					preview = strings.TrimSpace(lines[0])
+					if strings.HasPrefix(preview, "#") {
+						preview = strings.TrimSpace(strings.TrimPrefix(preview, "#"))
+					}
+					if len(preview) > 45 {
+						preview = preview[:42] + "..."
+					}
+				}
+				content.WriteString(fmt.Sprintf("  📄 %s: %s\n", file, preview))
+			}
+		}
+		content.WriteString("\n")
+	}
+
+	// Also check for files in root knowledge dir (backward compatibility)
+	hasRootFiles := false
+	for _, file := range files {
+		fullPath := filepath.Join(knowledgeBase, file)
+		if _, err := os.Stat(fullPath); err == nil {
+			if !hasRootFiles {
+				content.WriteString("📁 **legacy** (old format)\n")
+				hasRootFiles = true
+			}
+			content.WriteString(fmt.Sprintf("  📄 %s\n", file))
+		}
+	}
+
+	content.WriteString("\n💡 Usage: /knowledge <tier>/<file>\n")
+	content.WriteString("Example: /knowledge detailed/structure.md")
 
 	m.viewport.SetContent(content.String())
 	m.viewport.GotoTop()
@@ -395,7 +470,7 @@ func (m *Model) handleHelpCommand() (tea.Model, tea.Cmd) {
 /new        - Start a new chat session
 /switch N   - Switch to session number N
 /team       - Change your model team (S/M/L)
-/knowledge  - View knowledge base files
+/knowledge  - View knowledge files (/knowledge <tier>/<file>)
 /project    - Show project context
 /reset      - Move all sessions to trash and start fresh
 /screenshot - Capture UI state to file (also: Ctrl+S)
@@ -518,10 +593,10 @@ func (m *Model) runProgressiveAnalysis(workingDir string, currentSession *sessio
 	}
 
 	// Save quick analysis and mark Tier 1 complete
-	if err := project.SaveQuickAnalysis(workingDir, quickAnalysis); err != nil {
+	if saveErr := project.SaveQuickAnalysis(workingDir, quickAnalysis); saveErr != nil {
 		m.messages = append(m.messages, llm.Message{
 			Role:    "system",
-			Content: fmt.Sprintf("⚠️  Quick analysis complete but save failed: %v", err),
+			Content: fmt.Sprintf("⚠️  Quick analysis complete but save failed: %v", saveErr),
 		})
 	}
 
@@ -583,10 +658,10 @@ func (m *Model) runProgressiveAnalysis(workingDir string, currentSession *sessio
 		}
 	}
 
-	if err := project.SaveAnalysisJSON(workingDir, analyses, detailedDuration); err != nil {
+	if saveErr := project.SaveAnalysisJSON(workingDir, analyses, detailedDuration); saveErr != nil {
 		m.messages = append(m.messages, llm.Message{
 			Role:    "system",
-			Content: fmt.Sprintf("❌ Failed to save detailed analysis: %v", err),
+			Content: fmt.Sprintf("❌ Failed to save detailed analysis: %v", saveErr),
 		})
 		m.analysisState.IsRunning = false
 		m.showStatus("❌ Save failed")
@@ -628,7 +703,6 @@ func (m *Model) runProgressiveAnalysis(workingDir string, currentSession *sessio
 	}
 
 	m.analysisState.KnowledgeRunning = true
-	knowledgeStart := time.Now()
 
 	// Load analysis summary for knowledge generation
 	jsonPath := filepath.Join(workingDir, ".loco", "file_analysis.json")
@@ -654,28 +728,84 @@ func (m *Model) runProgressiveAnalysis(workingDir string, currentSession *sessio
 		return
 	}
 
-	// Generate knowledge files using medium model
+	// Run the full tiered knowledge generation pipeline
 	m.messages = append(m.messages, llm.Message{
 		Role:    "system",
-		Content: fmt.Sprintf("🔍 Starting knowledge generation with model: %s", currentSession.Team.Medium),
+		Content: "🧠 Starting progressive knowledge generation pipeline...",
 	})
 	m.viewport.SetContent(m.renderMessages())
-	
+
+	// === Tier 1: Quick Knowledge ===
+	quickKnowStart := time.Now()
+	m.showStatus("⚡ Generating quick knowledge...")
+
+	qkg := project.NewQuickKnowledgeGenerator(workingDir, smallModel, quickAnalysis)
+	if err := qkg.GenerateQuickKnowledge(); err != nil {
+		m.messages = append(m.messages, llm.Message{
+			Role:    "system",
+			Content: fmt.Sprintf("⚠️ Quick knowledge generation failed: %v", err),
+		})
+	} else {
+		quickKnowDuration := time.Since(quickKnowStart)
+		m.messages = append(m.messages, llm.Message{
+			Role:    "system",
+			Content: fmt.Sprintf("⚡ Quick knowledge generated! (%s)\n   📁 Saved to: knowledge/quick/", quickKnowDuration.Round(time.Millisecond)),
+		})
+		m.viewport.SetContent(m.renderMessages())
+	}
+
+	// === Tier 2: Detailed Knowledge ===
+	detailedKnowStart := time.Now()
+	m.showStatus("📊 Generating detailed knowledge...")
+
 	kg := project.NewKnowledgeGenerator(workingDir, currentSession.Team.Medium, &analysisSummary)
 	if err := kg.GenerateAllKnowledge(); err != nil {
 		m.messages = append(m.messages, llm.Message{
 			Role:    "system",
-			Content: fmt.Sprintf("❌ Knowledge generation failed: %v", err),
+			Content: fmt.Sprintf("❌ Detailed knowledge generation failed: %v", err),
 		})
 		m.analysisState.IsRunning = false
 		m.showStatus("❌ Knowledge generation failed")
 		return
 	}
 
-	knowledgeDuration := time.Since(knowledgeStart)
+	detailedKnowDuration := time.Since(detailedKnowStart)
+	m.messages = append(m.messages, llm.Message{
+		Role:    "system",
+		Content: fmt.Sprintf("📊 Detailed knowledge generated! (%s)\n   📁 Saved to: knowledge/detailed/", detailedKnowDuration.Round(time.Millisecond)),
+	})
+	m.viewport.SetContent(m.renderMessages())
+
+	// === Tier 3: Deep Knowledge (if large model available) ===
+	if currentSession.Team.Large != "" {
+		deepKnowStart := time.Now()
+		m.showStatus("💎 Generating deep knowledge...")
+
+		dkg := project.NewDeepKnowledgeGenerator(workingDir, currentSession.Team.Large, &analysisSummary)
+		if err := dkg.GenerateDeepKnowledge(); err != nil {
+			m.messages = append(m.messages, llm.Message{
+				Role:    "system",
+				Content: fmt.Sprintf("⚠️ Deep knowledge generation failed: %v\n   (This is okay - detailed knowledge is still available)", err),
+			})
+		} else {
+			deepKnowDuration := time.Since(deepKnowStart)
+			m.messages = append(m.messages, llm.Message{
+				Role:    "system",
+				Content: fmt.Sprintf("💎 Deep knowledge generated! (%s)\n   📁 Saved to: knowledge/deep/", deepKnowDuration.Round(time.Millisecond)),
+			})
+		}
+		m.viewport.SetContent(m.renderMessages())
+	} else {
+		m.messages = append(m.messages, llm.Message{
+			Role:    "system",
+			Content: "ℹ️ Deep knowledge skipped (no large model configured)",
+		})
+		m.viewport.SetContent(m.renderMessages())
+	}
+
 	totalDuration := time.Since(totalStart)
 
-	// Mark Tier 3 complete
+	// Mark everything complete
 	m.analysisState.KnowledgeRunning = false
 	m.analysisState.KnowledgeCompleted = true
 	m.analysisState.IsRunning = false
@@ -683,17 +813,28 @@ func (m *Model) runProgressiveAnalysis(workingDir string, currentSession *sessio
 	m.analysisState.CurrentPhase = "complete"
 
 	// Final completion message
+	tiers := "3"
+	if currentSession.Team.Large == "" {
+		tiers = "2"
+	}
+
 	m.messages = append(m.messages, llm.Message{
 		Role: "system",
-		Content: fmt.Sprintf("💎 **Tier 3 Complete!** (%s)\n\n🧠 Generated knowledge files:\n• structure.md - Code organization\n• patterns.md - Development patterns  \n• context.md - Project context\n• overview.md - High-level summary\n\n🎉 **Full 3-Tier Analysis Complete!** (%s total)\n\n🔍 View results: /knowledge\n📊 Raw data: .loco/file_analysis.json",
-			knowledgeDuration.Round(time.Millisecond),
-			totalDuration.Round(time.Millisecond)),
+		Content: fmt.Sprintf("🎉 **Full %s-Tier Analysis Complete!** (%s total)\n\n📚 Knowledge files generated at multiple quality levels:\n• ⚡ knowledge/quick/ - Instant overview\n• 📊 knowledge/detailed/ - Comprehensive analysis\n• 💎 knowledge/deep/ - Refined insights%s\n\n🔍 View with: /knowledge <tier>/<file>\n📊 Raw data: .loco/file_analysis.json",
+			tiers,
+			totalDuration.Round(time.Millisecond),
+			func() string {
+				if currentSession.Team.Large == "" {
+					return " (skipped)"
+				}
+				return ""
+			}()),
 	})
 	m.viewport.SetContent(m.renderMessages())
 	m.viewport.GotoBottom()
-	m.showStatus(fmt.Sprintf("🎉 3-tier analysis complete (%s)", totalDuration.Round(time.Millisecond)))
-
+	m.showStatus(fmt.Sprintf("🎉 %s-tier analysis complete (%s)", tiers, totalDuration.Round(time.Millisecond)))
 }
+
 func (m *Model) handleQuickAnalyzeCommand() (tea.Model, tea.Cmd) {
 	// Get working directory
 	workingDir, err := os.Getwd()
@@ -794,6 +935,24 @@ Saved to: .loco/quick_analysis.json`,
 		})
 		m.viewport.SetContent(m.renderMessages())
 		m.viewport.GotoBottom()
+
+		// Generate quick knowledge files
+		m.showStatus("⚡ Generating quick knowledge...")
+		qkg := project.NewQuickKnowledgeGenerator(workingDir, currentSession.Team.Small, analysis)
+		if err := qkg.GenerateQuickKnowledge(); err != nil {
+			m.messages = append(m.messages, llm.Message{
+				Role:    "system",
+				Content: fmt.Sprintf("⚠️ Quick knowledge generation failed: %v", err),
+			})
+			m.viewport.SetContent(m.renderMessages())
+		} else {
+			m.messages = append(m.messages, llm.Message{
+				Role:    "system",
+				Content: "📚 Quick knowledge files generated in knowledge/quick/",
+			})
+			m.viewport.SetContent(m.renderMessages())
+		}
+
 		m.showStatus(fmt.Sprintf("⚡ Quick analysis done (%s)", duration.Round(time.Millisecond)))
 	}()
 
