@@ -92,3 +92,37 @@ Good luck! The compiler is your friend! 🚂
 
 - **Don't run commands automatically** - I prefer to run things myself (like `make run`, `make test`, etc.) unless I specifically ask you to run them
 - Just tell me what command to run and I'll do it!
+
+## UI Display Rules - CRITICAL!
+
+**NEVER use fmt.Printf or fmt.Println** - These bypass the Bubble Tea UI and mess up the terminal display!
+
+### How to Display Information:
+
+1. **Status Bar (Right Side)** - For brief notifications:
+   - Keep messages under 40 characters
+   - Messages are sticky (stay until replaced)
+   - Use `m.showStatus("Brief message")`
+   - Examples: "✅ Project analyzed", "⚠️ Error occurred"
+
+2. **Message Viewport** - For logs and chat:
+   - Add system messages during startup for visibility
+   - Use for detailed error messages or logs
+   - Example:
+   ```go
+   m.messages = append(m.messages, llm.Message{
+       Role: "system",
+       Content: "📁 Detailed startup information here",
+   })
+   ```
+
+3. **Sidebar** - For persistent info:
+   - Model information
+   - Session details  
+   - Project summary
+
+### Architecture Rules:
+- ALL output must go through the Bubble Tea message system
+- Components return data, not print it
+- The UI layer (chat.go) decides how to display data
+- No direct terminal output except from View() method

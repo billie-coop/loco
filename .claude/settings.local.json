@@ -16,7 +16,10 @@
       "Bash(~/go/bin/golangci-lint run ./...)",
       "Bash(~/go/bin/golangci-lint linters)",
       "Bash(grep:*)",
-      "Bash(gofmt:*)"
+      "Bash(gofmt:*)",
+      "Bash(make lint:*)",
+      "Bash(make build:*)",
+      "Bash(ls:*)"
     ],
     "deny": []
   }

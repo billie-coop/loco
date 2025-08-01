@@ -64,25 +64,20 @@ func (a *Analyzer) AnalyzeProject(projectPath string) (*ProjectContext, error) {
 	currentHash, err := a.getGitStatusHash(projectPath)
 	if err != nil {
 		// If we can't get git status, proceed with analysis
-		fmt.Printf("Warning: could not get git status: %v\n", err)
+		// Git status check failed - continue anyway
 	}
 
 	// Check cache first
 	cached, err := a.loadCachedContext(projectPath)
 	if err == nil {
 		isStale := a.isStale(cached, currentHash)
-		hashPreview := ""
-		if len(cached.GitStatusHash) >= 8 {
-			hashPreview = cached.GitStatusHash[:8]
-		}
-		fmt.Printf("🔍 Project cache check: git_hash=%q, cached_hash=%q, stale=%v\n",
-			currentHash[:8], hashPreview, isStale)
+		// Cache check: comparing git hashes
 		if !isStale {
 			return cached, nil
 		}
 	}
 
-	fmt.Printf("🔄 Re-analyzing project due to changes...\n")
+	// Re-analyzing project due to changes
 
 	// Get file list from git
 	files, err := a.getGitFiles(projectPath)
@@ -115,7 +110,7 @@ func (a *Analyzer) AnalyzeProject(projectPath string) (*ProjectContext, error) {
 	// Save to cache
 	if err := a.saveCachedContext(projectPath, analysis); err != nil {
 		// Log but don't fail
-		fmt.Printf("Warning: failed to cache analysis: %v\n", err)
+		// Failed to cache analysis - continue anyway
 	}
 
 	return analysis, nil
@@ -190,7 +185,7 @@ func (a *Analyzer) readKeyFiles(projectPath string, allFiles []string) map[strin
 				fullPath := filepath.Join(projectPath, file)
 				if content := a.readFileContent(fullPath, priority.maxSize); content != "" {
 					contents[file] = content
-					fmt.Printf("📖 Read %s (%s)\n", file, priority.description)
+					// Read file for analysis
 				}
 			}
 		}

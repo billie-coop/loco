@@ -142,7 +142,7 @@ func NewWithClient(client llm.Client) *Model {
 	sessionMgr := session.NewManager(workingDir)
 	if initErr := sessionMgr.Initialize(); initErr != nil {
 		// Log but continue
-		fmt.Printf("Warning: failed to initialize sessions: %v\n", initErr)
+		// Session initialization failed - continue without sessions
 	}
 
 	// Initialize tools
@@ -175,18 +175,49 @@ You can include explanation before or after the tool call. The tool will be exec
 
 ` + getToolPrompt(toolReg)
 
+	// Create startup log messages
+	var startupLogs []llm.Message
+	
+	// Log session initialization
+	startupLogs = append(startupLogs, llm.Message{
+		Role:    "system",
+		Content: "🚂 Loco starting up...",
+	})
+	
 	// Try to load or analyze project context
 	var projectCtx *project.ProjectContext
+	var analysisStatus string
 	if workingDir != "" {
-		fmt.Printf("🔍 Analyzing project in %s...\n", workingDir)
+		// Add project analysis to startup log
+		startupLogs = append(startupLogs, llm.Message{
+			Role:    "system", 
+			Content: fmt.Sprintf("📁 Working directory: %s", workingDir),
+		})
+		startupLogs = append(startupLogs, llm.Message{
+			Role:    "system",
+			Content: "🔍 Analyzing project context...",
+		})
+		
+		// Analyze project (status will be shown in UI)
+		analysisStatus = "🔍 Analyzing project..."
 		ctx, analyzeErr := analyzer.AnalyzeProject(workingDir)
 		if analyzeErr == nil {
 			projectCtx = ctx
 			// Add project context to system prompt
 			systemPrompt += "\n\n" + ctx.FormatForPrompt()
-			fmt.Printf("✅ Project analyzed: %s\n", ctx.Description)
+			// Keep status messages short!
+			analysisStatus = "✅ Project analyzed"
+			startupLogs = append(startupLogs, llm.Message{
+				Role:    "system",
+				Content: fmt.Sprintf("✅ Project analyzed: %s", ctx.Description),
+			})
 		} else {
-			fmt.Printf("⚠️  Could not analyze project: %v\n", err)
+			// Show brief error message
+			analysisStatus = "⚠️ Could not analyze project"
+			startupLogs = append(startupLogs, llm.Message{
+				Role:    "system",
+				Content: fmt.Sprintf("⚠️  Could not analyze project: %v", analyzeErr),
+			})
 		}
 	}
 
@@ -197,13 +228,21 @@ You can include explanation before or after the tool call. The tool will be exec
 		panic(fmt.Sprintf("Failed to create initial session: %v", err))
 	}
 
-	// Add system message
+	// Add startup complete log
+	startupLogs = append(startupLogs, llm.Message{
+		Role:    "system",
+		Content: "✨ Ready to chat!",
+	})
+	
+	// Start with system prompt and startup logs
 	messages := []llm.Message{
 		{
 			Role:    "system",
 			Content: systemPrompt,
 		},
 	}
+	// Add startup logs to messages so they appear in viewport
+	messages = append(messages, startupLogs...)
 
 	m := &Model{
 		viewport:       vp,
@@ -227,12 +266,18 @@ You can include explanation before or after the tool call. The tool will be exec
 	if currentSession != nil {
 		if err := sessionMgr.UpdateCurrentMessages(messages); err != nil {
 			// Log but continue - not critical
-			fmt.Printf("Warning: failed to update session messages: %v\n", err)
+			// Ignore message update errors
 		}
 	}
 
 	// Add initial content
 	m.viewport.SetContent(m.renderMessages())
+	
+	// Set initial status if we have analysis status
+	if analysisStatus != "" {
+		m.statusMessage = analysisStatus
+		m.statusTimer = time.Now()
+	}
 
 	return m
 }
@@ -398,25 +443,30 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						// Check if this is a write operation that needs confirmation
 						if toolCall.Name == "write_file" {
 							// Show what the AI wants to write
-							pathParam, _ := toolCall.Params["path"].(string)
-							contentParam, _ := toolCall.Params["content"].(string)
-							
+							pathParam, ok := toolCall.Params["path"].(string)
+							if !ok {
+								pathParam = "<unknown>"
+							}
+							contentParam, ok := toolCall.Params["content"].(string)
+							if !ok {
+								contentParam = ""
+							}
 							// Add a warning message
 							toolResults = append(toolResults, fmt.Sprintf(
 								"⚠️  WRITE REQUEST: The AI wants to write to '%s'\n\n"+
-								"Content preview (first 200 chars):\n%s%s\n\n"+
-								"To allow this write, use: /confirm-write\n"+
-								"To deny this write, just continue chatting",
+									"Content preview (first 200 chars):\n%s%s\n\n"+
+									"To allow this write, use: /confirm-write\n"+
+									"To deny this write, just continue chatting",
 								pathParam,
-								contentParam[:min(200, len(contentParam))],
+								contentParam[:minInt(200, len(contentParam))],
 								map[bool]string{true: "...", false: ""}[len(contentParam) > 200],
 							))
-							
+
 							// Store pending write for later confirmation
 							m.pendingWrite = &toolCall
 							continue
 						}
-						
+
 						// Execute non-write tools immediately
 						result := m.toolRegistry.Execute(toolCall.Name, toolCall.Params)
 						if result.Success {
@@ -453,7 +503,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						if m.sessionManager != nil {
 							if err := m.sessionManager.UpdateCurrentMessages(m.messages); err != nil {
 								// Log but continue
-								fmt.Printf("Warning: failed to update messages: %v\n", err)
+								// Ignore update errors during streaming
 							}
 						}
 
@@ -475,7 +525,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.sessionManager != nil {
 				if err := m.sessionManager.UpdateCurrentMessages(m.messages); err != nil {
 					// Log but continue
-					fmt.Printf("Warning: failed to update messages: %v\n", err)
+					// Ignore update errors
 				}
 			}
 		}
@@ -633,25 +683,113 @@ func (m *Model) captureScreen() tea.Cmd {
 		screen.WriteString(fmt.Sprintf("Session: %s\n", sessionID))
 		screen.WriteString("===========================\n\n")
 
-		// Render the full UI as it appears on screen
-		screen.WriteString("[FULL UI RENDER]\n")
-		// We can't directly render the View here as it returns tea.View
-		// Instead, let's manually recreate the layout
+		// CAPTURE THE ACTUAL RENDERED VIEW!
+		screen.WriteString("[ACTUAL UI OUTPUT]\n")
+		screen.WriteString("╔" + strings.Repeat("═", m.width-2) + "╗\n")
+		
+		// Get the actual View() output
+		// Since we can't call View() recursively, we need to manually recreate what View() does
+		// Calculate sidebar width (20% of screen, min 20, max 30)
+		sidebarWidth := m.width / 5
+		if sidebarWidth < 20 {
+			sidebarWidth = 20
+		}
+		if sidebarWidth > 30 {
+			sidebarWidth = 30
+		}
+
+		// Calculate main content width
+		mainWidth := m.width - sidebarWidth - 1
+		if mainWidth < 40 {
+			mainWidth = 40
+		}
+
+		// Create the full UI layout
+		sidebar := m.renderSidebar(sidebarWidth, m.height)
+		
+		// Create main view with viewport content
+		mainViewStyle := lipgloss.NewStyle().
+			Width(mainWidth).
+			Height(m.height-5) // viewport height
+		mainView := mainViewStyle.Render(m.viewport.View())
+		
+		// Create input section
+		inputStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("86"))
+		prompt := inputStyle.Render("> ")
+		inputView := lipgloss.JoinHorizontal(lipgloss.Left, prompt, m.input.View())
+		
+		inputSection := lipgloss.NewStyle().
+			Width(mainWidth).
+			Render(lipgloss.JoinVertical(
+				lipgloss.Left,
+				strings.Repeat("─", mainWidth),
+				inputView,
+			))
+		
+		helpText := lipgloss.NewStyle().
+			Foreground(lipgloss.Color("241")).
+			Italic(true).
+			Width(mainWidth).
+			Render("Ctrl+C: exit • Enter: send • Ctrl+S: copy chat")
+		
+		statusLine := m.renderStatusLine(mainWidth)
+		
+		// Combine main area components
+		mainContent := lipgloss.JoinVertical(
+			lipgloss.Left,
+			mainView,
+			statusLine,
+			inputSection,
+			helpText,
+		)
+		
+		// Join sidebar and main content
+		fullUI := lipgloss.JoinHorizontal(
+			lipgloss.Top,
+			sidebar,
+			" ",
+			mainContent,
+		)
+		
+		viewLines := strings.Split(fullUI, "\n")
+		for _, line := range viewLines {
+			// Pad each line to terminal width for box effect
+			paddedLine := line
+			lineLen := lipgloss.Width(line)
+			if lineLen < m.width-2 {
+				paddedLine = line + strings.Repeat(" ", m.width-2-lineLen)
+			}
+			screen.WriteString("║" + paddedLine + "║\n")
+		}
+		
+		screen.WriteString("╚" + strings.Repeat("═", m.width-2) + "╝\n")
+		screen.WriteString("\n")
+
+		// Also include debug info
+		screen.WriteString("[DEBUG INFO]\n")
 		screen.WriteString(fmt.Sprintf("Terminal Size: %dx%d\n", m.width, m.height))
-		screen.WriteString("=== Messages ===\n")
+		screen.WriteString(fmt.Sprintf("Viewport Content Length: %d chars\n", len(m.renderMessages())))
+		screen.WriteString(fmt.Sprintf("Is Streaming: %v\n", m.isStreaming))
+		screen.WriteString(fmt.Sprintf("Debug Mode: %v\n", m.showDebug))
+		screen.WriteString(fmt.Sprintf("Status Message: %s\n", m.statusMessage))
+		screen.WriteString(fmt.Sprintf("Input Value: %q\n", m.input.Value()))
+		
+		// Messages summary
+		userCount := 0
+		assistantCount := 0
+		systemCount := 0
 		for _, msg := range m.messages {
 			switch msg.Role {
 			case "user":
-				screen.WriteString("You: " + msg.Content + "\n")
+				userCount++
 			case "assistant":
-				screen.WriteString("Loco: " + msg.Content + "\n")
+				assistantCount++
 			case "system":
-				screen.WriteString("System: " + msg.Content + "\n")
+				systemCount++
 			}
 		}
-		if m.isStreaming {
-			screen.WriteString("Loco: " + m.streamingMsg + " [streaming...]\n")
-		}
+		screen.WriteString(fmt.Sprintf("Messages: %d total (User: %d, Assistant: %d, System: %d)\n", 
+			len(m.messages), userCount, assistantCount, systemCount))
 		screen.WriteString("\n[END UI RENDER]\n\n")
 
 		// Also include raw state for debugging
@@ -691,7 +829,7 @@ func (m *Model) captureScreen() tea.Cmd {
 		filepath := filepath.Join(screenshotDir, filename)
 
 		if err := os.WriteFile(filepath, []byte(screen.String()), 0o644); err != nil {
-			return statusMsg{content: fmt.Sprintf("Error saving screenshot: %v", err), isError: true}
+			return statusMsg{content: "Error saving screenshot", isError: true}
 		}
 
 		// Also copy to clipboard for convenience
@@ -699,10 +837,10 @@ func (m *Model) captureScreen() tea.Cmd {
 		cmd.Stdin = strings.NewReader(screen.String())
 		if err := cmd.Run(); err != nil {
 			// Log but continue - opening file manager is not critical
-			fmt.Printf("Failed to open file manager: %v\n", err)
+			m.showStatus("Failed to copy screenshot")
 		}
 
-		return statusMsg{content: fmt.Sprintf("Screenshot saved to %s (Ctrl+S)", filepath), isError: false}
+		return statusMsg{content: "Screenshot saved (Ctrl+S)", isError: false}
 	}
 }
 
@@ -817,6 +955,10 @@ func (m *Model) renderMessages() string {
 	for i, msg := range m.messages {
 		switch msg.Role {
 		case "system":
+			// NEVER show the initial system prompt
+			if strings.HasPrefix(msg.Content, "You are Loco") {
+				continue // Skip the system prompt entirely
+			}
 			// Only show tool results and other user-initiated system messages
 			if strings.HasPrefix(msg.Content, "Tool results:") {
 				sb.WriteString(systemStyle.Render("📊 Tool Results:"))
@@ -913,30 +1055,37 @@ func (m *Model) renderStatusLine(width int) string {
 		// Empty status when not streaming
 		leftContent = " "
 	}
-	
+
 	// Right side status/notifications
 	var rightContent string
 	if m.statusMessage != "" {
-		// Only show status messages for 5 seconds
-		if time.Since(m.statusTimer) < 5*time.Second {
-			rightContent = m.statusMessage
+		// Status messages are now sticky - they stay until replaced
+		// Truncate long messages to prevent overflow
+		maxStatusLen := 40 // Maximum characters for status message
+		if len(m.statusMessage) > maxStatusLen {
+			rightContent = m.statusMessage[:maxStatusLen-3] + "..."
 		} else {
-			m.statusMessage = "" // Clear after timeout
+			rightContent = m.statusMessage
 		}
 	}
-	
+
 	// Calculate padding for right alignment
 	leftLen := lipgloss.Width(leftContent)
 	rightLen := lipgloss.Width(rightContent)
 	padding := width - leftLen - rightLen - 2 // -2 for borders
 	if padding < 0 {
-		padding = 0
+		padding = 1 // Minimum 1 space
 	}
-	
+
 	// Combine left and right content
 	content := leftContent
 	if rightContent != "" {
-		content = leftContent + strings.Repeat(" ", padding) + rightContent
+		// Style the status message
+		styledStatus := lipgloss.NewStyle().
+			Foreground(lipgloss.Color("241")).
+			Italic(true).
+			Render(rightContent)
+		content = leftContent + strings.Repeat(" ", padding) + styledStatus
 	}
 
 	// Minimal style with just top border
@@ -948,14 +1097,14 @@ func (m *Model) renderStatusLine(width int) string {
 		Render(content)
 }
 
-// showStatus displays a status message in the status bar instead of chat
+// showStatus displays a status message in the status bar instead of chat.
 func (m *Model) showStatus(message string) {
 	m.statusMessage = message
 	m.statusTimer = time.Now()
 }
 
-// min returns the minimum of two integers
-func min(a, b int) int {
+// minInt returns the minimum of two integers.
+func minInt(a, b int) int {
 	if a < b {
 		return a
 	}
@@ -1056,7 +1205,7 @@ func (m *Model) handleSlashCommand(input string) (tea.Model, tea.Cmd) {
 		// Switch to selected session
 		selectedSession := sessions[sessionNum-1]
 		if err := m.sessionManager.SetCurrent(selectedSession.ID); err != nil {
-			m.showStatus(fmt.Sprintf("Failed to switch session: %v", err))
+			m.showStatus("Failed to switch session")
 			m.viewport.SetContent(m.renderMessages())
 			return m, nil
 		}
@@ -1153,7 +1302,7 @@ func (m *Model) handleSlashCommand(input string) (tea.Model, tea.Cmd) {
 			m.showStatus("No pending write operation")
 			return m, nil
 		}
-		
+
 		// Execute the pending write
 		result := m.toolRegistry.Execute(m.pendingWrite.Name, m.pendingWrite.Params)
 		if result.Success {
@@ -1167,7 +1316,7 @@ func (m *Model) handleSlashCommand(input string) (tea.Model, tea.Cmd) {
 				Content: "❌ Write failed: " + result.Error,
 			})
 		}
-		
+
 		m.pendingWrite = nil
 		m.viewport.SetContent(m.renderMessages())
 		m.viewport.GotoBottom()

@@ -184,7 +184,8 @@ func main() {
 	// Create and run the app
 	p := tea.NewProgram(NewApp(),
 		tea.WithAltScreen(),
-		tea.WithMouseCellMotion(),
+		// Disabled mouse support to allow text selection
+		// tea.WithMouseCellMotion(),
 	)
 
 	if _, err := p.Run(); err != nil {
