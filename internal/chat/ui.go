@@ -167,16 +167,16 @@ func (m *Model) renderSidebar(width, height int) string {
 	// Tiered Analysis Status
 	content.WriteString(labelStyle.Render("Analysis Tiers:"))
 	content.WriteString("\n")
-	
+
 	// Define tier status icons and colors
 	quickIcon := "⚡"
-	detailedIcon := "📊" 
+	detailedIcon := "📊"
 	knowledgeIcon := "💎"
-	
-	completeStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("46"))  // Green
-	runningStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("226"))  // Yellow  
-	pendingStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("240"))  // Gray
-	
+
+	completeStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("46")) // Green
+	runningStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("226")) // Yellow
+	pendingStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("240")) // Gray
+
 	// Check if we have quick analysis cache
 	workingDir, err := os.Getwd()
 	hasQuickCache := false
@@ -185,7 +185,7 @@ func (m *Model) renderSidebar(width, height int) string {
 			hasQuickCache = true
 		}
 	}
-	
+
 	// Tier 1: Quick Analysis
 	if hasQuickCache {
 		content.WriteString(completeStyle.Render(fmt.Sprintf("%s Quick", quickIcon)))
@@ -197,8 +197,8 @@ func (m *Model) renderSidebar(width, height int) string {
 		content.WriteString(dimStyle.Render("○"))
 	}
 	content.WriteString("\n")
-	
-	// Tier 2: Detailed Analysis 
+
+	// Tier 2: Detailed Analysis
 	if m.analysisState != nil {
 		if m.analysisState.DetailedCompleted {
 			content.WriteString(completeStyle.Render(fmt.Sprintf("%s Detailed", detailedIcon)))
@@ -224,7 +224,7 @@ func (m *Model) renderSidebar(width, height int) string {
 		content.WriteString(dimStyle.Render("○"))
 	}
 	content.WriteString("\n")
-	
+
 	// Tier 3: Knowledge Generation
 	if m.analysisState != nil {
 		if m.analysisState.KnowledgeCompleted {
@@ -246,7 +246,7 @@ func (m *Model) renderSidebar(width, height int) string {
 		content.WriteString(dimStyle.Render("○"))
 	}
 	content.WriteString("\n")
-	
+
 	// Show current phase if analysis is running
 	if m.analysisState != nil && m.analysisState.IsRunning && m.analysisState.CurrentPhase != "" {
 		content.WriteString("\n")
@@ -262,7 +262,7 @@ func (m *Model) renderSidebar(width, height int) string {
 			phaseText = "✨ Analysis complete!"
 		}
 		content.WriteString(dimStyle.Render(phaseText))
-		
+
 		// Show timing for running phase
 		if m.analysisState.CurrentPhase != "complete" {
 			duration := time.Since(m.analysisState.StartTime)
@@ -270,7 +270,7 @@ func (m *Model) renderSidebar(width, height int) string {
 			content.WriteString(dimStyle.Render(fmt.Sprintf("⏱️  %s", duration.Round(time.Second))))
 		}
 	}
-	
+
 	content.WriteString("\n\n")
 
 	// Message counts

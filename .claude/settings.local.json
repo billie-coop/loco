@@ -28,7 +28,8 @@
       "Bash(mv:*)",
       "Bash(gofumpt:*)",
       "Bash(go install:*)",
-      "Bash(sed:*)"
+      "Bash(sed:*)",
+      "WebFetch(domain:www.jons.ink)"
     ],
     "deny": []
   }

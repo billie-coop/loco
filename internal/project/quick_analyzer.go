@@ -15,16 +15,16 @@ import (
 
 // QuickAnalysis represents a fast, basic project analysis.
 type QuickAnalysis struct {
-	Generated      time.Time `json:"generated"`
-	ProjectPath    string    `json:"project_path"`
-	ProjectType    string    `json:"project_type"`    // CLI, web, library, etc.
-	MainLanguage   string    `json:"main_language"`   // Go, JavaScript, Python, etc.
-	Framework      string    `json:"framework"`       // Bubble Tea, React, Django, etc.
-	TotalFiles     int       `json:"total_files"`
-	CodeFiles      int       `json:"code_files"`
-	Description    string    `json:"description"`     // One-sentence summary
-	KeyDirectories []string  `json:"key_directories"` // Main directories
-	EntryPoints    []string  `json:"entry_points"`    // Likely main files
+	Generated      time.Time     `json:"generated"`
+	ProjectPath    string        `json:"project_path"`
+	ProjectType    string        `json:"project_type"`  // CLI, web, library, etc.
+	MainLanguage   string        `json:"main_language"` // Go, JavaScript, Python, etc.
+	Framework      string        `json:"framework"`     // Bubble Tea, React, Django, etc.
+	TotalFiles     int           `json:"total_files"`
+	CodeFiles      int           `json:"code_files"`
+	Description    string        `json:"description"`     // One-sentence summary
+	KeyDirectories []string      `json:"key_directories"` // Main directories
+	EntryPoints    []string      `json:"entry_points"`    // Likely main files
 	Duration       time.Duration `json:"analysis_duration_ms"`
 }
 
@@ -47,7 +47,7 @@ func NewQuickAnalyzer(workingDir, smallModel string) *QuickAnalyzer {
 // Analyze performs a quick analysis of the project.
 func (qa *QuickAnalyzer) Analyze() (*QuickAnalysis, error) {
 	start := time.Now()
-	
+
 	analysis := &QuickAnalysis{
 		Generated:   time.Now(),
 		ProjectPath: qa.workingDir,
@@ -187,7 +187,7 @@ func (qa *QuickAnalyzer) buildAnalysisPrompt(files []string) string {
 	var prompt strings.Builder
 
 	prompt.WriteString("Analyze this project based on its file structure and provide a quick assessment:\n\n")
-	
+
 	// Add file list (first 50 files to keep prompt manageable)
 	prompt.WriteString("FILES:\n")
 	displayFiles := files
@@ -195,7 +195,7 @@ func (qa *QuickAnalyzer) buildAnalysisPrompt(files []string) string {
 		displayFiles = files[:50]
 		prompt.WriteString(fmt.Sprintf("(Showing first 50 of %d files)\n", len(files)))
 	}
-	
+
 	for _, file := range displayFiles {
 		prompt.WriteString(fmt.Sprintf("- %s\n", file))
 	}
@@ -212,7 +212,7 @@ func (qa *QuickAnalyzer) buildAnalysisPrompt(files []string) string {
 // parseResponse extracts information from the AI response.
 func (qa *QuickAnalyzer) parseResponse(response string, analysis *QuickAnalysis) {
 	lines := strings.Split(response, "\n")
-	
+
 	for _, line := range lines {
 		line = strings.TrimSpace(line)
 		if strings.HasPrefix(line, "PROJECT_TYPE:") {
@@ -278,7 +278,7 @@ func SaveQuickAnalysis(workingDir string, analysis *QuickAnalysis) error {
 // LoadQuickAnalysis loads a cached quick analysis.
 func LoadQuickAnalysis(workingDir string) (*QuickAnalysis, error) {
 	quickPath := filepath.Join(workingDir, ".loco", "quick_analysis.json")
-	
+
 	data, err := os.ReadFile(quickPath)
 	if err != nil {
 		return nil, err

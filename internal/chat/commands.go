@@ -447,7 +447,6 @@ func (m *Model) resetProject() error {
 	return m.sessionManager.Initialize()
 }
 
-
 func (m *Model) handleAnalyzeFilesCommand() (tea.Model, tea.Cmd) {
 	// Check if we have a small model in our team
 	currentSession, err := m.sessionManager.GetCurrent()
@@ -493,7 +492,7 @@ func (m *Model) handleAnalyzeFilesCommand() (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// runProgressiveAnalysis executes the full 3-tier analysis pipeline with beautiful progress updates
+// runProgressiveAnalysis executes the full 3-tier analysis pipeline with beautiful progress updates.
 func (m *Model) runProgressiveAnalysis(workingDir string, currentSession *session.Session, smallModel string) {
 	totalStart := time.Now()
 
@@ -688,7 +687,6 @@ func (m *Model) runProgressiveAnalysis(workingDir string, currentSession *sessio
 	m.viewport.GotoBottom()
 	m.showStatus(fmt.Sprintf("🎉 3-tier analysis complete (%s)", totalDuration.Round(time.Millisecond)))
 
-
 }
 func (m *Model) handleQuickAnalyzeCommand() (tea.Model, tea.Cmd) {
 	// Get working directory
@@ -738,7 +736,7 @@ func (m *Model) handleQuickAnalyzeCommand() (tea.Model, tea.Cmd) {
 	go func() {
 		start := time.Now()
 		analyzer := project.NewQuickAnalyzer(workingDir, currentSession.Team.Small)
-		
+
 		analysis, err := analyzer.Analyze()
 		if err != nil {
 			m.messages = append(m.messages, llm.Message{
@@ -760,7 +758,7 @@ func (m *Model) handleQuickAnalyzeCommand() (tea.Model, tea.Cmd) {
 		}
 
 		duration := time.Since(start)
-		
+
 		// Create summary message
 		summary := fmt.Sprintf(`⚡ Quick analysis complete in %s!
 

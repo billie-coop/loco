@@ -1,0 +1,280 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DDAID</title>
+    <style>
+        body {
+            font-family: 'Courier New', monospace;
+            font-size: 15px;
+            line-height: 1.6;
+            color: #000;
+            background-color: #fff;
+            max-width: 650px;
+            margin: 60px auto;
+            padding: 20px;
+        }
+
+        h1 {
+            font-size: 28px;
+            font-weight: 700;
+            margin-bottom: 10px;
+            letter-spacing: -0.5px;
+        }
+
+        .subtitle {
+            font-size: 16px;
+            color: #666;
+            margin-bottom: 40px;
+            font-style: italic;
+        }
+
+        h2 {
+            font-size: 20px;
+            font-weight: 700;
+            margin-top: 50px;
+            margin-bottom: 20px;
+            padding: 10px;
+            background-color: #000;
+            color: #fff;
+            display: inline-block;
+        }
+
+        h3 {
+            font-size: 16px;
+            font-weight: 700;
+            margin-top: 30px;
+            margin-bottom: 15px;
+            text-decoration: underline;
+        }
+
+        p {
+            margin-bottom: 20px;
+        }
+
+        blockquote {
+            margin: 40px 0;
+            padding: 20px;
+            border: 3px solid #000;
+            font-weight: 700;
+            font-size: 18px;
+            background-color: #f9f9f9;
+        }
+
+        code {
+            background-color: #000;
+            color: #fff;
+            padding: 2px 6px;
+            font-size: 14px;
+        }
+
+        pre {
+            background-color: #000;
+            color: #0f0;
+            padding: 20px;
+            overflow-x: auto;
+            margin: 30px 0;
+            border: 3px solid #000;
+            font-size: 14px;
+            line-height: 1.4;
+        }
+
+        a {
+            color: #000;
+            font-weight: 700;
+            text-decoration: none;
+            border-bottom: 2px solid #000;
+        }
+
+        a:hover {
+            background-color: #000;
+            color: #fff;
+        }
+
+        ul {
+            margin: 20px 0;
+            padding-left: 30px;
+        }
+
+        li {
+            margin-bottom: 10px;
+        }
+
+        .box {
+            border: 3px solid #000;
+            padding: 20px;
+            margin: 30px 0;
+            background-color: #f5f5f5;
+        }
+
+        .highlight {
+            background-color: #ffff00;
+            padding: 2px 4px;
+            font-weight: 700;
+        }
+
+        .problem {
+            background-color: #ff0000;
+            color: #fff;
+            padding: 2px 6px;
+            font-weight: 700;
+        }
+
+        .solution {
+            background-color: #00ff00;
+            color: #000;
+            padding: 2px 6px;
+            font-weight: 700;
+        }
+
+        .emoji {
+            font-size: 20px;
+            margin-right: 5px;
+        }
+
+        .footer {
+            margin-top: 80px;
+            padding-top: 30px;
+            border-top: 3px solid #000;
+            text-align: center;
+            font-weight: 700;
+        }
+
+        .cta {
+            background-color: #000;
+            color: #fff;
+            padding: 30px;
+            margin: 40px 0;
+            text-align: center;
+            border: 5px solid #000;
+        }
+
+        .cta h3 {
+            color: #fff;
+            font-size: 24px;
+            margin: 0 0 20px 0;
+            text-decoration: none;
+        }
+
+        .cta a {
+            color: #0f0;
+            border-bottom-color: #0f0;
+        }
+
+        .cta a:hover {
+            background-color: #0f0;
+            color: #000;
+        }
+
+        @media (max-width: 700px) {
+            body {
+                margin: 20px;
+                padding: 10px;
+            }
+            
+            h2 {
+                font-size: 18px;
+            }
+            
+            blockquote {
+                font-size: 16px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <h1>DDAID: SHARED AI CONTEXT MANIFESTO</h1>
+    <div class="subtitle">because documentation is dead and AI amnesia is killing us</div>
+
+    <blockquote>
+        <span class="emoji">💀</span> The future of software development isn't about writing code faster—it's about maintaining shared understanding between human and AI at any speed.
+    </blockquote>
+
+    <h2>THE REAL PROBLEM</h2>
+    
+    <p>Every time you switch projects, close your AI chat, or come back after a weekend, <span class="problem">you lose everything</span>. All context vanishes. Your AI becomes a stranger to your codebase again.</p>
+    
+    <p>The industry says "write better documentation."</p>
+    
+    <p>But <span class="highlight">nobody reads documentation. Not even you.</span></p>
+
+    <div class="box">
+        <p><strong>TRUE STORY:</strong> I spent 30 minutes explaining my auth system to ChatGPT yesterday. The same auth system I explained to it last week. And the week before. And the week before that.</p>
+    </div>
+
+    <h2>THE INSIGHT</h2>
+    
+    <p>What if documentation wasn't for reading?</p>
+    
+    <p>What if it was <span class="solution">persistent shared memory</span> between you and your AI collaborators?</p>
+
+    <h3>OLD WAY (BROKEN)</h3>
+    <p><code>Human writes</code> → <code>Document sits</code> → <code>Nobody reads</code> → <code>AI doesn't know</code></p>
+    
+    <h3>NEW WAY (DDAID)</h3>
+    <p><code>Human + AI collaborate</code> → <code>Context captured</code> → <code>AI remembers</code> → <code>Consistent assistance</code></p>
+
+    <h2>HOW IT ACTUALLY WORKS</h2>
+    
+    <p><span class="emoji">🧠</span> <strong>PERSISTENT MEMORY</strong><br>
+    Every decision, pattern, and "remember to do X when Y" captured automatically.</p>
+    
+    <p><span class="emoji">🎒</span> <strong>CONTEXT TRAVELS</strong><br>
+    Lives in your repo. Switch machines? Your AI still knows everything.</p>
+    
+    <p><span class="emoji">🤖</span> <strong>SPECIALIZED AGENTS</strong><br>
+    Architecture, API, Security, Performance agents maintain their domains.</p>
+    
+    <p><span class="emoji">🔌</span> <strong>MODEL AGNOSTIC</strong><br>
+    GPT-4, Claude, Llama, whatever. The context layer doesn't care.</p>
+
+    <div class="box">
+        <h3>REAL EXAMPLES FROM MY LIFE</h3>
+        <p><strong>Monday:</strong> "Hey Claude, remember our auth uses JWT with Redis sessions?"<br>
+        <strong>Friday:</strong> "Hey Claude, how does our auth work again?"<br>
+        <strong>With DDAID:</strong> Claude already knows. Forever.</p>
+    </div>
+
+    <h2>WHY THIS CHANGES EVERYTHING</h2>
+    
+    <p><span class="problem">BEFORE:</span> "The senior dev who understood this left. Now we're all guessing."</p>
+    <p><span class="solution">AFTER:</span> "Two years of architectural decisions are captured. We know exactly why."</p>
+    
+    <p><span class="problem">BEFORE:</span> "I can't remember why we chose PostgreSQL over MongoDB."</p>
+    <p><span class="solution">AFTER:</span> "The Architecture Agent recorded that decision in commit abc123."</p>
+    
+    <p><span class="problem">BEFORE:</span> "Different AI tools give conflicting suggestions."</p>
+    <p><span class="solution">AFTER:</span> "All AIs reference the same shared context. Consistency at last."</p>
+
+    <h2>THE TECH (FOR NERDS)</h2>
+    
+    <div class="box">
+        <ul>
+            <li><code>Git-aware incremental updates</code> - only analyze what changed</li>
+            <li><code>Multi-model memory format</code> - works with any AI</li>
+            <li><code>Local-first architecture</code> - your code never leaves your machine</li>
+            <li><code>Smart context synthesis</code> - agents understand domains deeply</li>
+        </ul>
+    </div>
+
+    <div class="cta">
+        <h3>TRY IT RIGHT NOW</h3>
+        <pre>git clone https://github.com/billie-coop/loco
+go build && ./loco</pre>
+        <p>Watch your AI remember your project. Forever.</p>
+        <p><a href="https://github.com/billie-coop/loco">github.com/billie-coop/loco</a></p>
+    </div>
+
+    <div class="footer">
+        <p>The age of ephemeral AI assistance is ending.</p>
+        <p>The age of persistent AI partnership is beginning.</p>
+        <p><strong>BUILD WITH CONTEXT. BUILD WITH CONTINUITY. BUILD WITH DDAID.</strong></p>
+        <p style="margin-top: 30px; font-size: 14px;">
+            build for yourself • build for your interests • build for your ideas<br>
+            build DIY • make things available to everyone • make the world a better place
+        </p>
+        <p><span class="emoji">🚂</span></p>
+    </div>
+</body>
+</html>
