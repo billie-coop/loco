@@ -171,11 +171,13 @@ func (m *Model) renderSidebar(width, height int) string {
 	// Define tier status icons and colors
 	quickIcon := "⚡"
 	detailedIcon := "📊"
-	knowledgeIcon := "💎"
+	deepIcon := "💎"
+	fullIcon := "🚀"
 
-	completeStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("46")) // Green
-	runningStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("226")) // Yellow
-	pendingStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("240")) // Gray
+	completeStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("46"))                           // Green
+	runningStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("226"))                           // Yellow
+	pendingStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("240"))                           // Gray
+	strikethroughStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("238")).Strikethrough(true) // Dark gray with strikethrough
 
 	// Check if we have quick analysis cache
 	workingDir, err := os.Getwd()
@@ -225,26 +227,32 @@ func (m *Model) renderSidebar(width, height int) string {
 	}
 	content.WriteString("\n")
 
-	// Tier 3: Knowledge Generation
+	// Tier 3: Deep Knowledge
 	if m.analysisState != nil {
 		if m.analysisState.KnowledgeCompleted {
-			content.WriteString(completeStyle.Render(fmt.Sprintf("%s Knowledge", knowledgeIcon)))
+			content.WriteString(completeStyle.Render(fmt.Sprintf("%s Deep", deepIcon)))
 			content.WriteString(" ")
 			content.WriteString(dimStyle.Render("✓"))
 		} else if m.analysisState.KnowledgeRunning {
-			content.WriteString(runningStyle.Render(fmt.Sprintf("%s Knowledge", knowledgeIcon)))
+			content.WriteString(runningStyle.Render(fmt.Sprintf("%s Deep", deepIcon)))
 			content.WriteString(" ")
 			content.WriteString(dimStyle.Render("⏳"))
 		} else {
-			content.WriteString(pendingStyle.Render(fmt.Sprintf("%s Knowledge", knowledgeIcon)))
+			content.WriteString(pendingStyle.Render(fmt.Sprintf("%s Deep", deepIcon)))
 			content.WriteString(" ")
 			content.WriteString(dimStyle.Render("○"))
 		}
 	} else {
-		content.WriteString(pendingStyle.Render(fmt.Sprintf("%s Knowledge", knowledgeIcon)))
+		content.WriteString(pendingStyle.Render(fmt.Sprintf("%s Deep", deepIcon)))
 		content.WriteString(" ")
 		content.WriteString(dimStyle.Render("○"))
 	}
+	content.WriteString("\n")
+
+	// Tier 4: Full Analysis (Future)
+	content.WriteString(strikethroughStyle.Render(fmt.Sprintf("%s Full", fullIcon)))
+	content.WriteString(" ")
+	content.WriteString(dimStyle.Render("─"))
 	content.WriteString("\n")
 
 	// Show current phase if analysis is running
@@ -257,7 +265,7 @@ func (m *Model) renderSidebar(width, height int) string {
 		case "detailed":
 			phaseText = "📊 Analyzing files..."
 		case "knowledge":
-			phaseText = "💎 Generating insights..."
+			phaseText = "💎 Generating deep knowledge..."
 		case "complete":
 			phaseText = "✨ Analysis complete!"
 		}
