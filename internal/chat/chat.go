@@ -29,6 +29,14 @@ type AnalysisState struct {
 	FailedFiles    int
 	StartTime      time.Time
 	EndTime        time.Time
+	
+	// Tier status tracking
+	QuickCompleted    bool
+	DetailedRunning   bool
+	DetailedCompleted bool
+	KnowledgeRunning  bool
+	KnowledgeCompleted bool
+	CurrentPhase      string // "quick", "detailed", "knowledge", "complete"
 }
 
 // Model represents the chat interface.

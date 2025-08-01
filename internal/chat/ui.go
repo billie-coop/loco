@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/billie-coop/loco/internal/llm"
+	"github.com/billie-coop/loco/internal/project"
 	tea "github.com/charmbracelet/bubbletea/v2"
 	"github.com/charmbracelet/lipgloss/v2"
 )
@@ -163,34 +164,114 @@ func (m *Model) renderSidebar(width, height int) string {
 		content.WriteString("\n\n")
 	}
 
-	// File Analysis Status (if applicable)
-	if m.analysisState != nil {
-		content.WriteString(labelStyle.Render("File Analysis:"))
-		content.WriteString("\n")
-
-		if m.analysisState.IsRunning {
-			progress := fmt.Sprintf("%d/%d files", m.analysisState.CompletedFiles, m.analysisState.TotalFiles)
-			if m.analysisState.FailedFiles > 0 {
-				progress += fmt.Sprintf(" (%d failed)", m.analysisState.FailedFiles)
-			}
-			content.WriteString(dimStyle.Render(progress))
-			content.WriteString("\n")
-			duration := time.Since(m.analysisState.StartTime)
-			content.WriteString(dimStyle.Render(fmt.Sprintf("⏱️  %s", duration.Round(time.Second))))
-		} else if m.analysisState.CompletedFiles > 0 {
-			// Show completion summary
-			successCount := m.analysisState.CompletedFiles - m.analysisState.FailedFiles
-			content.WriteString(dimStyle.Render(fmt.Sprintf("✅ %d/%d analyzed", successCount, m.analysisState.TotalFiles)))
-			content.WriteString("\n")
-			if m.analysisState.FailedFiles > 0 {
-				content.WriteString(dimStyle.Render(fmt.Sprintf("❌ %d failed", m.analysisState.FailedFiles)))
-				content.WriteString("\n")
-			}
-			duration := m.analysisState.EndTime.Sub(m.analysisState.StartTime)
-			content.WriteString(dimStyle.Render(fmt.Sprintf("⏱️  %s", duration.Round(time.Millisecond))))
+	// Tiered Analysis Status
+	content.WriteString(labelStyle.Render("Analysis Tiers:"))
+	content.WriteString("\n")
+	
+	// Define tier status icons and colors
+	quickIcon := "⚡"
+	detailedIcon := "📊" 
+	knowledgeIcon := "💎"
+	
+	completeStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("46"))  // Green
+	runningStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("226"))  // Yellow  
+	pendingStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("240"))  // Gray
+	
+	// Check if we have quick analysis cache
+	workingDir, err := os.Getwd()
+	hasQuickCache := false
+	if err == nil {
+		if _, loadErr := project.LoadQuickAnalysis(workingDir); loadErr == nil {
+			hasQuickCache = true
 		}
-		content.WriteString("\n\n")
 	}
+	
+	// Tier 1: Quick Analysis
+	if hasQuickCache {
+		content.WriteString(completeStyle.Render(fmt.Sprintf("%s Quick", quickIcon)))
+		content.WriteString(" ")
+		content.WriteString(dimStyle.Render("✓"))
+	} else {
+		content.WriteString(pendingStyle.Render(fmt.Sprintf("%s Quick", quickIcon)))
+		content.WriteString(" ")
+		content.WriteString(dimStyle.Render("○"))
+	}
+	content.WriteString("\n")
+	
+	// Tier 2: Detailed Analysis 
+	if m.analysisState != nil {
+		if m.analysisState.DetailedCompleted {
+			content.WriteString(completeStyle.Render(fmt.Sprintf("%s Detailed", detailedIcon)))
+			content.WriteString(" ")
+			content.WriteString(dimStyle.Render("✓"))
+		} else if m.analysisState.DetailedRunning || m.analysisState.IsRunning {
+			content.WriteString(runningStyle.Render(fmt.Sprintf("%s Detailed", detailedIcon)))
+			content.WriteString(" ")
+			if m.analysisState.TotalFiles > 0 {
+				progress := fmt.Sprintf("%d/%d", m.analysisState.CompletedFiles, m.analysisState.TotalFiles)
+				content.WriteString(dimStyle.Render(progress))
+			} else {
+				content.WriteString(dimStyle.Render("⏳"))
+			}
+		} else {
+			content.WriteString(pendingStyle.Render(fmt.Sprintf("%s Detailed", detailedIcon)))
+			content.WriteString(" ")
+			content.WriteString(dimStyle.Render("○"))
+		}
+	} else {
+		content.WriteString(pendingStyle.Render(fmt.Sprintf("%s Detailed", detailedIcon)))
+		content.WriteString(" ")
+		content.WriteString(dimStyle.Render("○"))
+	}
+	content.WriteString("\n")
+	
+	// Tier 3: Knowledge Generation
+	if m.analysisState != nil {
+		if m.analysisState.KnowledgeCompleted {
+			content.WriteString(completeStyle.Render(fmt.Sprintf("%s Knowledge", knowledgeIcon)))
+			content.WriteString(" ")
+			content.WriteString(dimStyle.Render("✓"))
+		} else if m.analysisState.KnowledgeRunning {
+			content.WriteString(runningStyle.Render(fmt.Sprintf("%s Knowledge", knowledgeIcon)))
+			content.WriteString(" ")
+			content.WriteString(dimStyle.Render("⏳"))
+		} else {
+			content.WriteString(pendingStyle.Render(fmt.Sprintf("%s Knowledge", knowledgeIcon)))
+			content.WriteString(" ")
+			content.WriteString(dimStyle.Render("○"))
+		}
+	} else {
+		content.WriteString(pendingStyle.Render(fmt.Sprintf("%s Knowledge", knowledgeIcon)))
+		content.WriteString(" ")
+		content.WriteString(dimStyle.Render("○"))
+	}
+	content.WriteString("\n")
+	
+	// Show current phase if analysis is running
+	if m.analysisState != nil && m.analysisState.IsRunning && m.analysisState.CurrentPhase != "" {
+		content.WriteString("\n")
+		phaseText := ""
+		switch m.analysisState.CurrentPhase {
+		case "quick":
+			phaseText = "⚡ Running quick scan..."
+		case "detailed":
+			phaseText = "📊 Analyzing files..."
+		case "knowledge":
+			phaseText = "💎 Generating insights..."
+		case "complete":
+			phaseText = "✨ Analysis complete!"
+		}
+		content.WriteString(dimStyle.Render(phaseText))
+		
+		// Show timing for running phase
+		if m.analysisState.CurrentPhase != "complete" {
+			duration := time.Since(m.analysisState.StartTime)
+			content.WriteString("\n")
+			content.WriteString(dimStyle.Render(fmt.Sprintf("⏱️  %s", duration.Round(time.Second))))
+		}
+	}
+	
+	content.WriteString("\n\n")
 
 	// Message counts
 	content.WriteString(labelStyle.Render("Messages:"))

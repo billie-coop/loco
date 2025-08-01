@@ -1,7 +1,6 @@
 package chat
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -448,26 +447,6 @@ func (m *Model) resetProject() error {
 	return m.sessionManager.Initialize()
 }
 
-// getProjectCommitHash returns the current HEAD commit hash.
-func getProjectCommitHash(workingDir string) string {
-	cmd := exec.Command("git", "rev-parse", "HEAD")
-	cmd.Dir = workingDir
-	output, err := cmd.Output()
-	if err != nil {
-		return ""
-	}
-	return strings.TrimSpace(string(output))
-}
-
-// indexOf returns the index of an element in a slice, or -1 if not found.
-func indexOf(slice []int, value int) int {
-	for i, v := range slice {
-		if v == value {
-			return i
-		}
-	}
-	return -1
-}
 
 func (m *Model) handleAnalyzeFilesCommand() (tea.Model, tea.Cmd) {
 	// Check if we have a small model in our team
@@ -492,407 +471,225 @@ func (m *Model) handleAnalyzeFilesCommand() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	// Show starting message
+	// Start the progressive analysis pipeline!
 	m.messages = append(m.messages, llm.Message{
 		Role:    "system",
-		Content: fmt.Sprintf("🚀 Starting parallel file analysis with %s...", smallModel),
+		Content: "🚀 **Starting 3-Tier Progressive Analysis!**\n\n⚡ Tier 1: Quick scan → 📊 Tier 2: Detailed analysis → 💎 Tier 3: Knowledge generation",
 	})
 	m.viewport.SetContent(m.renderMessages())
 	m.viewport.GotoBottom()
 
-	// Initialize analysis state
+	// Initialize analysis state for the full pipeline
 	m.analysisState = &AnalysisState{
-		IsRunning: true,
-		StartTime: time.Now(),
+		IsRunning:    true,
+		StartTime:    time.Now(),
+		CurrentPhase: "quick",
 	}
 	m.viewport.SetContent(m.renderMessages())
 
-	// Run analysis in background
-	go func() {
-		startTime := m.analysisState.StartTime
-
-		// Create progress channel
-		progressChan := make(chan project.AnalysisProgress, 100)
-
-		// Start progress monitor
-		go func() {
-			for progress := range progressChan {
-				m.analysisState.TotalFiles = progress.TotalFiles
-				m.analysisState.CompletedFiles = progress.CompletedFiles
-
-				if progress.CompletedFiles == 0 {
-					m.showStatus(fmt.Sprintf("🔍 Analyzing %d files...", progress.TotalFiles))
-				} else {
-					m.showStatus(fmt.Sprintf("📊 Analyzed %d/%d files", progress.CompletedFiles, progress.TotalFiles))
-				}
-			}
-		}()
-
-		// Create analyzer
-		analyzer := project.NewFileAnalyzer(workingDir, smallModel)
-
-		// Run analysis with 10 parallel workers
-		analyses, err := analyzer.AnalyzeAllFiles(10, progressChan)
-		close(progressChan) // Stop progress monitor
-
-		if err != nil {
-			m.analysisState.IsRunning = false
-			m.analysisState.EndTime = time.Now()
-			m.showStatus(fmt.Sprintf("❌ Analysis failed: %v", err))
-			return
-		}
-
-		totalDuration := time.Since(startTime)
-
-		// Count failures
-		failedCount := 0
-		for _, analysis := range analyses {
-			if analysis.Error != nil || analysis.Summary == "Could not analyze file" {
-				failedCount++
-			}
-		}
-
-		// Update analysis state
-		m.analysisState.IsRunning = false
-		m.analysisState.EndTime = time.Now()
-		m.analysisState.FailedFiles = failedCount
-
-		// Save summary as JSON
-		if err := project.SaveAnalysisJSON(workingDir, analyses, totalDuration); err != nil {
-			m.showStatus(fmt.Sprintf("❌ Failed to save summary: %v", err))
-			return
-		}
-
-		// Show completion message
-		summaryPath := filepath.Join(workingDir, ".loco", "file_analysis.json")
-		m.showStatus(fmt.Sprintf("✅ Analysis complete in %s", totalDuration))
-
-		// Also add to messages
-		successCount := len(analyses) - failedCount
-		analysisMsg := fmt.Sprintf("✅ File analysis complete!\n\nAnalyzed %d files in %s\n✅ Successful: %d\n❌ Failed: %d\nResults saved to: %s\n\nView with: jq . %s | less",
-			len(analyses), totalDuration, successCount, failedCount, summaryPath, summaryPath)
-
-		m.messages = append(m.messages, llm.Message{
-			Role:    "system",
-			Content: analysisMsg,
-		})
-		m.viewport.SetContent(m.renderMessages())
-		m.viewport.GotoBottom()
-
-		// Now generate codebase summary with medium model
-		if currentSession != nil && currentSession.Team != nil && currentSession.Team.Medium != "" {
-			m.messages = append(m.messages, llm.Message{
-				Role:    "system",
-				Content: fmt.Sprintf("🧠 Generating codebase summary with %s...", currentSession.Team.Medium),
-			})
-			m.viewport.SetContent(m.renderMessages())
-			m.viewport.GotoBottom()
-
-			// Update status bar to show we're generating summary
-			m.showStatus("🧠 Generating codebase summary...")
-
-			// Track summary generation time
-			summaryStartTime := time.Now()
-
-			// Read the JSON analysis to create a compact summary
-			jsonData, err := os.ReadFile(summaryPath)
-			if err != nil {
-				m.messages = append(m.messages, llm.Message{
-					Role:    "system",
-					Content: fmt.Sprintf("❌ Failed to read analysis file: %v", err),
-				})
-				m.viewport.SetContent(m.renderMessages())
-				m.viewport.GotoBottom()
-			} else {
-				// Create a new LM Studio client for the medium model
-				mediumClient := llm.NewLMStudioClient()
-				mediumClient.SetModel(currentSession.Team.Medium)
-
-				var summaryPrompt string
-
-				// Parse the JSON to extract just the essential information
-				var analysisSummary project.AnalysisSummary
-				if err := json.Unmarshal(jsonData, &analysisSummary); err == nil {
-					// Create a compact summary with just file paths and summaries
-					var compactSummary strings.Builder
-					compactSummary.WriteString(fmt.Sprintf("Project: %s\n", analysisSummary.ProjectPath))
-					compactSummary.WriteString(fmt.Sprintf("Files analyzed: %d (success: %d, failed: %d)\n\n",
-						analysisSummary.TotalFiles,
-						analysisSummary.AnalyzedFiles,
-						analysisSummary.ErrorCount))
-
-					// Group files by importance
-					highImportance := []project.FileAnalysis{}
-					mediumImportance := []project.FileAnalysis{}
-					lowImportance := []project.FileAnalysis{}
-
-					for _, file := range analysisSummary.Files {
-						if file.Error == nil && file.Summary != "Could not analyze file" {
-							if file.Importance >= 8 {
-								highImportance = append(highImportance, file)
-							} else if file.Importance >= 5 {
-								mediumImportance = append(mediumImportance, file)
-							} else {
-								lowImportance = append(lowImportance, file)
-							}
-						}
-					}
-
-					// Add high importance files
-					if len(highImportance) > 0 {
-						compactSummary.WriteString("HIGH IMPORTANCE FILES:\n")
-						for _, file := range highImportance {
-							compactSummary.WriteString(fmt.Sprintf("- %s: %s\n", file.Path, file.Summary))
-						}
-						compactSummary.WriteString("\n")
-					}
-
-					// Add medium importance files (limit to 20)
-					if len(mediumImportance) > 0 {
-						compactSummary.WriteString("MEDIUM IMPORTANCE FILES:\n")
-						limit := len(mediumImportance)
-						if limit > 20 {
-							limit = 20
-						}
-						for i := 0; i < limit; i++ {
-							file := mediumImportance[i]
-							compactSummary.WriteString(fmt.Sprintf("- %s: %s\n", file.Path, file.Summary))
-						}
-						if len(mediumImportance) > 20 {
-							compactSummary.WriteString(fmt.Sprintf("... and %d more\n", len(mediumImportance)-20))
-						}
-						compactSummary.WriteString("\n")
-					}
-
-					// Just count low importance files
-					if len(lowImportance) > 0 {
-						compactSummary.WriteString(fmt.Sprintf("LOW IMPORTANCE FILES: %d files\n", len(lowImportance)))
-					}
-
-					// Generate summary with the compact data
-					summaryPrompt = fmt.Sprintf(`Based on this file analysis of a codebase, provide a concise summary of:
-1. What this project is and its main purpose
-2. The key technologies and frameworks used
-3. The overall architecture and structure
-4. The most important files and components
-5. Any notable patterns or concerns
-
-Here's the analysis data:
-%s
-
-Please be concise but thorough, focusing on the most important aspects.`, compactSummary.String())
-				} else {
-					// Fallback to sending raw JSON but truncated
-					jsonStr := string(jsonData)
-					if len(jsonStr) > 10000 {
-						jsonStr = jsonStr[:10000] + "\n... (truncated)"
-					}
-
-					// Generate summary
-					summaryPrompt = fmt.Sprintf(`Based on this comprehensive file analysis of a codebase, provide a concise summary of:
-1. What this project is and its main purpose
-2. The key technologies and frameworks used
-3. The overall architecture and structure
-4. The most important files and components
-5. Any notable patterns or concerns
-
-Here's the analysis data:
-%s
-
-Please be concise but thorough, focusing on the most important aspects.`, jsonStr)
-				}
-
-				// Start a goroutine to update status periodically
-				done := make(chan bool)
-				go func() {
-					ticker := time.NewTicker(2 * time.Second)
-					defer ticker.Stop()
-
-					for {
-						select {
-						case <-done:
-							return
-						case <-ticker.C:
-							elapsed := time.Since(summaryStartTime)
-							m.showStatus(fmt.Sprintf("🧠 Generating summary... %s", elapsed.Round(time.Second)))
-						}
-					}
-				}()
-
-				ctx := context.Background()
-
-				// Try with progressively larger context sizes if needed
-				contextSizes := []int{16384, 32768, 65536, 131072} // 16k, 32k, 64k, 128k
-				var response string
-				var err error
-
-				for _, ctxSize := range contextSizes {
-					opts := llm.CompleteOptions{
-						Temperature: 0.7,
-						MaxTokens:   2000, // Limit output to reasonable size
-						ContextSize: ctxSize,
-					}
-
-					response, err = mediumClient.CompleteWithOptions(ctx, []llm.Message{
-						{
-							Role:    "system",
-							Content: "You are a code analysis expert. Provide clear, concise summaries of codebases.",
-						},
-						{
-							Role:    "user",
-							Content: summaryPrompt,
-						},
-					}, opts)
-
-					// If successful, break out of the loop
-					if err == nil {
-						m.messages = append(m.messages, llm.Message{
-							Role:    "system",
-							Content: fmt.Sprintf("📊 Using context size: %d tokens", ctxSize),
-						})
-						break
-					}
-
-					// Check if it's a context overflow error
-					if !strings.Contains(err.Error(), "context") && !strings.Contains(err.Error(), "overflow") {
-						// Not a context error, don't retry
-						break
-					}
-
-					// Log the retry
-					m.messages = append(m.messages, llm.Message{
-						Role:    "system",
-						Content: fmt.Sprintf("⚠️ Context size %d too small, trying %d...", ctxSize, contextSizes[minInt(len(contextSizes)-1, indexOf(contextSizes, ctxSize)+1)]),
-					})
-					m.viewport.SetContent(m.renderMessages())
-					m.viewport.GotoBottom()
-				}
-
-				// Stop the status updater
-				close(done)
-
-				if err != nil {
-					summaryDuration := time.Since(summaryStartTime)
-					m.messages = append(m.messages, llm.Message{
-						Role:    "system",
-						Content: fmt.Sprintf("❌ Failed to generate summary after %s: %v", summaryDuration.Round(time.Millisecond), err),
-					})
-					m.showStatus(fmt.Sprintf("❌ Summary failed in %s", summaryDuration.Round(time.Millisecond)))
-				} else {
-					summaryDuration := time.Since(summaryStartTime)
-
-					// Save the summary
-					summaryMdPath := filepath.Join(workingDir, ".loco", "codebase_summary.md")
-					summaryContent := fmt.Sprintf(`# Codebase Summary
-
-Generated: %s
-Model: %s
-Project Commit: %s
-Generation Time: %s
-
-## Summary
-
-%s
-
----
-*This summary was generated from analysis of %d files (%d successful, %d failed)*
-`, time.Now().Format("2006-01-02 15:04:05"), currentSession.Team.Medium,
-						getProjectCommitHash(workingDir), summaryDuration.Round(time.Millisecond),
-						response, len(analyses), successCount, failedCount)
-
-					if err := os.WriteFile(summaryMdPath, []byte(summaryContent), 0o644); err != nil {
-						m.messages = append(m.messages, llm.Message{
-							Role:    "system",
-							Content: fmt.Sprintf("❌ Failed to save summary: %v", err),
-						})
-					} else {
-						m.messages = append(m.messages, llm.Message{
-							Role: "system",
-							Content: fmt.Sprintf("📝 Codebase summary generated in %s!\n\nSaved to: %s",
-								summaryDuration.Round(time.Millisecond), summaryMdPath),
-						})
-						m.showStatus(fmt.Sprintf("✅ Summary complete in %s", summaryDuration.Round(time.Millisecond)))
-					}
-				}
-
-				m.viewport.SetContent(m.renderMessages())
-				m.viewport.GotoBottom()
-			}
-
-			// Generate knowledge files
-			m.messages = append(m.messages, llm.Message{
-				Role:    "system",
-				Content: "📚 Generating knowledge files...",
-			})
-			m.viewport.SetContent(m.renderMessages())
-			m.viewport.GotoBottom()
-
-			knowledgeStartTime := time.Now()
-
-			// Start knowledge generation status updates
-			knowledgeDone := make(chan bool)
-			go func() {
-				ticker := time.NewTicker(2 * time.Second)
-				defer ticker.Stop()
-
-				for {
-					select {
-					case <-knowledgeDone:
-						return
-					case <-ticker.C:
-						elapsed := time.Since(knowledgeStartTime)
-						m.showStatus(fmt.Sprintf("📚 Generating knowledge... %s", elapsed.Round(time.Second)))
-					}
-				}
-			}()
-
-			// Parse the analysis summary
-			var analysisSummary project.AnalysisSummary
-			if err := json.Unmarshal(jsonData, &analysisSummary); err == nil {
-				// Create knowledge generator
-				kg := project.NewKnowledgeGenerator(workingDir, currentSession.Team.Medium, &analysisSummary)
-
-				// Generate all knowledge files
-				if err := kg.GenerateAllKnowledge(); err != nil {
-					close(knowledgeDone)
-					m.messages = append(m.messages, llm.Message{
-						Role:    "system",
-						Content: fmt.Sprintf("❌ Knowledge generation failed: %v", err),
-					})
-				} else {
-					close(knowledgeDone)
-					knowledgeDuration := time.Since(knowledgeStartTime)
-					m.messages = append(m.messages, llm.Message{
-						Role: "system",
-						Content: fmt.Sprintf("📚 Knowledge files generated in %s!\n\nGenerated:\n- structure.md\n- patterns.md\n- context.md\n- overview.md\n\nView with: /knowledge",
-							knowledgeDuration.Round(time.Millisecond)),
-					})
-					m.showStatus(fmt.Sprintf("✅ Knowledge generated in %s", knowledgeDuration.Round(time.Millisecond)))
-				}
-			} else {
-				close(knowledgeDone)
-				m.messages = append(m.messages, llm.Message{
-					Role:    "system",
-					Content: "❌ Failed to parse analysis for knowledge generation",
-				})
-			}
-
-			m.viewport.SetContent(m.renderMessages())
-			m.viewport.GotoBottom()
-		} else {
-			// No medium model configured
-			m.messages = append(m.messages, llm.Message{
-				Role:    "system",
-				Content: "ℹ️ Skipping codebase summary and knowledge generation (no medium model configured)",
-			})
-			m.viewport.SetContent(m.renderMessages())
-			m.viewport.GotoBottom()
-		}
-	}()
+	// Run the complete progressive analysis pipeline
+	go m.runProgressiveAnalysis(workingDir, currentSession, smallModel)
 
 	return m, nil
 }
 
+// runProgressiveAnalysis executes the full 3-tier analysis pipeline with beautiful progress updates
+func (m *Model) runProgressiveAnalysis(workingDir string, currentSession *session.Session, smallModel string) {
+	totalStart := time.Now()
+
+	// ==== TIER 1: QUICK ANALYSIS ====
+	m.analysisState.CurrentPhase = "quick"
+	m.viewport.SetContent(m.renderMessages())
+	m.showStatus("⚡ Running quick analysis...")
+
+	quickStart := time.Now()
+	quickAnalyzer := project.NewQuickAnalyzer(workingDir, smallModel)
+	quickAnalysis, err := quickAnalyzer.Analyze()
+	quickDuration := time.Since(quickStart)
+
+	if err != nil {
+		m.messages = append(m.messages, llm.Message{
+			Role:    "system",
+			Content: fmt.Sprintf("❌ Quick analysis failed: %v", err),
+		})
+		m.analysisState.IsRunning = false
+		m.showStatus("❌ Quick analysis failed")
+		m.viewport.SetContent(m.renderMessages())
+		return
+	}
+
+	// Save quick analysis and mark Tier 1 complete
+	if err := project.SaveQuickAnalysis(workingDir, quickAnalysis); err != nil {
+		m.messages = append(m.messages, llm.Message{
+			Role:    "system",
+			Content: fmt.Sprintf("⚠️  Quick analysis complete but save failed: %v", err),
+		})
+	}
+
+	m.analysisState.QuickCompleted = true
+	m.analysisState.CurrentPhase = "detailed"
+	m.messages = append(m.messages, llm.Message{
+		Role: "system",
+		Content: fmt.Sprintf("⚡ **Tier 1 Complete!** (%s)\n\n🎯 Detected: %s %s project\n📝 %s\n📁 %d files (%d code files)\n\n🔄 Starting Tier 2...",
+			quickDuration.Round(time.Millisecond),
+			quickAnalysis.ProjectType,
+			quickAnalysis.MainLanguage,
+			quickAnalysis.Description,
+			quickAnalysis.TotalFiles,
+			quickAnalysis.CodeFiles),
+	})
+	m.viewport.SetContent(m.renderMessages())
+	m.viewport.GotoBottom()
+	m.showStatus("📊 Starting detailed analysis...")
+
+	// ==== TIER 2: DETAILED ANALYSIS ====
+	m.analysisState.DetailedRunning = true
+	detailedStart := time.Now()
+
+	// Create progress channel
+	progressChan := make(chan project.AnalysisProgress, 100)
+
+	// Start progress monitor
+	go func() {
+		for progress := range progressChan {
+			m.analysisState.TotalFiles = progress.TotalFiles
+			m.analysisState.CompletedFiles = progress.CompletedFiles
+			m.viewport.SetContent(m.renderMessages())
+		}
+	}()
+
+	// Create analyzer and run detailed analysis
+	analyzer := project.NewFileAnalyzer(workingDir, smallModel)
+	analyses, err := analyzer.AnalyzeAllFilesIncremental(10, progressChan)
+	close(progressChan)
+	detailedDuration := time.Since(detailedStart)
+
+	if err != nil {
+		m.messages = append(m.messages, llm.Message{
+			Role:    "system",
+			Content: fmt.Sprintf("❌ Detailed analysis failed: %v", err),
+		})
+		m.analysisState.IsRunning = false
+		m.analysisState.EndTime = time.Now()
+		m.showStatus("❌ Detailed analysis failed")
+		m.viewport.SetContent(m.renderMessages())
+		return
+	}
+
+	// Count failures and save results
+	failedCount := 0
+	for _, analysis := range analyses {
+		if analysis.Error != nil || analysis.Summary == "Could not analyze file" {
+			failedCount++
+		}
+	}
+
+	if err := project.SaveAnalysisJSON(workingDir, analyses, detailedDuration); err != nil {
+		m.messages = append(m.messages, llm.Message{
+			Role:    "system",
+			Content: fmt.Sprintf("❌ Failed to save detailed analysis: %v", err),
+		})
+		m.analysisState.IsRunning = false
+		m.showStatus("❌ Save failed")
+		return
+	}
+
+	// Mark Tier 2 complete
+	successCount := len(analyses) - failedCount
+	m.analysisState.DetailedRunning = false
+	m.analysisState.DetailedCompleted = true
+	m.analysisState.FailedFiles = failedCount
+	m.analysisState.CurrentPhase = "knowledge"
+
+	m.messages = append(m.messages, llm.Message{
+		Role: "system",
+		Content: fmt.Sprintf("📊 **Tier 2 Complete!** (%s)\n\n✨ Analyzed %d files (%d successful, %d failed)\n💾 Saved comprehensive analysis to .loco/file_analysis.json\n\n🔄 Starting Tier 3...",
+			detailedDuration.Round(time.Millisecond),
+			len(analyses),
+			successCount,
+			failedCount),
+	})
+	m.viewport.SetContent(m.renderMessages())
+	m.viewport.GotoBottom()
+	m.showStatus("💎 Generating knowledge...")
+
+	// ==== TIER 3: KNOWLEDGE GENERATION ====
+	if currentSession.Team.Medium == "" {
+		m.messages = append(m.messages, llm.Message{
+			Role:    "system",
+			Content: "⚠️  Tier 3 skipped - no medium model configured. Use /team to set up models for knowledge generation.",
+		})
+		m.analysisState.IsRunning = false
+		m.analysisState.EndTime = time.Now()
+		m.analysisState.CurrentPhase = "complete"
+		totalDuration := time.Since(totalStart)
+		m.showStatus(fmt.Sprintf("✅ 2-tier analysis complete (%s)", totalDuration.Round(time.Millisecond)))
+		m.viewport.SetContent(m.renderMessages())
+		return
+	}
+
+	m.analysisState.KnowledgeRunning = true
+	knowledgeStart := time.Now()
+
+	// Load analysis summary for knowledge generation
+	jsonPath := filepath.Join(workingDir, ".loco", "file_analysis.json")
+	jsonData, err := os.ReadFile(jsonPath)
+	if err != nil {
+		m.messages = append(m.messages, llm.Message{
+			Role:    "system",
+			Content: fmt.Sprintf("❌ Could not load analysis for knowledge generation: %v", err),
+		})
+		m.analysisState.IsRunning = false
+		m.showStatus("❌ Knowledge generation failed")
+		return
+	}
+
+	var analysisSummary project.AnalysisSummary
+	if err := json.Unmarshal(jsonData, &analysisSummary); err != nil {
+		m.messages = append(m.messages, llm.Message{
+			Role:    "system",
+			Content: fmt.Sprintf("❌ Could not parse analysis data: %v", err),
+		})
+		m.analysisState.IsRunning = false
+		m.showStatus("❌ Knowledge generation failed")
+		return
+	}
+
+	// Generate knowledge files using medium model
+	kg := project.NewKnowledgeGenerator(workingDir, currentSession.Team.Medium, &analysisSummary)
+	if err := kg.GenerateAllKnowledge(); err != nil {
+		m.messages = append(m.messages, llm.Message{
+			Role:    "system",
+			Content: fmt.Sprintf("❌ Knowledge generation failed: %v", err),
+		})
+		m.analysisState.IsRunning = false
+		m.showStatus("❌ Knowledge generation failed")
+		return
+	}
+
+	knowledgeDuration := time.Since(knowledgeStart)
+	totalDuration := time.Since(totalStart)
+
+	// Mark Tier 3 complete
+	m.analysisState.KnowledgeRunning = false
+	m.analysisState.KnowledgeCompleted = true
+	m.analysisState.IsRunning = false
+	m.analysisState.EndTime = time.Now()
+	m.analysisState.CurrentPhase = "complete"
+
+	// Final completion message
+	m.messages = append(m.messages, llm.Message{
+		Role: "system",
+		Content: fmt.Sprintf("💎 **Tier 3 Complete!** (%s)\n\n🧠 Generated knowledge files:\n• structure.md - Code organization\n• patterns.md - Development patterns  \n• context.md - Project context\n• overview.md - High-level summary\n\n🎉 **Full 3-Tier Analysis Complete!** (%s total)\n\n🔍 View results: /knowledge\n📊 Raw data: .loco/file_analysis.json",
+			knowledgeDuration.Round(time.Millisecond),
+			totalDuration.Round(time.Millisecond)),
+	})
+	m.viewport.SetContent(m.renderMessages())
+	m.viewport.GotoBottom()
+	m.showStatus(fmt.Sprintf("🎉 3-tier analysis complete (%s)", totalDuration.Round(time.Millisecond)))
+
+
+}
 func (m *Model) handleQuickAnalyzeCommand() (tea.Model, tea.Cmd) {
 	// Get working directory
 	workingDir, err := os.Getwd()

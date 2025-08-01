@@ -36,6 +36,23 @@ type FileAnalysis struct {
 	Error        error         `json:"-"` // Don't serialize, use ErrorStr instead
 }
 
+// FileCache represents cached analysis for a single file.
+type FileCache struct {
+	FilePath     string        `json:"file_path"`
+	GitHash      string        `json:"git_hash"`
+	LastAnalysis time.Time     `json:"last_analysis"`
+	Analysis     *FileAnalysis `json:"analysis,omitempty"`
+}
+
+// AnalysisCache represents the cache for all file analyses.
+type AnalysisCache struct {
+	HeadCommit   string      `json:"head_commit"`
+	IsDirty      bool        `json:"is_dirty"`
+	FileHashes   []FileCache `json:"file_hashes"`
+	LastUpdate   time.Time   `json:"last_update"`
+	Model        string      `json:"model_used"`
+}
+
 // FileAnalyzer analyzes project files using AI models.
 type FileAnalyzer struct {
 	workingDir string
@@ -72,22 +89,8 @@ func (fa *FileAnalyzer) getProjectFiles() ([]string, error) {
 	return files, nil
 }
 
-// AnalysisProgress tracks the progress of file analysis.
-type AnalysisProgress struct {
-	TotalFiles     int
-	CompletedFiles int
-	CurrentFile    string
-}
-
-// AnalyzeAllFiles analyzes all files in the project using parallel workers.
-func (fa *FileAnalyzer) AnalyzeAllFiles(maxWorkers int, progressChan chan<- AnalysisProgress) ([]FileAnalysis, error) {
-	// Get all files
-	files, err := fa.getProjectFiles()
-	if err != nil {
-		return nil, fmt.Errorf("failed to get project files: %w", err)
-	}
-
-	// Filter out binary and large files
+// filterAnalyzableFiles filters out binary files and large files that shouldn't be analyzed.
+func (fa *FileAnalyzer) filterAnalyzableFiles(files []string) []string {
 	var filesToAnalyze []string
 	for _, file := range files {
 		// Skip common binary and build artifacts
@@ -121,6 +124,26 @@ func (fa *FileAnalyzer) AnalyzeAllFiles(maxWorkers int, progressChan chan<- Anal
 
 		filesToAnalyze = append(filesToAnalyze, file)
 	}
+	return filesToAnalyze
+}
+
+// AnalysisProgress tracks the progress of file analysis.
+type AnalysisProgress struct {
+	TotalFiles     int
+	CompletedFiles int
+	CurrentFile    string
+}
+
+// AnalyzeAllFiles analyzes all files in the project using parallel workers.
+func (fa *FileAnalyzer) AnalyzeAllFiles(maxWorkers int, progressChan chan<- AnalysisProgress) ([]FileAnalysis, error) {
+	// Get all files
+	files, err := fa.getProjectFiles()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get project files: %w", err)
+	}
+
+	// Filter out binary and large files
+	filesToAnalyze := fa.filterAnalyzableFiles(files)
 
 	// Send initial progress
 	if progressChan != nil {
@@ -456,4 +479,307 @@ func SaveAnalysisJSON(workingDir string, analyses []FileAnalysis, totalDuration 
 	}
 
 	return nil
+}
+
+// getFileGitHash returns the git hash of a specific file.
+func getFileGitHash(workingDir, filePath string) (string, error) {
+	cmd := exec.Command("git", "hash-object", filePath)
+	cmd.Dir = workingDir
+	output, err := cmd.Output()
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(string(output)), nil
+}
+
+// getProjectGitStatus returns the HEAD commit and dirty status.
+func getProjectGitStatus(workingDir string) (headCommit string, isDirty bool, err error) {
+	// Get HEAD commit
+	cmd := exec.Command("git", "rev-parse", "HEAD")
+	cmd.Dir = workingDir
+	output, err := cmd.Output()
+	if err != nil {
+		return "", false, err
+	}
+	headCommit = strings.TrimSpace(string(output))
+	
+	// Check if dirty
+	cmd = exec.Command("git", "status", "--porcelain")
+	cmd.Dir = workingDir
+	output, err = cmd.Output()
+	if err != nil {
+		return headCommit, false, err
+	}
+	isDirty = len(strings.TrimSpace(string(output))) > 0
+	
+	return headCommit, isDirty, nil
+}
+
+// LoadAnalysisCache loads the cached file analysis data.
+func LoadAnalysisCache(workingDir string) (*AnalysisCache, error) {
+	cachePath := filepath.Join(workingDir, ".loco", "analysis_cache.json")
+	
+	data, err := os.ReadFile(cachePath)
+	if err != nil {
+		return nil, err
+	}
+	
+	var cache AnalysisCache
+	if err := json.Unmarshal(data, &cache); err != nil {
+		return nil, err
+	}
+	
+	return &cache, nil
+}
+
+// SaveAnalysisCache saves the analysis cache to disk.
+func SaveAnalysisCache(workingDir string, cache *AnalysisCache) error {
+	locoDir := filepath.Join(workingDir, ".loco")
+	if err := os.MkdirAll(locoDir, 0o755); err != nil {
+		return err
+	}
+	
+	cachePath := filepath.Join(locoDir, "analysis_cache.json")
+	
+	data, err := json.MarshalIndent(cache, "", "  ")
+	if err != nil {
+		return err
+	}
+	
+	return os.WriteFile(cachePath, data, 0o644)
+}
+
+// findChangedFiles compares current file hashes with cache and returns files that need analysis.
+func (fa *FileAnalyzer) findChangedFiles(files []string, cache *AnalysisCache) ([]string, error) {
+	// Check if project status changed
+	headCommit, isDirty, err := getProjectGitStatus(fa.workingDir)
+	if err != nil {
+		// If git fails, analyze all files
+		return files, nil
+	}
+	
+	// If HEAD changed or repo is dirty or model changed, we still do incremental analysis
+	// but may need to update project-level metadata later
+	_ = headCommit // Will use this for cache updates
+	_ = isDirty    // Will use this for cache updates
+	
+	// Create a map for fast lookup of cached files
+	cacheMap := make(map[string]FileCache)
+	for _, fc := range cache.FileHashes {
+		cacheMap[fc.FilePath] = fc
+	}
+	
+	var changedFiles []string
+	
+	for _, file := range files {
+		// Get current file hash
+		currentHash, err := getFileGitHash(fa.workingDir, file)
+		if err != nil {
+			// If we can't get hash, include it for analysis
+			changedFiles = append(changedFiles, file)
+			continue
+		}
+		
+		// Check if file is cached and unchanged
+		if cached, exists := cacheMap[file]; exists && cached.GitHash == currentHash {
+			// File unchanged, skip it
+			continue
+		}
+		
+		// File is new or changed
+		changedFiles = append(changedFiles, file)
+	}
+	
+	return changedFiles, nil
+}
+
+// updateCacheWithResults updates the cache with new analysis results.
+func (fa *FileAnalyzer) updateCacheWithResults(cache *AnalysisCache, results []FileAnalysis) error {
+	// Update project status
+	headCommit, isDirty, err := getProjectGitStatus(fa.workingDir)
+	if err != nil {
+		return err
+	}
+	
+	cache.HeadCommit = headCommit
+	cache.IsDirty = isDirty
+	cache.LastUpdate = time.Now()
+	cache.Model = fa.smallModel
+	
+	// Create map of existing cache entries
+	cacheMap := make(map[string]*FileCache)
+	for i := range cache.FileHashes {
+		fc := &cache.FileHashes[i]
+		cacheMap[fc.FilePath] = fc
+	}
+	
+	// Update cache with new results
+	for _, result := range results {
+		if cached, exists := cacheMap[result.Path]; exists {
+			// Update existing entry
+			cached.GitHash = result.GitHash
+			cached.LastAnalysis = result.AnalyzedAt
+			cached.Analysis = &result
+		} else {
+			// Add new entry
+			newCache := FileCache{
+				FilePath:     result.Path,
+				GitHash:      result.GitHash,
+				LastAnalysis: result.AnalyzedAt,
+				Analysis:     &result,
+			}
+			cache.FileHashes = append(cache.FileHashes, newCache)
+		}
+	}
+	
+	return nil
+}
+
+// AnalyzeAllFilesIncremental analyzes only files that have changed since last cache.
+func (fa *FileAnalyzer) AnalyzeAllFilesIncremental(maxWorkers int, progressChan chan<- AnalysisProgress) ([]FileAnalysis, error) {
+	// Get all files first
+	files, err := fa.getProjectFiles()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get project files: %w", err)
+	}
+
+	// Filter out binary and large files
+	filesToAnalyze := fa.filterAnalyzableFiles(files)
+
+	// Try to load existing cache
+	cache, err := LoadAnalysisCache(fa.workingDir)
+	if err != nil {
+		// No cache exists, analyze all files
+		if progressChan != nil {
+			progressChan <- AnalysisProgress{
+				TotalFiles:     len(filesToAnalyze),
+				CompletedFiles: 0,
+				CurrentFile:    "No cache found, analyzing all files...",
+			}
+		}
+		return fa.analyzeFiles(filesToAnalyze, maxWorkers, progressChan)
+	}
+
+	// Find changed files based on git hashes
+	changedFiles, err := fa.findChangedFiles(filesToAnalyze, cache)
+	if err != nil {
+		// If we can't determine changes, fall back to analyzing all files
+		return fa.analyzeFiles(filesToAnalyze, maxWorkers, progressChan)
+	}
+
+	if len(changedFiles) == 0 {
+		// No changes detected, return cached results
+		if progressChan != nil {
+			progressChan <- AnalysisProgress{
+				TotalFiles:     len(filesToAnalyze),
+				CompletedFiles: len(filesToAnalyze),
+				CurrentFile:    "All files cached, no analysis needed",
+			}
+		}
+
+		// Extract analyses from cache
+		var cachedAnalyses []FileAnalysis
+		for _, fc := range cache.FileHashes {
+			if fc.Analysis != nil {
+				cachedAnalyses = append(cachedAnalyses, *fc.Analysis)
+			}
+		}
+		return cachedAnalyses, nil
+	}
+
+	// Analyze only changed files
+	if progressChan != nil {
+		progressChan <- AnalysisProgress{
+			TotalFiles:     len(changedFiles),
+			CompletedFiles: 0,
+			CurrentFile:    fmt.Sprintf("Found %d changed files to analyze...", len(changedFiles)),
+		}
+	}
+
+	newAnalyses, err := fa.analyzeFiles(changedFiles, maxWorkers, progressChan)
+	if err != nil {
+		return nil, err
+	}
+
+	// Update cache with new results
+	_ = fa.updateCacheWithResults(cache, newAnalyses) // Continue even if cache update fails
+
+	// Save updated cache
+	_ = SaveAnalysisCache(fa.workingDir, cache) // Continue even if cache save fails
+
+	// Combine cached analyses with new ones for complete result
+	var allAnalyses []FileAnalysis
+	
+	// Add cached analyses for unchanged files
+	fileMap := make(map[string]bool)
+	for _, file := range changedFiles {
+		fileMap[file] = true
+	}
+	
+	for _, fc := range cache.FileHashes {
+		if fc.Analysis != nil && !fileMap[fc.FilePath] {
+			allAnalyses = append(allAnalyses, *fc.Analysis)
+		}
+	}
+	
+	// Add new analyses
+	allAnalyses = append(allAnalyses, newAnalyses...)
+
+	// Sort by importance (highest first)
+	sort.Slice(allAnalyses, func(i, j int) bool {
+		return allAnalyses[i].Importance > allAnalyses[j].Importance
+	})
+
+	return allAnalyses, nil
+}
+
+// analyzeFiles is a helper that handles the actual file analysis logic
+func (fa *FileAnalyzer) analyzeFiles(files []string, maxWorkers int, progressChan chan<- AnalysisProgress) ([]FileAnalysis, error) {
+	// Send initial progress
+	if progressChan != nil {
+		progressChan <- AnalysisProgress{
+			TotalFiles:     len(files),
+			CompletedFiles: 0,
+			CurrentFile:    "Starting analysis...",
+		}
+	}
+
+	// Create channels for work distribution
+	jobs := make(chan string, len(files))
+	results := make(chan FileAnalysis, len(files))
+
+	// Atomic counter for completed files
+	var completed int32
+
+	// Start workers
+	var wg sync.WaitGroup
+	for i := 0; i < maxWorkers; i++ {
+		wg.Add(1)
+		go fa.worker(&wg, jobs, results, progressChan, len(files), &completed)
+	}
+
+	// Send jobs
+	for _, file := range files {
+		jobs <- file
+	}
+	close(jobs)
+
+	// Wait for workers to finish
+	go func() {
+		wg.Wait()
+		close(results)
+	}()
+
+	// Collect results
+	var analyses []FileAnalysis
+	for result := range results {
+		analyses = append(analyses, result)
+	}
+
+	// Sort by importance (highest first)
+	sort.Slice(analyses, func(i, j int) bool {
+		return analyses[i].Importance > analyses[j].Importance
+	})
+
+	return analyses, nil
 }

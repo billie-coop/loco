@@ -27,7 +27,8 @@
       "Bash(mkdir:*)",
       "Bash(mv:*)",
       "Bash(gofumpt:*)",
-      "Bash(go install:*)"
+      "Bash(go install:*)",
+      "Bash(sed:*)"
     ],
     "deny": []
   }
