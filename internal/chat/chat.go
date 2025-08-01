@@ -13,6 +13,7 @@ import (
 	"github.com/billie-coop/loco/internal/project"
 	"github.com/billie-coop/loco/internal/session"
 	"github.com/billie-coop/loco/internal/tools"
+	"github.com/billie-coop/loco/internal/ui"
 	"github.com/charmbracelet/bubbles/v2/spinner"
 	"github.com/charmbracelet/bubbles/v2/textarea"
 	"github.com/charmbracelet/bubbles/v2/viewport"
@@ -190,6 +191,13 @@ You can include explanation before or after the tool call. The tool will be exec
 
 	// Create startup log messages
 	var startupLogs []llm.Message
+
+	// Add ASCII art as the first message
+	asciiArt := ui.LocoASCII() + "\n\n" + ui.LocoTagline()
+	startupLogs = append(startupLogs, llm.Message{
+		Role:    "system",
+		Content: asciiArt,
+	})
 
 	// Log session initialization
 	startupLogs = append(startupLogs, llm.Message{

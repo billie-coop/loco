@@ -10,19 +10,8 @@ import (
 	"github.com/billie-coop/loco/internal/modelselect"
 	"github.com/billie-coop/loco/internal/teamselect"
 	tea "github.com/charmbracelet/bubbletea/v2"
-	"github.com/charmbracelet/lipgloss/v2"
 )
 
-// Style definitions for the UI.
-var (
-	titleStyle = lipgloss.NewStyle().
-			Bold(true).
-			Foreground(lipgloss.Color("205")).
-			MarginLeft(2)
-
-	helpStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("241"))
-)
 
 // AppState represents the current state of the application.
 type AppState int
@@ -232,19 +221,6 @@ func (a App) View() tea.View {
 }
 
 func main() {
-	// Show ASCII banner
-	fmt.Println(lipgloss.NewStyle().Foreground(lipgloss.Color("205")).Render(`
-██╗      ██████╗  ██████╗ ██████╗ 
-██║     ██╔═══██╗██╔════╝██╔═══██╗
-██║     ██║   ██║██║     ██║   ██║
-██║     ██║   ██║██║     ██║   ██║
-███████╗╚██████╔╝╚██████╗╚██████╔╝
-╚══════╝ ╚═════╝  ╚═════╝ ╚═════╝ 
-`))
-	fmt.Println(titleStyle.Render("Your Local AI Coding Companion 🚂"))
-	fmt.Println(helpStyle.Render("Connecting to LM Studio..."))
-	fmt.Println()
-
 	// Create and run the app
 	p := tea.NewProgram(NewApp(),
 		tea.WithAltScreen(),
