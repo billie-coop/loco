@@ -37,21 +37,26 @@ type Model struct {
 
 // New creates a new team selection model.
 func New(models []llm.Model) Model {
-	// Group models by size
+	// Use the model registry to properly categorize models
+	registry := llm.GetModelRegistry()
+
+	// Group models by size using the registry
 	grouped := make(map[string][]llm.Model)
 	for _, model := range models {
-		size := llm.DetectModelSize(model.ID)
+		size := registry.GetModelSize(model.ID)
 		grouped[string(size)] = append(grouped[string(size)], model)
 	}
 
 	// Create initial list for large models
 	items := []list.Item{}
-	for _, model := range grouped["L"] {
+	largeModels := registry.GetModelsForTeamSelection(models, llm.SizeL)
+	for _, model := range largeModels {
 		items = append(items, modelItem{model: model})
 	}
 	if len(items) == 0 {
-		// Fallback if no large models
-		for _, model := range grouped["XL"] {
+		// Fallback if no large models - try XL
+		xlModels := registry.GetModelsForTeamSelection(models, llm.SizeXL)
+		for _, model := range xlModels {
 			items = append(items, modelItem{model: model})
 		}
 	}
@@ -206,6 +211,11 @@ func (i modelItem) Title() string {
 }
 
 func (i modelItem) Description() string {
+	registry := llm.GetModelRegistry()
+	if spec, exists := registry.GetModelSpec(i.model.ID); exists {
+		return fmt.Sprintf("%s - %s", spec.Params, spec.Description)
+	}
+	// Fallback for unknown models
 	size := llm.DetectModelSize(i.model.ID)
 	return fmt.Sprintf("Size: %s", size)
 }

@@ -1,0 +1,124 @@
+{
+  "models": {
+    "qwen2.5-0.5b-instruct": {
+      "size": "XS",
+      "params": "0.5B",
+      "category": "general",
+      "description": "Ultra-fast Qwen model for basic tasks"
+    },
+    "liquid/lfm2-1.2b": {
+      "size": "XS",
+      "params": "1.2B",
+      "category": "general",
+      "description": "Liquid Foundation Model, very fast"
+    },
+    "deepseek-coder-1.3b-kexer": {
+      "size": "XS",
+      "params": "1.3B",
+      "category": "coding",
+      "description": "Tiny DeepSeek coder for quick completions"
+    },
+    "qwen/qwen3-1.7b": {
+      "size": "XS",
+      "params": "1.7B",
+      "category": "general",
+      "description": "Small Qwen 3 model"
+    },
+    "smollm2-1.7b-instruct": {
+      "size": "XS",
+      "params": "1.7B",
+      "category": "general",
+      "description": "Small language model v2"
+    },
+    "smollm3-3b-mlx": {
+      "size": "S",
+      "params": "3B",
+      "category": "general",
+      "description": "Small language model v3 optimized for Apple Silicon"
+    },
+    "microsoft/phi-4-mini-reasoning": {
+      "size": "S",
+      "params": "3.8B",
+      "category": "reasoning",
+      "description": "Phi-4 specialized in math and reasoning"
+    },
+    "qwen2.5-coder-7b-instruct": {
+      "size": "M",
+      "params": "7B",
+      "category": "coding",
+      "description": "Excellent coding model from Qwen 2.5 series"
+    },
+    "deepseek-r1-distill-qwen-7b": {
+      "size": "M",
+      "params": "7B",
+      "category": "reasoning",
+      "description": "DeepSeek R1 reasoning distilled into Qwen"
+    },
+    "deepseek/deepseek-r1-0528-qwen3-8b": {
+      "size": "M",
+      "params": "8B",
+      "category": "reasoning",
+      "description": "DeepSeek R1 reasoning model"
+    },
+    "ibm/granite-3.1-8b": {
+      "size": "M",
+      "params": "8B",
+      "category": "general",
+      "description": "IBM's Granite model for enterprise use"
+    },
+    "google/gemma-3-12b": {
+      "size": "M",
+      "params": "12B",
+      "category": "general",
+      "description": "Google's Gemma 3 model"
+    },
+    "mistralai/mistral-small-3.2": {
+      "size": "M",
+      "params": "12B",
+      "category": "general",
+      "description": "Mistral Small latest version"
+    },
+    "mistralai/magistral-small": {
+      "size": "M",
+      "params": "12B",
+      "category": "general",
+      "description": "Mistral's Magistral variant"
+    },
+    "mistralai/devstral-small-2505": {
+      "size": "M",
+      "params": "12B",
+      "category": "coding",
+      "description": "Mistral's developer-focused model"
+    },
+    "qwen3-30b-a3b-instruct-2507-mlx": {
+      "size": "L",
+      "params": "30B",
+      "category": "general",
+      "description": "Large Qwen 3 model optimized for Apple Silicon"
+    },
+    "qwen2.5-vl-32b-instruct": {
+      "size": "L",
+      "params": "32B",
+      "category": "multimodal",
+      "description": "Qwen 2.5 vision-language model"
+    },
+    "deepseek-coder-33b-instruct": {
+      "size": "L",
+      "params": "33B",
+      "category": "coding",
+      "description": "DeepSeek's powerful coding model"
+    },
+    "llama-3.3-70b-instruct": {
+      "size": "XL",
+      "params": "70B",
+      "category": "general",
+      "description": "Meta's latest Llama 3.3 model"
+    },
+    "text-embedding-nomic-embed-text-v1.5": {
+      "size": "special",
+      "params": "137M",
+      "category": "embedding",
+      "description": "Nomic embedding model (not for generation)"
+    }
+  }
+}
