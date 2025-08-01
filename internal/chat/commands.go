@@ -40,6 +40,8 @@ func (m *Model) handleSlashCommand(input string) (tea.Model, tea.Cmd) {
 		return m.handleAnalyzeCommand()
 	case "/analyze-files":
 		return m.handleAnalyzeFilesCommand()
+	case "/quick-analyze":
+		return m.handleQuickAnalyzeCommand()
 	case "/reset":
 		return m.handleResetCommand()
 	case "/screenshot":
@@ -388,6 +390,7 @@ func (m *Model) handleHelpCommand() (tea.Model, tea.Cmd) {
 /debug      - Toggle debug metadata visibility
 /analyze    - Re-analyze project with deep file reading
 /analyze-files - Run parallel analysis on all project files
+/quick-analyze - Fast 2-3 second project overview (Tier 1)
 /copy       - Copy messages to clipboard (last/error/all)
 /list       - List all chat sessions
 /new        - Start a new chat session
@@ -885,6 +888,112 @@ Generation Time: %s
 			m.viewport.SetContent(m.renderMessages())
 			m.viewport.GotoBottom()
 		}
+	}()
+
+	return m, nil
+}
+
+func (m *Model) handleQuickAnalyzeCommand() (tea.Model, tea.Cmd) {
+	// Get working directory
+	workingDir, err := os.Getwd()
+	if err != nil {
+		m.messages = append(m.messages, llm.Message{
+			Role:    "system",
+			Content: fmt.Sprintf("❌ Could not get working directory: %v", err),
+		})
+		m.viewport.SetContent(m.renderMessages())
+		m.viewport.GotoBottom()
+		return m, nil
+	}
+
+	// Get current session for model selection
+	currentSession, err := m.sessionManager.GetCurrent()
+	if err != nil {
+		m.messages = append(m.messages, llm.Message{
+			Role:    "system",
+			Content: fmt.Sprintf("❌ Could not get current session: %v", err),
+		})
+		m.viewport.SetContent(m.renderMessages())
+		m.viewport.GotoBottom()
+		return m, nil
+	}
+
+	// Check if we have a small model
+	if currentSession.Team.Small == "" {
+		m.messages = append(m.messages, llm.Message{
+			Role:    "system",
+			Content: "⚠️ No small model configured. Use /team to set up models.",
+		})
+		m.viewport.SetContent(m.renderMessages())
+		m.viewport.GotoBottom()
+		return m, nil
+	}
+
+	m.messages = append(m.messages, llm.Message{
+		Role:    "system",
+		Content: "⚡ Running quick analysis...",
+	})
+	m.viewport.SetContent(m.renderMessages())
+	m.viewport.GotoBottom()
+	m.showStatus("⚡ Quick analysis running...")
+
+	// Run analysis in background
+	go func() {
+		start := time.Now()
+		analyzer := project.NewQuickAnalyzer(workingDir, currentSession.Team.Small)
+		
+		analysis, err := analyzer.Analyze()
+		if err != nil {
+			m.messages = append(m.messages, llm.Message{
+				Role:    "system",
+				Content: fmt.Sprintf("❌ Quick analysis failed: %v", err),
+			})
+			m.viewport.SetContent(m.renderMessages())
+			m.viewport.GotoBottom()
+			m.showStatus("❌ Quick analysis failed")
+			return
+		}
+
+		// Save the analysis
+		if saveErr := project.SaveQuickAnalysis(workingDir, analysis); saveErr != nil {
+			m.messages = append(m.messages, llm.Message{
+				Role:    "system",
+				Content: fmt.Sprintf("⚠️ Could not save analysis: %v", saveErr),
+			})
+		}
+
+		duration := time.Since(start)
+		
+		// Create summary message
+		summary := fmt.Sprintf(`⚡ Quick analysis complete in %s!
+
+**Project Type**: %s
+**Language**: %s
+**Framework**: %s
+**Description**: %s
+
+**Files**: %d total (%d code files)
+**Directories**: %s
+**Entry Points**: %s
+
+Saved to: .loco/quick_analysis.json`,
+			duration.Round(time.Millisecond),
+			analysis.ProjectType,
+			analysis.MainLanguage,
+			analysis.Framework,
+			analysis.Description,
+			analysis.TotalFiles,
+			analysis.CodeFiles,
+			strings.Join(analysis.KeyDirectories, ", "),
+			strings.Join(analysis.EntryPoints, ", "))
+
+		m.messages = append(m.messages, llm.Message{
+			Role:    "system",
+			Content: summary,
+		})
+		m.viewport.SetContent(m.renderMessages())
+		m.viewport.GotoBottom()
+		m.showStatus(fmt.Sprintf("⚡ Quick analysis done (%s)", duration.Round(time.Millisecond)))
 	}()
 
 	return m, nil

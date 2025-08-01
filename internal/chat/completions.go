@@ -13,6 +13,7 @@ var slashCommands = []struct {
 }{
 	{"/analyze", "Re-analyze project with deep file reading"},
 	{"/analyze-files", "Run parallel analysis on all project files"},
+	{"/quick-analyze", "Fast 2-3 second project overview (Tier 1)"},
 	{"/confirm-write", "Confirm pending file write operation"},
 	{"/copy", "Copy messages to clipboard (last/error/all)"},
 	{"/debug", "Toggle debug metadata visibility"},

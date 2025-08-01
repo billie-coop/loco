@@ -180,8 +180,7 @@ func NewWithClient(client llm.Client) *Model {
 	orch := orchestrator.NewOrchestrator("", toolReg)
 	orch.SetupDefaultModels()
 
-	// Initialize project analyzer
-	analyzer := project.NewAnalyzer()
+	// Note: Legacy analyzer removed - using new tiered analysis system
 
 	// Base system prompt with tool information
 	systemPrompt := `You are Loco, a helpful AI coding assistant running locally via LM Studio.
@@ -216,38 +215,30 @@ You can include explanation before or after the tool call. The tool will be exec
 		Content: "🚂 Loco starting up...",
 	})
 
-	// Try to load or analyze project context
-	var projectCtx *project.ProjectContext
-	var analysisStatus string
+	// Add working directory to startup logs
 	if workingDir != "" {
-		// Add project analysis to startup log
 		startupLogs = append(startupLogs, llm.Message{
 			Role:    "system",
 			Content: "📁 Working directory: " + workingDir,
 		})
-		startupLogs = append(startupLogs, llm.Message{
-			Role:    "system",
-			Content: "🔍 Analyzing project context...",
-		})
+	}
 
-		// Analyze project (status will be shown in UI)
-		ctx, analyzeErr := analyzer.AnalyzeProject(workingDir)
-		if analyzeErr == nil {
-			projectCtx = ctx
-			// Add project context to system prompt
-			systemPrompt += "\n\n" + ctx.FormatForPrompt()
-			// Keep status messages short!
-			analysisStatus = "✅ Project analyzed"
+	// Check if we have any cached analysis - if not, run quick analysis
+	// This gives immediate context without blocking startup
+	var quickAnalysis *project.QuickAnalysis
+	if workingDir != "" {
+		if cached, err := project.LoadQuickAnalysis(workingDir); err == nil {
+			// We have cached analysis
+			quickAnalysis = cached
 			startupLogs = append(startupLogs, llm.Message{
 				Role:    "system",
-				Content: "✅ Project analyzed: " + ctx.Description,
+				Content: fmt.Sprintf("⚡ Quick analysis loaded (%s: %s)", cached.ProjectType, cached.Description),
 			})
 		} else {
-			// Show brief error message
-			analysisStatus = "⚠️ Could not analyze project"
+			// No cache - we'll run quick analysis in background after startup
 			startupLogs = append(startupLogs, llm.Message{
 				Role:    "system",
-				Content: fmt.Sprintf("⚠️  Could not analyze project: %v", analyzeErr),
+				Content: "⚡ Running quick analysis in background...",
 			})
 		}
 	}
@@ -287,7 +278,7 @@ You can include explanation before or after the tool call. The tool will be exec
 		showDebug:      true, // Show debug by default
 		modelUsage:     make(map[string]int),
 		sessionManager: sessionMgr,
-		projectContext: projectCtx,
+		projectContext: nil, // Legacy field - will be removed
 		toolRegistry:   toolReg,
 		orchestrator:   orch,
 		parser:         parser.New(),
@@ -304,10 +295,17 @@ You can include explanation before or after the tool call. The tool will be exec
 	// Add initial content
 	m.viewport.SetContent(m.renderMessages())
 
-	// Set initial status if we have analysis status
-	if analysisStatus != "" {
-		m.statusMessage = analysisStatus
-		m.statusTimer = time.Now()
+	// Set initial status message based on analysis state
+	if quickAnalysis != nil {
+		m.statusMessage = fmt.Sprintf("Ready - %s project detected", quickAnalysis.ProjectType)
+	} else {
+		m.statusMessage = "Ready - Use /quick-analyze for project insights"
+	}
+	m.statusTimer = time.Now()
+
+	// Trigger background quick analysis if no cache exists
+	if workingDir != "" && quickAnalysis == nil {
+		go m.runBackgroundQuickAnalysis(workingDir)
 	}
 
 	return m
@@ -752,4 +750,41 @@ func newStyledSpinner() spinner.Model {
 	s.Spinner = spinner.Dot
 	s.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("205"))
 	return s
+}
+
+// runBackgroundQuickAnalysis runs quick analysis in background without blocking UI.
+func (m *Model) runBackgroundQuickAnalysis(workingDir string) {
+	// Get current session for model selection
+	currentSession, err := m.sessionManager.GetCurrent()
+	if err != nil || currentSession.Team.Small == "" {
+		// No small model available - skip background analysis
+		m.showStatus("Ready - No small model for background analysis")
+		return
+	}
+
+	// Run quick analysis
+	analyzer := project.NewQuickAnalyzer(workingDir, currentSession.Team.Small)
+	analysis, err := analyzer.Analyze()
+	if err != nil {
+		m.showStatus("Background analysis failed")
+		return
+	}
+
+	// Save the analysis
+	if err := project.SaveQuickAnalysis(workingDir, analysis); err != nil {
+		m.showStatus("Failed to save background analysis")
+		return
+	}
+
+	// Update status message with project info
+	m.showStatus(fmt.Sprintf("⚡ %s project detected (%s)", analysis.ProjectType, analysis.Description))
+
+	// Add a system message to inform the user
+	m.messages = append(m.messages, llm.Message{
+		Role: "system",
+		Content: fmt.Sprintf("⚡ Background analysis complete! Detected %s project: %s\n\nUse /quick-analyze to see full details.",
+			analysis.ProjectType, analysis.Description),
+	})
+	m.viewport.SetContent(m.renderMessages())
+	m.viewport.GotoBottom()
 }
