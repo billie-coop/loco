@@ -70,6 +70,7 @@ type Model struct {
 	pendingWrite     *parser.ToolCall
 	knowledgeManager *knowledge.Manager
 	analysisState    *AnalysisState
+	modelManager     *llm.ModelManager
 }
 
 // New creates a new chat model.
@@ -145,6 +146,77 @@ func (m *Model) SetAvailableModels(models []llm.Model) {
 			m.modelUsage[model.ID] = 0
 		}
 	}
+}
+
+// SetModelManager sets the model manager for validation.
+func (m *Model) SetModelManager(mm *llm.ModelManager) {
+	m.modelManager = mm
+
+	// Immediately validate current team if available
+	if mm != nil {
+		m.validateCurrentTeamModels()
+	}
+}
+
+// validateCurrentTeamModels checks if the current team's models are available.
+func (m *Model) validateCurrentTeamModels() {
+	currentSession, err := m.sessionManager.GetCurrent()
+	if err != nil || currentSession == nil || currentSession.Team == nil || m.modelManager == nil {
+		return
+	}
+
+	var validationMsgs []llm.Message
+	validationMsgs = append(validationMsgs, llm.Message{
+		Role:    "system",
+		Content: "🤖 Checking models...",
+	})
+
+	// Check each model
+	if currentSession.Team.Small != "" {
+		if model, exists := m.modelManager.GetModelInfo(currentSession.Team.Small); exists && model.Available {
+			validationMsgs = append(validationMsgs, llm.Message{
+				Role:    "system",
+				Content: fmt.Sprintf("  ✅ Small: %s", currentSession.Team.Small),
+			})
+		} else {
+			validationMsgs = append(validationMsgs, llm.Message{
+				Role:    "system",
+				Content: fmt.Sprintf("  ⚠️ Small: %s (not available)", currentSession.Team.Small),
+			})
+		}
+	}
+
+	if currentSession.Team.Medium != "" {
+		if model, exists := m.modelManager.GetModelInfo(currentSession.Team.Medium); exists && model.Available {
+			validationMsgs = append(validationMsgs, llm.Message{
+				Role:    "system",
+				Content: fmt.Sprintf("  ✅ Medium: %s", currentSession.Team.Medium),
+			})
+		} else {
+			validationMsgs = append(validationMsgs, llm.Message{
+				Role:    "system",
+				Content: fmt.Sprintf("  ⚠️ Medium: %s (not available)", currentSession.Team.Medium),
+			})
+		}
+	}
+
+	if currentSession.Team.Large != "" {
+		if model, exists := m.modelManager.GetModelInfo(currentSession.Team.Large); exists && model.Available {
+			validationMsgs = append(validationMsgs, llm.Message{
+				Role:    "system",
+				Content: fmt.Sprintf("  ✅ Large: %s", currentSession.Team.Large),
+			})
+		} else {
+			validationMsgs = append(validationMsgs, llm.Message{
+				Role:    "system",
+				Content: fmt.Sprintf("  ⚠️ Large: %s (not available)", currentSession.Team.Large),
+			})
+		}
+	}
+
+	// Add messages to chat
+	m.messages = append(m.messages, validationMsgs...)
+	m.viewport.SetContent(m.renderMessages())
 }
 
 // NewWithClient creates a new chat model with a specific client.

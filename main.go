@@ -138,6 +138,18 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				chatModel := chat.NewWithClient(a.llmClient)
 				chatModel.SetTeam(msg.Team)
 				chatModel.SetAvailableModels(a.models)
+
+				// Load and update model database
+				workingDir, _ := os.Getwd()
+				modelMgr := llm.NewModelManager(workingDir)
+				if err := modelMgr.Load(); err == nil {
+					// Update from LM Studio (ignore errors)
+					_, _ = modelMgr.UpdateFromLMStudio(a.llmClient)
+
+					// Pass model manager to chat for validation
+					chatModel.SetModelManager(modelMgr)
+				}
+
 				a.chat = chatModel
 				a.state = StateChat
 
