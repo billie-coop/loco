@@ -653,7 +653,7 @@ func (fa *FileAnalyzer) AnalyzeAllFilesIncremental(maxWorkers int, progressChan 
 	// Try to load existing cache
 	cache, err := LoadAnalysisCache(fa.workingDir)
 	if err != nil {
-		// No cache exists, analyze all files
+		// No cache exists, we need to create one after analysis
 		if progressChan != nil {
 			progressChan <- AnalysisProgress{
 				TotalFiles:     len(filesToAnalyze),
@@ -661,7 +661,48 @@ func (fa *FileAnalyzer) AnalyzeAllFilesIncremental(maxWorkers int, progressChan 
 				CurrentFile:    "No cache found, analyzing all files...",
 			}
 		}
-		return fa.analyzeFiles(filesToAnalyze, maxWorkers, progressChan)
+		
+		// Analyze all files
+		analyses, analyzeErr := fa.analyzeFiles(filesToAnalyze, maxWorkers, progressChan)
+		if analyzeErr != nil {
+			return nil, analyzeErr
+		}
+		
+		// Create initial cache with the results
+		headCommit, isDirty, _ := getProjectGitStatus(fa.workingDir)
+		newCache := &AnalysisCache{
+			HeadCommit: headCommit,
+			IsDirty:    isDirty,
+			LastUpdate: time.Now(),
+			Model:      fa.smallModel,
+			FileHashes: make([]FileCache, 0, len(analyses)),
+		}
+		
+		// Populate cache with analysis results
+		for i := range analyses {
+			analysis := analyses[i] // Create a copy to avoid pointer issues
+			fc := FileCache{
+				FilePath:     analysis.Path,
+				GitHash:      analysis.GitHash,
+				LastAnalysis: analysis.AnalyzedAt,
+				Analysis:     &analysis,
+			}
+			newCache.FileHashes = append(newCache.FileHashes, fc)
+		}
+		
+		// Save the new cache
+		if saveErr := SaveAnalysisCache(fa.workingDir, newCache); saveErr != nil {
+			// Log but don't fail - we still have the analyses
+		} else if progressChan != nil {
+			// Report successful cache creation
+			progressChan <- AnalysisProgress{
+				TotalFiles:     len(analyses),
+				CompletedFiles: len(analyses),
+				CurrentFile:    "✅ Cache created for future runs!",
+			}
+		}
+		
+		return analyses, nil
 	}
 
 	// Find changed files based on git hashes
