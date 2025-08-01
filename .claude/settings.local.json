@@ -19,8 +19,12 @@
       "Bash(gofmt:*)",
       "Bash(make lint:*)",
       "Bash(make build:*)",
-      "Bash(ls:*)"
+      "Bash(ls:*)",
+      "Bash(curl:*)",
+      "WebFetch(domain:huggingface.co)",
+      "Bash(rm:*)"
     ],
     "deny": []
-  }
+  },
+  "$schema": "https://json.schemastore.org/claude-code-settings.json"
 }

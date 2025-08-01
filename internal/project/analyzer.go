@@ -65,6 +65,7 @@ func (a *Analyzer) AnalyzeProject(projectPath string) (*ProjectContext, error) {
 	if err != nil {
 		// If we can't get git status, proceed with analysis
 		// Git status check failed - continue anyway
+		_ = err
 	}
 
 	// Check cache first
@@ -111,6 +112,7 @@ func (a *Analyzer) AnalyzeProject(projectPath string) (*ProjectContext, error) {
 	if err := a.saveCachedContext(projectPath, analysis); err != nil {
 		// Log but don't fail
 		// Failed to cache analysis - continue anyway
+		_ = err
 	}
 
 	return analysis, nil

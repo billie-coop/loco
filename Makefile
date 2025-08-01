@@ -12,8 +12,9 @@ help:
 	@echo "  make clean        - Clean build artifacts"
 	@echo "  make install-tools - Install development tools"
 
-# Run the application
+# Run the application (fresh start - deletes .loco directory)
 run:
+	rm -rf .loco
 	go run .
 
 # Run all tests

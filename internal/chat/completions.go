@@ -17,6 +17,8 @@ var slashCommands = []struct {
 	{"/list", "List all chat sessions"},
 	{"/new", "Start a new chat session"},
 	{"/switch", "Switch to session number N"},
+	{"/team", "Change your model team (S/M/L)"},
+	{"/knowledge", "View knowledge base files"},
 	{"/project", "Show project context"},
 	{"/reset", "Move all sessions to trash and start fresh"},
 	{"/screenshot", "Capture UI state to file (also: Ctrl+S)"},

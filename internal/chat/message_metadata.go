@@ -10,12 +10,13 @@ import (
 // MessageMetadata stores debug info for each message.
 type MessageMetadata struct {
 	Timestamp   time.Time
+	ToolNames   []string
 	ParseMethod string
 	Error       string
-	ToolNames   []string
-	ToolsFound  int
+	ModelName   string
 	Duration    float64
 	TokenCount  int
+	ToolsFound  int
 }
 
 // Format returns a formatted string for display.
@@ -40,6 +41,10 @@ func (m *MessageMetadata) Format() string {
 
 	if m.ToolsFound > 0 {
 		result += fmt.Sprintf(" • Tools: %v", m.ToolNames)
+	}
+
+	if m.ModelName != "" {
+		result += " • Model: " + m.ModelName
 	}
 
 	if m.Error != "" {

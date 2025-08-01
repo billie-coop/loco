@@ -13,13 +13,20 @@ import (
 	"github.com/billie-coop/loco/internal/llm"
 )
 
+// ModelTeam represents the S/M/L model configuration for a session.
+type ModelTeam struct {
+	Small  string `json:"small"`
+	Medium string `json:"medium"`
+	Large  string `json:"large"`
+}
+
 // Session represents a chat session.
 type Session struct {
 	Created     time.Time     `json:"created"`
 	LastUpdated time.Time     `json:"last_updated"`
 	ID          string        `json:"id"`
 	Title       string        `json:"title"`
-	Model       string        `json:"model,omitempty"`
+	Team        *ModelTeam    `json:"team"`
 	Messages    []llm.Message `json:"messages"`
 }
 
@@ -59,7 +66,6 @@ func (m *Manager) NewSession(model string) (*Session, error) {
 		Messages:    []llm.Message{},
 		Created:     time.Now(),
 		LastUpdated: time.Now(),
-		Model:       model,
 	}
 
 	// Add to map

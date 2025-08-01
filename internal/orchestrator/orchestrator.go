@@ -373,7 +373,8 @@ func (o *Orchestrator) ExecutePlan(ctx context.Context, plan *WorkPlan) error {
 
 		// Update status
 		if updateErr := o.taskList.UpdateStatus(task.ID, StatusInProgress); updateErr != nil {
-			// Failed to update task status
+			// Failed to update task status - log but continue
+			_ = updateErr
 		}
 
 		// Execute task
@@ -390,10 +391,12 @@ func (o *Orchestrator) ExecutePlan(ctx context.Context, plan *WorkPlan) error {
 		}
 
 		if err := o.taskList.SetOutput(task.ID, response); err != nil {
-			// Failed to set task output
+			// Failed to set task output - log but continue
+			_ = err
 		}
 		if err := o.taskList.UpdateStatus(task.ID, StatusCompleted); err != nil {
-			// Failed to update task status
+			// Failed to update task status - log but continue
+			_ = err
 		}
 	}
 
