@@ -125,88 +125,88 @@
 </head>
 <body>
     <h1>DDAID: Documentation-Driven AI Development</h1>
-    <div class="subtitle">persistent shared context for human-AI collaboration</div>
+    <div class="subtitle">automatic context management for AI coding assistants</div>
 
-    <p>Documentation-Driven AI Development (DDAID) is an approach to maintaining persistent context between human developers and AI coding assistants. Rather than treating documentation as artifacts for human consumption, DDAID treats it as a shared memory layer that preserves understanding across AI sessions.</p>
+    <p>Modern AI coding assistants already maintain context - through files like <code>CLAUDE.md</code>, project scanning, and conversation memory. The problem isn't that context doesn't exist. The problem is that context management is manual, fragmented, and doesn't scale.</p>
 
-    <h2>The Context Problem</h2>
+    <h2>The Context Management Problem</h2>
     
-    <p>Current AI coding assistants face a fundamental limitation: context resets between sessions. Each new conversation starts from zero, requiring developers to re-explain project architecture, patterns, and decisions. This creates several issues:</p>
+    <p>Current approaches to AI context have significant limitations:</p>
     
     <ul>
-        <li>Repeated explanations of the same architectural patterns</li>
-        <li>Inconsistent suggestions across different sessions</li>
-        <li>Lost understanding when switching between projects</li>
-        <li>No shared context between different AI models/tools</li>
+        <li><strong>Manual maintenance</strong> - You have to remember to update context files</li>
+        <li><strong>Scattered formats</strong> - Each tool has its own way of storing context</li>
+        <li><strong>Stale information</strong> - Context doesn't update when code changes</li>
+        <li><strong>No cross-tool sharing</strong> - Claude can't use Copilot's understanding</li>
+        <li><strong>Doesn't scale</strong> - Works for small projects, breaks down for large ones</li>
     </ul>
 
-    <h2>Core Concept</h2>
+    <p>This leads to a familiar cycle: you carefully set up context files, they work great for a week, then slowly drift out of sync with reality until you're explaining the same things over and over again.</p>
+
+    <h2>What DDAID Actually Does</h2>
     
-    <p>DDAID addresses this by creating a persistence layer specifically designed for AI consumption. The key insight is that documentation doesn't need to be human-readable to be valuable - it needs to be AI-readable and automatically maintained.</p>
+    <p>DDAID takes the ad-hoc context management that already exists and makes it systematic:</p>
     
     <div class="box">
-        <p><strong>Traditional approach:</strong> Documentation is written by humans for humans, separate from development flow.</p>
-        <p><strong>DDAID approach:</strong> Context is captured automatically during development and made available to all AI interactions.</p>
+        <p><strong>Current state:</strong> Manual context files + project scanning + hope</p>
+        <p><strong>DDAID approach:</strong> Automatic updates + standardized format + git integration</p>
     </div>
 
-    <h2>Technical Components</h2>
+    <p>It's not about giving AI memory - it's about making that memory manageable.</p>
+
+    <h2>Technical Approach</h2>
     
-    <p>The DDAID architecture consists of several key components:</p>
-    
-    <h3>Change Detection</h3>
-    <p>Git-based file tracking identifies what has actually changed, enabling incremental updates rather than full regeneration. This makes the system efficient even for large codebases.</p>
+    <h3>Automatic Updates</h3>
+    <p>When code changes, context updates. No more remembering to edit <code>ARCHITECTURE.md</code> after a refactor. Git integration detects changes and updates relevant context automatically.</p>
     
     <h3>Specialized Agents</h3>
-    <p>Different aspects of the codebase are maintained by specialized agents:</p>
+    <p>Different aspects require different context management:</p>
     <ul>
-        <li>Architecture Agent - tracks structural patterns and design decisions</li>
-        <li>API Agent - maintains endpoint documentation and contracts</li>
-        <li>Security Agent - documents authentication and authorization patterns</li>
-        <li>Performance Agent - captures optimization decisions and benchmarks</li>
+        <li>Architecture context tracks structural decisions</li>
+        <li>API context maintains endpoint documentation</li>
+        <li>Security context documents auth patterns</li>
+        <li>Performance context captures optimization choices</li>
     </ul>
     
-    <h3>Context Format</h3>
-    <p>The shared context uses a model-agnostic markdown format that works with any AI system. This ensures portability and prevents vendor lock-in.</p>
+    <h3>Standardized Format</h3>
+    <p>One context format that works across AI tools. Your architectural decisions work the same in Claude, ChatGPT, or local models.</p>
 
-    <h2>Implementation</h2>
+    <h2>Why This Matters</h2>
     
-    <p>A reference implementation called Loco demonstrates these concepts. It provides:</p>
+    <p>The difference between theory and practice:</p>
     
-    <ul>
-        <li>Automatic context generation from existing codebases</li>
-        <li>Incremental updates based on git changes</li>
-        <li>Integration with local AI models via LM Studio</li>
-        <li>Persistent storage that travels with the repository</li>
-    </ul>
+    <p><strong>In theory:</strong> AI assistants read your project and understand it.</p>
+    
+    <p><strong>In practice:</strong> You're constantly reminding them about decisions made last month, explaining why you chose PostgreSQL over MongoDB (again), and dealing with suggestions that conflict with established patterns.</p>
+    
+    <p>DDAID acknowledges that context already exists - it just makes it actually work at scale.</p>
 
     <blockquote>
-        The goal is to make AI assistance cumulative rather than repetitive - each interaction builds on previous understanding rather than starting fresh.
+        Good context management is invisible. You only notice it when it's broken.
     </blockquote>
 
-    <h2>Practical Benefits</h2>
+    <h2>Implementation Status</h2>
     
-    <p>DDAID offers several advantages over current approaches:</p>
+    <p>The reference implementation (Loco) demonstrates these concepts with:</p>
     
-    <p><strong>Consistency:</strong> All AI tools reference the same shared context, reducing conflicting suggestions.</p>
-    
-    <p><strong>Efficiency:</strong> No need to repeatedly explain project structure and patterns.</p>
-    
-    <p><strong>Persistence:</strong> Understanding survives across sessions, model switches, and time.</p>
-    
-    <p><strong>Team alignment:</strong> Shared context helps maintain architectural coherence across contributors.</p>
+    <ul>
+        <li>Git-based change detection for incremental updates</li>
+        <li>Multi-tier analysis system for existing codebases</li>
+        <li>Local-first design with LM Studio integration</li>
+        <li>Context that travels with your repository</li>
+    </ul>
 
-    <h2>Getting Started</h2>
-    
-    <p>The reference implementation is available as open source:</p>
+    <p>It's early, but it shows how automatic context management could work in practice.</p>
+
+    <h2>Try It</h2>
     
     <pre>git clone https://github.com/billie-coop/loco
 go build && ./loco</pre>
     
-    <p>For more details, see the <a href="https://github.com/billie-coop/loco">GitHub repository</a>.</p>
+    <p>See the <a href="https://github.com/billie-coop/loco">GitHub repository</a> for more details.</p>
 
     <div class="footer">
-        <p><strong>BUILD WITH CONTEXT. BUILD WITH CONTINUITY. BUILD WITH DDAID.</strong></p>
-        <p style="margin-top: 30px; font-size: 14px;">
+        <p style="font-size: 14px;">
             build with care • build for each other • build for your idea(l)s<br>
             build DIY • make things available to everyone • make the world a better place
         </p>

@@ -1,36 +1,41 @@
-# DDAID Technical Guide: How Shared AI Context Works
+# DDAID Technical Guide: Automatic Context Management for AI Coding Assistants
 
 ## Overview
 
-Documentation-Driven AI Development (DDAID) is a system for maintaining persistent shared context between human developers and AI collaborators. This guide explains the technical architecture and implementation details.
+Documentation-Driven AI Development (DDAID) is a system for automatic context management. It takes the manual, ad-hoc context maintenance that developers already do (CLAUDE.md files, README updates, etc.) and makes it systematic and automatic.
 
 ## Core Concepts
 
-### 1. Shared Context vs. Documentation
+### 1. Manual vs. Automatic Context Management
 
-Traditional documentation is written for humans to read. Shared AI context is designed as a persistence layer for AI memory:
+Current context management is manual and fragmented. DDAID makes it automatic and unified:
 
-- **Format**: Structured markdown optimized for AI parsing
-- **Updates**: Automatic via git-based change detection
-- **Scope**: Project-specific patterns, decisions, and knowledge
-- **Access**: Available to any AI model working on the project
+- **Current**: You manually update CLAUDE.md when you remember
+- **DDAID**: Context updates automatically when code changes
+- **Current**: Each tool has its own context format
+- **DDAID**: One standardized format works everywhere
 
-### 2. The Three-Layer Architecture
+### 2. The Context Management Pipeline
 
 ```
 ┌─────────────────────────────────────┐
-│         Application Layer           │
-│  (Your code, commits, changes)      │
+│         Code Changes                │
+│  (You edit files, refactor, etc.)   │
 └─────────────────────────────────────┘
                  ▼
 ┌─────────────────────────────────────┐
-│      Context Detection Layer        │
-│  (Git integration, file analysis)   │
+│      Change Detection               │
+│  (Git notices what changed)         │
 └─────────────────────────────────────┘
                  ▼
 ┌─────────────────────────────────────┐
-│    Context Persistence Layer        │
-│  (Markdown files in .loco/)         │
+│    Incremental Analysis             │
+│  (Only analyze changed files)       │
+└─────────────────────────────────────┘
+                 ▼
+┌─────────────────────────────────────┐
+│    Context Updates                  │
+│  (Relevant context auto-updates)    │
 └─────────────────────────────────────┘
 ```
 
@@ -52,29 +57,29 @@ git hash-object auth.go  # def456... (changed!)
 # DDAID updates only auth-related context
 ```
 
-### Specialized Context Agents
+### Context Domains
 
-Different agents maintain different aspects of the shared context:
+Different aspects of your project need different context management:
 
-#### Architecture Agent
-- **Watches**: Structural changes, new patterns, refactoring
-- **Maintains**: `ARCHITECTURE.md` with current system design
-- **Example Update**: "Added Repository pattern to data layer"
+#### Architecture Context
+- **Tracks**: System structure, design patterns, major components
+- **Updates when**: You add new modules, refactor structure, change patterns
+- **Example**: "Switched from MVC to hexagonal architecture in commit abc123"
 
-#### API Agent  
-- **Watches**: Endpoint changes, request/response formats
-- **Maintains**: `API.md` with current API surface
-- **Example Update**: "POST /auth/login now returns JWT token"
+#### API Context  
+- **Tracks**: Endpoints, request/response formats, API contracts
+- **Updates when**: You add/modify endpoints, change data formats
+- **Example**: "Added pagination to GET /users endpoint"
 
-#### Security Agent
-- **Watches**: Auth flows, permission checks, crypto usage
-- **Maintains**: `SECURITY.md` with security patterns
-- **Example Update**: "All endpoints now require Bearer token"
+#### Security Context
+- **Tracks**: Auth patterns, permission models, security decisions
+- **Updates when**: You modify auth code, add security features
+- **Example**: "Implemented JWT refresh token rotation"
 
-#### Performance Agent
-- **Watches**: Optimization patterns, caching strategies
-- **Maintains**: `PERFORMANCE.md` with perf decisions
-- **Example Update**: "Added Redis caching for user sessions"
+#### Performance Context
+- **Tracks**: Caching strategies, optimization decisions, bottlenecks
+- **Updates when**: You add caching, optimize queries, tune performance
+- **Example**: "Moved session storage from PostgreSQL to Redis"
 
 ### Context Storage Format
 
@@ -100,13 +105,15 @@ Model: qwen2.5-coder:7b
 - Added: 2025-01-12 in commit def456
 ```
 
-### The Context Feedback Loop
+### The Automatic Update Cycle
 
-1. **Code Change** → Developer modifies files
-2. **Detection** → Git detects which files changed
-3. **Analysis** → Relevant agents analyze changes
-4. **Update** → Agents update their context files
-5. **Next Session** → AI loads updated context automatically
+1. **You Change Code** → Just normal development
+2. **Git Detects Changes** → `git diff` shows what changed
+3. **Smart Analysis** → Only changed files are analyzed
+4. **Context Updates** → Relevant context sections update
+5. **AI Stays Current** → Next session has fresh context
+
+No manual intervention. No remembering to update docs. It just works.
 
 ## Technical Implementation Details
 
@@ -241,34 +248,34 @@ loco-update-context --incremental
 - Medium models (14B+) for synthesis
 - Large models (70B+) for complex reasoning (optional)
 
-## Comparison with Existing Approaches
+## Comparison with Current Practices
 
-### vs. Static Documentation Generators
+### vs. Manual Context Files (CLAUDE.md, etc.)
 
-| Feature | Static Generators | DDAID |
-|---------|------------------|--------|
-| Updates | Manual or build-time | Automatic on change |
-| AI-Aware | No | Yes |
-| Context Preservation | No | Yes |
-| Incremental | No | Yes |
-
-### vs. Code Comments
-
-| Feature | Code Comments | DDAID |
-|---------|--------------|--------|
-| Scope | Local to code | Project-wide |
-| AI Accessible | Only if in context | Always available |
-| Maintenance | Manual | Automatic |
-| Evolution Tracking | No | Yes |
-
-### vs. Cloud AI Memory
-
-| Feature | Cloud AI Memory | DDAID |
+| Feature | Manual Context | DDAID |
 |---------|----------------|--------|
-| Privacy | Cloud-stored | Local-first |
-| Portability | Vendor-locked | Git-portable |
-| Team Sharing | Platform-specific | Via version control |
-| Offline | No | Yes |
+| Updates | When you remember | Automatic |
+| Accuracy | Drifts over time | Stays current |
+| Completeness | What you wrote | Comprehensive |
+| Maintenance burden | High | None |
+
+### vs. Project Scanning
+
+| Feature | Project Scanning | DDAID |
+|---------|------------------|--------|
+| Speed | Full scan each time | Incremental updates |
+| Memory | None between sessions | Persistent |
+| Context quality | Surface-level | Deep understanding |
+| Scalability | Slows with size | Handles large codebases |
+
+### vs. Tool-Specific Context
+
+| Feature | Tool-Specific | DDAID |
+|---------|---------------|--------|
+| Portability | Locked to one tool | Works everywhere |
+| Format | Proprietary | Standard markdown |
+| Sharing | Platform-dependent | Git-based |
+| Control | Vendor-managed | You own it |
 
 ## Security Considerations
 
@@ -325,4 +332,6 @@ The DDAID philosophy is bigger than any single implementation. We encourage:
 
 ---
 
-*This technical guide is part of the DDAID (Documentation-Driven AI Development) project. For the philosophy and vision, see the [DDAID Manifesto](ddaid-manifesto-v2.md).*
+*This technical guide is part of the DDAID (Documentation-Driven AI Development) project. DDAID solves the context management problem that every developer faces with AI coding assistants.*
+
+[Read the Manifesto](ddaid-manifesto.md) | [Try Loco](https://github.com/billie-coop/loco) | [Visit Website](https://ddaid.dev)

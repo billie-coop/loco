@@ -15,7 +15,6 @@ import (
 type KnowledgeGenerator struct {
 	workingDir      string
 	mediumModel     string
-	llmClient       *llm.LMStudioClient
 	analysisSummary *AnalysisSummary
 }
 
@@ -24,7 +23,6 @@ func NewKnowledgeGenerator(workingDir, mediumModel string, summary *AnalysisSumm
 	return &KnowledgeGenerator{
 		workingDir:      workingDir,
 		mediumModel:     mediumModel,
-		llmClient:       llm.NewLMStudioClient(),
 		analysisSummary: summary,
 	}
 }
@@ -389,7 +387,9 @@ Please provide a markdown document following this template:
 
 // generateWithModel sends prompt to the medium model with proper context handling.
 func (kg *KnowledgeGenerator) generateWithModel(prompt, taskName string) (string, error) {
-	kg.llmClient.SetModel(kg.mediumModel)
+	// Create a dedicated LLM client for this goroutine to avoid concurrency issues
+	llmClient := llm.NewLMStudioClient()
+	llmClient.SetModel(kg.mediumModel)
 
 	ctx := context.Background()
 
@@ -405,7 +405,7 @@ func (kg *KnowledgeGenerator) generateWithModel(prompt, taskName string) (string
 			ContextSize: ctxSize,
 		}
 
-		response, err = kg.llmClient.CompleteWithOptions(ctx, []llm.Message{
+		response, err = llmClient.CompleteWithOptions(ctx, []llm.Message{
 			{
 				Role:    "system",
 				Content: "You are a technical documentation expert. Create clear, accurate documentation based on code analysis.",
@@ -426,7 +426,7 @@ func (kg *KnowledgeGenerator) generateWithModel(prompt, taskName string) (string
 		}
 	}
 
-	return "", fmt.Errorf("%s failed: %w", taskName, err)
+	return "", fmt.Errorf("%s failed with model '%s': %w", taskName, kg.mediumModel, err)
 }
 
 // Helper functions

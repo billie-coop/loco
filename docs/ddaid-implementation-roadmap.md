@@ -1,6 +1,6 @@
 # DDAID Implementation Roadmap
 
-This document outlines the technical implementation plan for Documentation-Driven AI Development (DDAID) in Loco.
+This document outlines the technical implementation plan for Documentation-Driven AI Development (DDAID) in Loco - automatic context management for AI coding assistants.
 
 ## Architecture Overview
 

@@ -655,6 +655,12 @@ func (m *Model) runProgressiveAnalysis(workingDir string, currentSession *sessio
 	}
 
 	// Generate knowledge files using medium model
+	m.messages = append(m.messages, llm.Message{
+		Role:    "system",
+		Content: fmt.Sprintf("🔍 Starting knowledge generation with model: %s", currentSession.Team.Medium),
+	})
+	m.viewport.SetContent(m.renderMessages())
+	
 	kg := project.NewKnowledgeGenerator(workingDir, currentSession.Team.Medium, &analysisSummary)
 	if err := kg.GenerateAllKnowledge(); err != nil {
 		m.messages = append(m.messages, llm.Message{
