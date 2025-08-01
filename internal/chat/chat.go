@@ -21,6 +21,16 @@ import (
 	"github.com/charmbracelet/lipgloss/v2"
 )
 
+// AnalysisState tracks the current file analysis progress.
+type AnalysisState struct {
+	IsRunning      bool
+	TotalFiles     int
+	CompletedFiles int
+	FailedFiles    int
+	StartTime      time.Time
+	EndTime        time.Time
+}
+
 // Model represents the chat interface.
 type Model struct {
 	input            textarea.Model
@@ -51,6 +61,7 @@ type Model struct {
 	statusTimer      time.Time
 	pendingWrite     *parser.ToolCall
 	knowledgeManager *knowledge.Manager
+	analysisState    *AnalysisState
 }
 
 // New creates a new chat model.
@@ -339,7 +350,25 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	)
 
 	m.input, taCmd = m.input.Update(msg)
-	m.viewport, vpCmd = m.viewport.Update(msg)
+
+	// Only pass certain messages to viewport to prevent key interference
+	switch msg := msg.(type) {
+	case tea.KeyMsg:
+		// Only allow specific navigation keys to reach viewport
+		switch msg.String() {
+		case "up", "down", "pgup", "pgdown", "home", "end":
+			// Allow these navigation keys only if input is empty
+			if m.input.Value() == "" {
+				m.viewport, vpCmd = m.viewport.Update(msg)
+			}
+		default:
+			// Block all other keys from viewport (including h,j,k,l)
+		}
+	default:
+		// Allow all non-key messages (mouse, resize, etc.)
+		m.viewport, vpCmd = m.viewport.Update(msg)
+	}
+
 	m.spinner, spinnerCmd = m.spinner.Update(msg)
 
 	switch msg := msg.(type) {
@@ -645,6 +674,7 @@ func (m *Model) View() tea.View {
 	sidebar := m.renderSidebar(sidebarWidth, m.height)
 
 	// Create main content area with proper styling
+	// Note: The viewport content is the only selectable area
 	mainViewStyle := lipgloss.NewStyle().
 		Width(mainWidth).
 		Height(viewportHeight)

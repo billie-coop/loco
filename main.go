@@ -12,7 +12,6 @@ import (
 	tea "github.com/charmbracelet/bubbletea/v2"
 )
 
-
 // AppState represents the current state of the application.
 type AppState int
 

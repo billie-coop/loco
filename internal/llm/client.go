@@ -40,18 +40,44 @@ func NewLMStudioClient() *LMStudioClient {
 	}
 }
 
+// CompleteOptions contains options for completion requests.
+type CompleteOptions struct {
+	Temperature float64
+	MaxTokens   int
+	ContextSize int // n_ctx for LM Studio
+}
+
+// DefaultCompleteOptions returns default options.
+func DefaultCompleteOptions() CompleteOptions {
+	return CompleteOptions{
+		Temperature: 0.7,
+		MaxTokens:   -1,
+		ContextSize: 0, // 0 means use model default
+	}
+}
+
 // Complete sends messages and returns the full response.
 func (c *LMStudioClient) Complete(ctx context.Context, messages []Message) (string, error) {
+	return c.CompleteWithOptions(ctx, messages, DefaultCompleteOptions())
+}
+
+// CompleteWithOptions sends messages with custom options and returns the full response.
+func (c *LMStudioClient) CompleteWithOptions(ctx context.Context, messages []Message, opts CompleteOptions) (string, error) {
 	payload := map[string]interface{}{
 		"messages":    messages,
-		"temperature": 0.7,
-		"max_tokens":  -1,
+		"temperature": opts.Temperature,
+		"max_tokens":  opts.MaxTokens,
 		"stream":      false,
 	}
 
 	// Add model if specified
 	if c.model != "" {
 		payload["model"] = c.model
+	}
+
+	// Add context size if specified (LM Studio uses n_ctx)
+	if opts.ContextSize > 0 {
+		payload["n_ctx"] = opts.ContextSize
 	}
 
 	body, err := json.Marshal(payload)

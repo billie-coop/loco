@@ -19,7 +19,14 @@ func (m *Model) renderSidebar(width, height int) string {
 		Height(height).
 		BorderStyle(lipgloss.RoundedBorder()).
 		BorderForeground(lipgloss.Color("86")).
-		Padding(1)
+		Padding(1).
+		UnsetUnderline().
+		UnsetBold().
+		UnsetItalic().
+		UnsetStrikethrough().
+		UnsetReverse().
+		UnsetBlink().
+		UnsetFaint()
 
 	// Count messages
 	userMessages := 0
@@ -153,6 +160,35 @@ func (m *Model) renderSidebar(width, height int) string {
 		content.WriteString("\n")
 		// File count
 		content.WriteString(dimStyle.Render(fmt.Sprintf("%d files", m.projectContext.FileCount)))
+		content.WriteString("\n\n")
+	}
+
+	// File Analysis Status (if applicable)
+	if m.analysisState != nil {
+		content.WriteString(labelStyle.Render("File Analysis:"))
+		content.WriteString("\n")
+
+		if m.analysisState.IsRunning {
+			progress := fmt.Sprintf("%d/%d files", m.analysisState.CompletedFiles, m.analysisState.TotalFiles)
+			if m.analysisState.FailedFiles > 0 {
+				progress += fmt.Sprintf(" (%d failed)", m.analysisState.FailedFiles)
+			}
+			content.WriteString(dimStyle.Render(progress))
+			content.WriteString("\n")
+			duration := time.Since(m.analysisState.StartTime)
+			content.WriteString(dimStyle.Render(fmt.Sprintf("⏱️  %s", duration.Round(time.Second))))
+		} else if m.analysisState.CompletedFiles > 0 {
+			// Show completion summary
+			successCount := m.analysisState.CompletedFiles - m.analysisState.FailedFiles
+			content.WriteString(dimStyle.Render(fmt.Sprintf("✅ %d/%d analyzed", successCount, m.analysisState.TotalFiles)))
+			content.WriteString("\n")
+			if m.analysisState.FailedFiles > 0 {
+				content.WriteString(dimStyle.Render(fmt.Sprintf("❌ %d failed", m.analysisState.FailedFiles)))
+				content.WriteString("\n")
+			}
+			duration := m.analysisState.EndTime.Sub(m.analysisState.StartTime)
+			content.WriteString(dimStyle.Render(fmt.Sprintf("⏱️  %s", duration.Round(time.Millisecond))))
+		}
 		content.WriteString("\n\n")
 	}
 

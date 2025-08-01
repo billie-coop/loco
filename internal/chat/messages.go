@@ -11,16 +11,8 @@ import (
 func (m *Model) renderMessages() string {
 	var sb strings.Builder
 
-	// Count non-system messages
-	visibleMessages := 0
-	for _, msg := range m.messages {
-		if msg.Role != "system" {
-			visibleMessages++
-		}
-	}
-
-	// Show welcome message if no conversation yet
-	if visibleMessages == 0 && !m.isStreaming {
+	// Show welcome message only if there are truly no messages at all
+	if len(m.messages) == 0 && !m.isStreaming {
 		welcome := lipgloss.NewStyle().
 			Foreground(lipgloss.Color("241")).
 			Italic(true).
@@ -73,6 +65,9 @@ func (m *Model) renderMessages() string {
 			if err == nil {
 				content = rendered
 			}
+		} else {
+			// Apply word wrapping for non-assistant messages
+			content = m.wrapText(content, m.width-4)
 		}
 
 		// Apply style
@@ -147,4 +142,66 @@ func (m *Model) renderMarkdown(content string) (string, error) {
 	rendered = strings.TrimRight(rendered, "\n")
 
 	return rendered, nil
+}
+
+// wrapText wraps text at word boundaries to fit within the specified width.
+func (m *Model) wrapText(text string, width int) string {
+	if width <= 0 {
+		return text
+	}
+
+	var result strings.Builder
+	lines := strings.Split(text, "\n")
+
+	for i, line := range lines {
+		if i > 0 {
+			result.WriteString("\n")
+		}
+
+		// If line is already shorter than width, keep it as is
+		if len(line) <= width {
+			result.WriteString(line)
+			continue
+		}
+
+		// Wrap long lines at word boundaries
+		words := strings.Fields(line)
+		currentLine := ""
+
+		for _, word := range words {
+			// If word itself is longer than width, it must be broken
+			if len(word) > width {
+				// Flush current line if any
+				if currentLine != "" {
+					result.WriteString(currentLine)
+					result.WriteString("\n")
+				}
+				// Break long word
+				for len(word) > width {
+					result.WriteString(word[:width])
+					result.WriteString("\n")
+					word = word[width:]
+				}
+				currentLine = word
+			} else if len(currentLine)+1+len(word) > width {
+				// Adding this word would exceed width
+				result.WriteString(currentLine)
+				result.WriteString("\n")
+				currentLine = word
+			} else {
+				// Add word to current line
+				if currentLine != "" {
+					currentLine += " "
+				}
+				currentLine += word
+			}
+		}
+
+		// Write any remaining content
+		if currentLine != "" {
+			result.WriteString(currentLine)
+		}
+	}
+
+	return result.String()
 }

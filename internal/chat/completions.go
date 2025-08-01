@@ -12,7 +12,9 @@ var slashCommands = []struct {
 	description string
 }{
 	{"/analyze", "Re-analyze project with deep file reading"},
+	{"/analyze-files", "Run parallel analysis on all project files"},
 	{"/confirm-write", "Confirm pending file write operation"},
+	{"/copy", "Copy messages to clipboard (last/error/all)"},
 	{"/debug", "Toggle debug metadata visibility"},
 	{"/list", "List all chat sessions"},
 	{"/new", "Start a new chat session"},
