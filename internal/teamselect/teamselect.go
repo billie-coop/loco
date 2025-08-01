@@ -47,18 +47,15 @@ func New(models []llm.Model) Model {
 		grouped[string(size)] = append(grouped[string(size)], model)
 	}
 
-	// Create initial list for large models
+	// Create initial list for large models (include both L and XL)
 	items := []list.Item{}
 	largeModels := registry.GetModelsForTeamSelection(models, llm.SizeL)
 	for _, model := range largeModels {
 		items = append(items, modelItem{model: model})
 	}
-	if len(items) == 0 {
-		// Fallback if no large models - try XL
-		xlModels := registry.GetModelsForTeamSelection(models, llm.SizeXL)
-		for _, model := range xlModels {
-			items = append(items, modelItem{model: model})
-		}
+	xlModels := registry.GetModelsForTeamSelection(models, llm.SizeXL)
+	for _, model := range xlModels {
+		items = append(items, modelItem{model: model})
 	}
 
 	l := list.New(items, list.NewDefaultDelegate(), 0, 0)
@@ -133,14 +130,12 @@ func (m *Model) updateListForStage() {
 	switch m.stage {
 	case StageLarge:
 		m.list.Title = "Select your LARGE model (for complex coding tasks)"
+		// Include both L and XL models for large tier
 		for _, model := range m.models["L"] {
 			items = append(items, modelItem{model: model})
 		}
-		if len(items) == 0 {
-			// Fallback if no large models
-			for _, model := range m.models["XL"] {
-				items = append(items, modelItem{model: model})
-			}
+		for _, model := range m.models["XL"] {
+			items = append(items, modelItem{model: model})
 		}
 	case StageMedium:
 		m.list.Title = "Select your MEDIUM model (for general tasks)"
@@ -155,14 +150,12 @@ func (m *Model) updateListForStage() {
 		}
 	case StageSmall:
 		m.list.Title = "Select your SMALL model (for quick responses)"
-		for _, model := range m.models["S"] {
+		// Include both XS and S models for small tier
+		for _, model := range m.models["XS"] {
 			items = append(items, modelItem{model: model})
 		}
-		if len(items) == 0 {
-			// Try XS models
-			for _, model := range m.models["XS"] {
-				items = append(items, modelItem{model: model})
-			}
+		for _, model := range m.models["S"] {
+			items = append(items, modelItem{model: model})
 		}
 		if len(items) == 0 {
 			// Fallback to medium
