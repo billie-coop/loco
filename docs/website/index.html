@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>DDAID</title>
+    <title>DDAID: Documentation-Driven AI Development</title>
     <style>
         body {
             font-family: 'Courier New', monospace;
@@ -124,74 +124,85 @@
     </style>
 </head>
 <body>
-    <h1>DDAID: Shared AI Context</h1>
-    <div class="subtitle">thoughts on persistent human-AI collaboration</div>
+    <h1>DDAID: Documentation-Driven AI Development</h1>
+    <div class="subtitle">persistent shared context for human-AI collaboration</div>
 
-    <p>I've been thinking about a problem that's been bugging me.</p>
-    
-    <p>Every time I switch projects or come back to something after a break, I have to re-explain everything to my AI assistant. All that context we built up together just... vanishes. It's like having a conversation with someone who forgets everything overnight.</p>
-    
-    <p>So I started working on this idea: what if documentation wasn't really for humans to read? What if it was actually a shared memory system between us and our AI collaborators?</p>
+    <p>Documentation-Driven AI Development (DDAID) is an approach to maintaining persistent context between human developers and AI coding assistants. Rather than treating documentation as artifacts for human consumption, DDAID treats it as a shared memory layer that preserves understanding across AI sessions.</p>
 
-    <h2>The Problem I'm Trying to Solve</h2>
+    <h2>The Context Problem</h2>
     
-    <p>When I'm coding with AI assistance, I run into the same issues over and over:</p>
+    <p>Current AI coding assistants face a fundamental limitation: context resets between sessions. Each new conversation starts from zero, requiring developers to re-explain project architecture, patterns, and decisions. This creates several issues:</p>
     
     <ul>
-        <li>I explain my project's architecture to ChatGPT. Next session? Gone.</li>
-        <li>I tell Claude about our auth system. Tomorrow? It has no idea.</li>
-        <li>I switch between projects and lose all that built-up understanding.</li>
-        <li>Different AI tools suggest conflicting patterns because they don't share context.</li>
+        <li>Repeated explanations of the same architectural patterns</li>
+        <li>Inconsistent suggestions across different sessions</li>
+        <li>Lost understanding when switching between projects</li>
+        <li>No shared context between different AI models/tools</li>
     </ul>
-    
-    <p>The standard answer is "write better documentation," but let's be honest - documentation is usually out of date the moment it's written. And more importantly, it's not really solving the AI context problem.</p>
 
-    <h2>The Idea: DDAID</h2>
+    <h2>Core Concept</h2>
     
-    <p>Documentation-Driven AI Development (DDAID) is about creating persistent shared context that both humans and AI can use. Not documentation in the traditional sense, but a living memory system.</p>
-    
-    <p>Here's how I'm thinking about it:</p>
+    <p>DDAID addresses this by creating a persistence layer specifically designed for AI consumption. The key insight is that documentation doesn't need to be human-readable to be valuable - it needs to be AI-readable and automatically maintained.</p>
     
     <div class="box">
-        <p><strong>Instead of:</strong> Write docs → Hope someone reads them → AI doesn't know they exist</p>
-        <p><strong>What if:</strong> Code changes → Context updates automatically → AI remembers next time</p>
+        <p><strong>Traditional approach:</strong> Documentation is written by humans for humans, separate from development flow.</p>
+        <p><strong>DDAID approach:</strong> Context is captured automatically during development and made available to all AI interactions.</p>
     </div>
 
-    <h2>How It Works (Or How I Think It Should)</h2>
+    <h2>Technical Components</h2>
     
-    <p>The basic pieces:</p>
+    <p>The DDAID architecture consists of several key components:</p>
     
+    <h3>Change Detection</h3>
+    <p>Git-based file tracking identifies what has actually changed, enabling incremental updates rather than full regeneration. This makes the system efficient even for large codebases.</p>
+    
+    <h3>Specialized Agents</h3>
+    <p>Different aspects of the codebase are maintained by specialized agents:</p>
     <ul>
-        <li><strong>Git-aware context detection</strong> - Only update what actually changed</li>
-        <li><strong>Specialized agents</strong> - Different bots for architecture, APIs, security, etc.</li>
-        <li><strong>Model-agnostic format</strong> - Works with any AI, not locked to one provider</li>
-        <li><strong>Lives with your code</strong> - Context travels in your repo</li>
+        <li>Architecture Agent - tracks structural patterns and design decisions</li>
+        <li>API Agent - maintains endpoint documentation and contracts</li>
+        <li>Security Agent - documents authentication and authorization patterns</li>
+        <li>Performance Agent - captures optimization decisions and benchmarks</li>
     </ul>
     
-    <p>The key insight is that this isn't about generating documentation for humans. It's about maintaining a shared understanding that persists across sessions, models, and time.</p>
+    <h3>Context Format</h3>
+    <p>The shared context uses a model-agnostic markdown format that works with any AI system. This ensures portability and prevents vendor lock-in.</p>
 
-    <h2>What I'm Building</h2>
+    <h2>Implementation</h2>
     
-    <p>I'm working on a tool called Loco that explores these ideas. It's still early, but the goal is to make human-AI collaboration more continuous - less starting from scratch, more building on what came before.</p>
+    <p>A reference implementation called Loco demonstrates these concepts. It provides:</p>
     
+    <ul>
+        <li>Automatic context generation from existing codebases</li>
+        <li>Incremental updates based on git changes</li>
+        <li>Integration with local AI models via LM Studio</li>
+        <li>Persistent storage that travels with the repository</li>
+    </ul>
+
     <blockquote>
-        Imagine if your AI assistant remembered your project as well as you do. That's what I'm trying to build.
+        The goal is to make AI assistance cumulative rather than repetitive - each interaction builds on previous understanding rather than starting fresh.
     </blockquote>
 
-    <h2>Why This Matters (To Me)</h2>
+    <h2>Practical Benefits</h2>
     
-    <p>I switch between projects a lot. I forget things. I come back to code I wrote months ago and wonder what I was thinking. Having a system that maintains context - not just for me, but for my AI collaborators - feels like it could change how we build software.</p>
+    <p>DDAID offers several advantages over current approaches:</p>
     
-    <p>Maybe it's not revolutionary. Maybe it's just a useful idea. But I think it's worth exploring.</p>
+    <p><strong>Consistency:</strong> All AI tools reference the same shared context, reducing conflicting suggestions.</p>
+    
+    <p><strong>Efficiency:</strong> No need to repeatedly explain project structure and patterns.</p>
+    
+    <p><strong>Persistence:</strong> Understanding survives across sessions, model switches, and time.</p>
+    
+    <p><strong>Team alignment:</strong> Shared context helps maintain architectural coherence across contributors.</p>
 
-    <h2>If You're Interested</h2>
+    <h2>Getting Started</h2>
     
-    <p>The code is on GitHub. It's a work in progress, but if these ideas resonate with you, I'd love to hear your thoughts or see what you build with it.</p>
+    <p>The reference implementation is available as open source:</p>
     
     <pre>git clone https://github.com/billie-coop/loco
 go build && ./loco</pre>
     
-    <p><a href="https://github.com/billie-coop/loco">github.com/billie-coop/loco</a></p>
+    <p>For more details, see the <a href="https://github.com/billie-coop/loco">GitHub repository</a>.</p>
 
     <div class="footer">
         <p><strong>BUILD WITH CONTEXT. BUILD WITH CONTINUITY. BUILD WITH DDAID.</strong></p>
