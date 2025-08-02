@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/billie-coop/loco/internal/chat"
+	"github.com/billie-coop/loco/internal/tui"
 	"github.com/billie-coop/loco/internal/llm"
 	"github.com/billie-coop/loco/internal/modelselect"
 	"github.com/billie-coop/loco/internal/teamselect"
@@ -26,7 +26,7 @@ type App struct {
 	modelSelect modelselect.Model
 	models      []llm.Model // Available models
 	llmClient   *llm.LMStudioClient
-	chat        *chat.Model
+	chat        *tui.Model
 	teamSelect  interface{} // Will be teamselect.Model
 	width       int
 	height      int
@@ -86,7 +86,7 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case modelselect.ModelSelectedMsg:
 			// Model selected manually, switch to chat
 			a.llmClient.SetModel(msg.Model.ID)
-			chatModel := chat.NewWithClient(a.llmClient)
+			chatModel := tui.NewModel(a.llmClient)
 			chatModel.SetModelName(msg.Model.ID)
 			a.chat = chatModel
 			a.state = StateChat
@@ -135,7 +135,7 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case teamselect.TeamSelectedMsg:
 			if a.chat == nil {
 				// Initial team selection - create new chat
-				chatModel := chat.NewWithClient(a.llmClient)
+				chatModel := tui.NewModel(a.llmClient)
 				chatModel.SetTeam(msg.Team)
 				chatModel.SetAvailableModels(a.models)
 
@@ -176,8 +176,7 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				// Team change from /team command - update existing chat
 				a.chat.SetTeam(msg.Team)
 				a.state = StateChat
-				// Add a message confirming the team change
-				a.chat.AddSystemMessage("Model team updated successfully")
+				// TODO: Add system message via proper API
 				return a, nil
 			}
 		default:
@@ -188,26 +187,8 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case StateChat:
-		switch msg := msg.(type) {
-		case chat.RequestTeamSelectMsg:
-			// User requested team selection from chat
-			if len(a.models) > 0 {
-				teamModel := teamselect.New(a.models)
-				a.teamSelect = &teamModel
-				a.state = StateTeamSelect
-
-				// Send window size if we have it
-				if a.width > 0 && a.height > 0 {
-					if model, ok := a.teamSelect.(*teamselect.Model); ok {
-						_, _ = model.Update(tea.WindowSizeMsg{
-							Width:  a.width,
-							Height: a.height,
-						})
-					}
-				}
-				return a, nil
-			}
-		default:
+		// Pass all messages directly to chat - team selection will be handled by events in Phase 2
+		if a.chat != nil {
 			var cmd tea.Cmd
 			_, cmd = a.chat.Update(msg)
 			return a, cmd
@@ -229,7 +210,7 @@ func (a App) View() tea.View {
 		return tea.NewView("Team selection not initialized")
 	case StateChat:
 		if a.chat != nil {
-			return a.chat.View()
+			return tea.NewView(a.chat.View())
 		}
 		return tea.NewView("Chat not initialized")
 	default:
