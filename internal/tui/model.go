@@ -293,26 +293,33 @@ func (m *Model) View() string {
 	// Use lipgloss to create bordered sections
 	theme := styles.CurrentTheme()
 	
-	// Create bordered sidebar
-	sidebarStyle := theme.S().Text.
-		Border(lipgloss.NormalBorder()).
-		BorderForeground(theme.FgMuted).
-		Width(m.calculateSidebarWidth()).
-		Height(m.height - 1) // Leave room for status bar
+	// Calculate dimensions
+	sidebarWidth := m.calculateSidebarWidth()
+	mainWidth := m.width - sidebarWidth
+	statusHeight := 1
+	inputHeight := 3
+	messageHeight := m.height - statusHeight - inputHeight
 	
-	// Create bordered message area
-	messageAreaStyle := theme.S().Text.
-		Border(lipgloss.NormalBorder()).
-		BorderForeground(theme.FgMuted).
-		Width(m.width - m.calculateSidebarWidth()).
-		Height(m.height - 4) // Leave room for input and status
+	// Create bordered sidebar with rounded corners
+	sidebarStyle := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(theme.Border).
+		Width(sidebarWidth - 2). // Account for border
+		Height(m.height - statusHeight - 2) // Account for border and status
+	
+	// Create bordered message area with rounded corners
+	messageAreaStyle := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(theme.Border).
+		Width(mainWidth - 2). // Account for border
+		Height(messageHeight - 2) // Account for border
 		
-	// Create bordered input area
-	inputStyle := theme.S().Text.
-		Border(lipgloss.NormalBorder()).
+	// Create bordered input area with rounded corners (focused style)
+	inputStyle := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
 		BorderForeground(theme.Primary).
-		Width(m.width - m.calculateSidebarWidth()).
-		Height(3)
+		Width(mainWidth - 2). // Account for border
+		Height(inputHeight - 2) // Account for border
 
 	// Render components with borders
 	sidebar := sidebarStyle.Render(m.sidebar.View())

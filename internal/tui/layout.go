@@ -9,25 +9,22 @@ func (m *Model) resizeComponents() tea.Cmd {
 	var cmds []tea.Cmd
 
 	// Calculate layout dimensions
-	sidebarWidth := 30
-	if m.width < 100 {
-		sidebarWidth = 25
-	}
-	
+	sidebarWidth := m.calculateSidebarWidth()
 	statusBarHeight := 1
 	inputHeight := 3
 	
-	// Main content area
+	// Main content area (accounting for borders)
 	contentWidth := m.width - sidebarWidth
 	contentHeight := m.height - statusBarHeight
 	
 	// Message list gets remaining height
 	messageListHeight := contentHeight - inputHeight
 	
-	// Set component sizes
-	cmds = append(cmds, m.sidebar.SetSize(sidebarWidth, contentHeight))
-	cmds = append(cmds, m.messageList.SetSize(contentWidth, messageListHeight))
-	cmds = append(cmds, m.input.SetSize(contentWidth, inputHeight))
+	// Set component sizes (subtract border size from dimensions)
+	// Each bordered component loses 2 chars width and 2 lines height for borders
+	cmds = append(cmds, m.sidebar.SetSize(sidebarWidth-2, contentHeight-2))
+	cmds = append(cmds, m.messageList.SetSize(contentWidth-2, messageListHeight-2))
+	cmds = append(cmds, m.input.SetSize(contentWidth-2, inputHeight-2))
 	cmds = append(cmds, m.statusBar.SetSize(m.width, statusBarHeight))
 	
 	// Update dialog manager
