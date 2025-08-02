@@ -32,7 +32,8 @@
       "WebFetch(domain:www.jons.ink)",
       "Bash(mv:*)",
       "Bash(find:*)",
-      "Bash(tree:*)"
+      "Bash(tree:*)",
+      "Bash(touch:*)"
     ],
     "deny": []
   }

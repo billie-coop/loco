@@ -56,6 +56,10 @@ const (
 	SlashCommandEvent       EventType = "command.slash"
 	TabCompletionEvent      EventType = "command.tab"
 	CommandSelectedEvent    EventType = "command.selected"
+	
+	// App events
+	MessagesClearEvent      EventType = "messages.clear"
+	DebugToggleEvent        EventType = "debug.toggle"
 )
 
 // Event represents an event in the system
