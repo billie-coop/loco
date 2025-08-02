@@ -2,40 +2,30 @@
     "version": "0.2.0",
     "configurations": [
         {
-            "name": "Debug Loco",
-            "type": "go",
-            "request": "launch",
-            "mode": "debug",
-            "program": "${workspaceFolder}",
-            "args": [],
-            "env": {},
-            "showLog": true,
-            "trace": "verbose"
-        },
-        {
-            "name": "Debug Loco (with dlv)",
-            "type": "go",
-            "request": "launch",
-            "mode": "debug",
-            "program": "${workspaceFolder}",
-            "args": [],
-            "env": {
-                "LOCO_DEBUG": "true"
-            },
-            "dlvLoadConfig": {
-                "followPointers": true,
-                "maxVariableRecurse": 3,
-                "maxStringLen": 1024,
-                "maxArrayValues": 128,
-                "maxStructFields": -1
-            }
-        },
-        {
-            "name": "Attach to Process",
+            "name": "Attach to Delve Server",
             "type": "go",
             "request": "attach",
-            "mode": "local",
-            "processId": "${command:pickProcess}"
+            "mode": "remote",
+            "remotePath": "${workspaceFolder}",
+            "port": 2345,
+            "host": "127.0.0.1",
+            "showLog": true,
+            "trace": "verbose",
+            "postDebugTask": "Kill Delve and Close Terminal"
+        },
+        {
+            "name": "Debug Loco (Full)",
+            "type": "go",
+            "request": "attach",
+            "mode": "remote",
+            "remotePath": "${workspaceFolder}",
+            "port": 2345,
+            "host": "127.0.0.1",
+            "showLog": true,
+            "trace": "verbose",
+            "preLaunchTask": "Start Delve Server",
+            "postDebugTask": "Kill Delve and Close Terminal"
         }
-    ]
+    ],
+    "compounds": []
 }

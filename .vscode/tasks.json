@@ -23,6 +23,65 @@
             "type": "shell",
             "command": "make lint",
             "problemMatcher": ["$go"]
+        },
+        {
+            "label": "Start Delve Server",
+            "type": "shell",
+            "command": "make run-dlv",
+            "isBackground": true,
+            "problemMatcher": {
+                "pattern": {
+                    "regexp": "^API server listening at: .*:2345",
+                    "line": 1
+                },
+                "background": {
+                    "activeOnStart": true,
+                    "beginsPattern": "^.*",
+                    "endsPattern": "^API server listening at: .*:2345"
+                }
+            },
+            "presentation": {
+                "echo": true,
+                "reveal": "always",
+                "focus": false,
+                "panel": "dedicated",
+                "showReuseMessage": false,
+                "clear": true,
+                "close": false,
+                "group": "delve"
+            }
+        },
+        {
+            "label": "Kill Delve",
+            "type": "shell",
+            "command": "killall dlv || true",
+            "presentation": {
+                "reveal": "never",
+                "echo": false,
+                "close": true
+            }
+        },
+        {
+            "label": "Kill Delve and Close Terminal",
+            "type": "shell",
+            "command": "killall dlv || true",
+            "dependsOn": ["Close Delve Terminal"],
+            "presentation": {
+                "reveal": "never",
+                "echo": false
+            }
+        },
+        {
+            "label": "Close Delve Terminal",
+            "type": "shell",
+            "command": "echo 'Closing terminal...'",
+            "presentation": {
+                "reveal": "never",
+                "echo": false,
+                "panel": "dedicated",
+                "close": true,
+                "group": "delve"
+            }
         }
     ]
 }

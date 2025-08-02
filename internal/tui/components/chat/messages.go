@@ -6,11 +6,10 @@ import (
 	"time"
 
 	"github.com/billie-coop/loco/internal/llm"
-	// "github.com/billie-coop/loco/internal/tui/components/anim" // Disabled
 	"github.com/billie-coop/loco/internal/tui/components/core"
+	"github.com/billie-coop/loco/internal/tui/components/list"
 	"github.com/billie-coop/loco/internal/tui/styles"
 	"github.com/charmbracelet/bubbles/v2/spinner"
-	"github.com/charmbracelet/bubbles/v2/viewport"
 	tea "github.com/charmbracelet/bubbletea/v2"
 	"github.com/charmbracelet/glamour/v2"
 	"github.com/charmbracelet/lipgloss/v2"
@@ -25,13 +24,185 @@ type MessageMetadata struct {
 	ToolsFound int
 }
 
-// MessageListModel implements the message viewport component
+// MessageItem represents a message that can be displayed in the list
+type MessageItem interface {
+	list.Item  // Must implement the list.Item interface
+	GetMessage() llm.Message
+	SetMessage(llm.Message)
+}
+
+// messageCmp wraps a message for use in the list component
+type messageCmp struct {
+	message      llm.Message
+	meta         *MessageMetadata
+	index        int
+	width        int
+	isStreaming  bool
+	streamingMsg string
+	spinner      spinner.Model
+	showDebug    bool
+	toolRegistry *ToolRegistry
+}
+
+// Ensure messageCmp implements all required interfaces
+var _ MessageItem = (*messageCmp)(nil)
+var _ list.Item = (*messageCmp)(nil)
+
+// NewMessageCmp creates a new message component
+func NewMessageCmp(msg llm.Message, meta *MessageMetadata, showDebug bool, toolRegistry *ToolRegistry) MessageItem {
+	return &messageCmp{
+		message:      msg,
+		meta:         meta,
+		showDebug:    showDebug,
+		toolRegistry: toolRegistry,
+		spinner:      spinner.New(spinner.WithSpinner(spinner.Dot)),
+	}
+}
+
+// ID implements list.Item
+func (m *messageCmp) ID() string {
+	return fmt.Sprintf("msg-%d", m.index)
+}
+
+// Init implements tea.Model
+func (m *messageCmp) Init() tea.Cmd {
+	if m.isStreaming {
+		return m.spinner.Tick
+	}
+	return nil
+}
+
+// Update implements tea.Model
+func (m *messageCmp) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if m.isStreaming {
+		var cmd tea.Cmd
+		m.spinner, cmd = m.spinner.Update(msg)
+		return m, cmd
+	}
+	return m, nil
+}
+
+// View implements tea.ViewModel
+func (m *messageCmp) View() string {
+	var sb strings.Builder
+	
+	// Style based on role
+	var rolePrefix string
+	var contentStyle lipgloss.Style
+
+	switch m.message.Role {
+	case "user":
+		rolePrefix = "You:"
+		contentStyle = getUserStyle()
+	case "assistant":
+		rolePrefix = "Loco:"
+		contentStyle = getAssistantStyle()
+	case "system":
+		// Check if this is analysis results
+		if strings.Contains(m.message.Content, "Analysis Results") {
+			rolePrefix = "📊 Analysis:"
+		} else {
+			rolePrefix = "🔧 System:"
+		}
+		contentStyle = getSystemStyle()
+	}
+
+	// Add role prefix
+	sb.WriteString(rolePrefix)
+	sb.WriteString("\n")
+
+	// Render content
+	content := m.message.Content
+
+	// Handle streaming
+	if m.isStreaming && m.message.Role == "assistant" {
+		if m.streamingMsg != "" {
+			content = m.streamingMsg
+		} else {
+			// Show thinking indicator
+			sb.WriteString(styles.RenderThemeGradient("🤔 Thinking...", false))
+			sb.WriteString("\n")
+			return sb.String()
+		}
+	}
+
+	// Apply markdown rendering for assistant messages
+	if m.message.Role == "assistant" && m.width > 4 {
+		rendered, err := renderMarkdown(content, m.width-4)
+		if err == nil {
+			content = rendered
+		}
+	} else if m.width > 4 {
+		// Apply word wrapping for non-assistant messages
+		content = wrapText(content, m.width-4)
+	}
+
+	// Apply style
+	sb.WriteString(contentStyle.Render(content))
+	
+	// Add spinner if streaming
+	if m.isStreaming && m.streamingMsg != "" {
+		sb.WriteString(" ")
+		sb.WriteString(m.spinner.View())
+	}
+	
+	// Render tool calls if present
+	if len(m.message.ToolCalls) > 0 && m.toolRegistry != nil {
+		sb.WriteString("\n\n")
+		for _, toolCall := range m.message.ToolCalls {
+			toolView := m.toolRegistry.Get(toolCall.Name).Render(toolCall, nil, m.width-4)
+			sb.WriteString(toolView)
+			sb.WriteString("\n")
+		}
+	}
+
+	// Add metadata if in debug mode
+	if m.showDebug && m.meta != nil {
+		metaInfo := formatMetadata(m.meta)
+		sb.WriteString("\n")
+		sb.WriteString(getMetaStyle().Render(metaInfo))
+	}
+
+	return sb.String()
+}
+
+// GetSize implements list.Item
+func (m *messageCmp) GetSize() (int, int) {
+	return m.width, 0 // Height is calculated by list
+}
+
+// SetSize implements list.Item
+func (m *messageCmp) SetSize(width, height int) tea.Cmd {
+	m.width = width
+	return nil
+}
+
+// GetMessage implements MessageItem
+func (m *messageCmp) GetMessage() llm.Message {
+	return m.message
+}
+
+// SetMessage implements MessageItem
+func (m *messageCmp) SetMessage(msg llm.Message) {
+	m.message = msg
+}
+
+// SetIndex sets the index for ID generation
+func (m *messageCmp) SetIndex(index int) {
+	m.index = index
+}
+
+// SetStreaming sets the streaming state
+func (m *messageCmp) SetStreaming(isStreaming bool, msg string) {
+	m.isStreaming = isStreaming
+	m.streamingMsg = msg
+}
+
+// MessageListModel implements the message list component using virtualized list
 type MessageListModel struct {
-	viewport          viewport.Model
-	spinner           spinner.Model
-	// thinkingIndicator *anim.ThinkingIndicator // Disabled
-	width             int
-	height            int
+	list         list.List[MessageItem]
+	width        int
+	height       int
 
 	// State
 	messages       []llm.Message
@@ -42,6 +213,9 @@ type MessageListModel struct {
 	
 	// Tool rendering
 	toolRegistry   *ToolRegistry
+	
+	// Spinner for creating new items
+	spinner        spinner.Model
 }
 
 // Ensure MessageListModel implements required interfaces
@@ -50,27 +224,27 @@ var _ core.Sizeable = (*MessageListModel)(nil)
 
 // NewMessageList creates a new message list component
 func NewMessageList() *MessageListModel {
-	vp := viewport.New()
-	vp.MouseWheelEnabled = true
-
 	s := spinner.New(spinner.WithSpinner(spinner.Dot))
 
+	// Create list with backward direction (newest at bottom)
+	l := list.New([]MessageItem{}, 
+		list.WithGap[MessageItem](1),
+		list.WithDirectionBackward[MessageItem](),
+	)
+
 	return &MessageListModel{
-		viewport:          vp,
-		spinner:           s,
-		// thinkingIndicator: anim.NewThinkingIndicator(), // Disabled
-		messagesMeta:      make(map[int]*MessageMetadata),
-		toolRegistry:      NewToolRegistry(),
+		list:         l,
+		spinner:      s,
+		messagesMeta: make(map[int]*MessageMetadata),
+		toolRegistry: NewToolRegistry(),
 	}
 }
 
 // Init initializes the message list component
 func (ml *MessageListModel) Init() tea.Cmd {
-	// Set initial welcome content
-	ml.refreshContent()
 	return tea.Batch(
+		ml.list.Init(),
 		ml.spinner.Tick,
-		// ml.thinkingIndicator.Init(), // Disabled
 	)
 }
 
@@ -78,23 +252,18 @@ func (ml *MessageListModel) Init() tea.Cmd {
 func (ml *MessageListModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmds []tea.Cmd
 
-	// Update spinner if streaming
+	// Update spinner (for creating new items)
 	if ml.isStreaming {
 		var cmd tea.Cmd
 		ml.spinner, cmd = ml.spinner.Update(msg)
 		cmds = append(cmds, cmd)
-		
-		// Thinking indicator disabled
-		// thinkingModel, cmd := ml.thinkingIndicator.Update(msg)
-		// if indicator, ok := thinkingModel.(*anim.ThinkingIndicator); ok {
-		// 	ml.thinkingIndicator = indicator
-		// }
-		// cmds = append(cmds, cmd)
 	}
 
-	// Update viewport
-	var cmd tea.Cmd
-	ml.viewport, cmd = ml.viewport.Update(msg)
+	// Update list
+	listModel, cmd := ml.list.Update(msg)
+	if l, ok := listModel.(list.List[MessageItem]); ok {
+		ml.list = l
+	}
 	cmds = append(cmds, cmd)
 
 	return ml, tea.Batch(cmds...)
@@ -104,22 +273,45 @@ func (ml *MessageListModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (ml *MessageListModel) SetSize(width, height int) tea.Cmd {
 	ml.width = width
 	ml.height = height
-
-	ml.viewport = viewport.New(
-		viewport.WithWidth(width),
-		viewport.WithHeight(height),
-	)
-	ml.viewport.MouseWheelEnabled = true
-
-	// Re-render with new size
-	ml.refreshContent()
-
-	return nil
+	// Subtract padding like Crush does
+	return ml.list.SetSize(width-2, height-1)
 }
 
 // View renders the message list
 func (ml *MessageListModel) View() string {
-	return ml.viewport.View()
+	// If no messages, show welcome
+	if len(ml.messages) == 0 && !ml.isStreaming {
+		theme := styles.CurrentTheme()
+		var sb strings.Builder
+		
+		welcome := lipgloss.NewStyle().
+			Foreground(theme.FgSubtle).
+			Italic(true).
+			Render("Ready to chat. Running locally via LM Studio.")
+		sb.WriteString(welcome)
+		sb.WriteString("\n\n")
+
+		// Show quick start hint
+		hint := lipgloss.NewStyle().
+			Foreground(theme.FgMuted).
+			Render("Type a message or use /help for commands")
+		sb.WriteString(hint)
+		
+		return lipgloss.NewStyle().
+			Width(ml.width).
+			Height(ml.height).
+			Padding(1, 1, 0, 1).
+			Render(sb.String())
+	}
+	
+	// Wrap with padding like Crush does
+	theme := styles.CurrentTheme()
+	return lipgloss.NewStyle().
+		Padding(1, 1, 0, 1).
+		Width(ml.width).
+		Height(ml.height).
+		Foreground(theme.FgBase).
+		Render(ml.list.View())
 }
 
 // SetMessages updates the messages list
@@ -138,15 +330,21 @@ func (ml *MessageListModel) SetMessageMeta(meta map[int]*MessageMetadata) {
 func (ml *MessageListModel) SetStreamingState(isStreaming bool, streamingMsg string) {
 	ml.isStreaming = isStreaming
 	ml.streamingMsg = streamingMsg
-	
-	// Thinking indicator disabled
-	// if isStreaming && streamingMsg == "" {
-	// 	ml.thinkingIndicator.Start()
-	// } else {
-	// 	ml.thinkingIndicator.Stop()
-	// }
-	
 	ml.refreshContent()
+}
+
+// AppendStreamingChunk adds content to the current streaming message
+func (ml *MessageListModel) AppendStreamingChunk(chunk string) {
+	ml.streamingMsg += chunk
+	
+	// Update the last item if it's streaming
+	items := ml.list.Items()
+	if len(items) > 0 {
+		if lastItem, ok := items[len(items)-1].(*messageCmp); ok && lastItem.isStreaming {
+			lastItem.streamingMsg = ml.streamingMsg
+			ml.list.UpdateItem(lastItem.ID(), lastItem)
+		}
+	}
 }
 
 // SetDebugMode toggles debug information display
@@ -155,145 +353,68 @@ func (ml *MessageListModel) SetDebugMode(showDebug bool) {
 	ml.refreshContent()
 }
 
-// GotoBottom scrolls to the bottom of the viewport
+// GotoBottom scrolls to the bottom of the list
 func (ml *MessageListModel) GotoBottom() {
-	ml.viewport.GotoBottom()
+	ml.list.GoToBottom()
 }
 
-// GotoTop scrolls to the top of the viewport
+// GotoTop scrolls to the top of the list
 func (ml *MessageListModel) GotoTop() {
-	ml.viewport.GotoTop()
+	ml.list.GoToTop()
 }
 
-// SetContent sets custom content in the viewport (for special views)
+// SetContent sets custom content (no longer needed with virtualized list)
 func (ml *MessageListModel) SetContent(content string) {
-	ml.viewport.SetContent(content)
+	// This is a no-op now, kept for compatibility
 }
 
 // Private methods
 
 func (ml *MessageListModel) refreshContent() {
-	content := ml.renderMessages()
-	ml.viewport.SetContent(content)
-	// Ensure we scroll to bottom if there are messages
-	if len(ml.messages) > 0 {
-		ml.viewport.GotoBottom()
-	}
-}
-
-func (ml *MessageListModel) renderMessages() string {
-	var sb strings.Builder
-
-	// Show welcome message only if there are truly no messages at all
-	if len(ml.messages) == 0 && !ml.isStreaming {
-		theme := styles.CurrentTheme()
-		welcome := lipgloss.NewStyle().
-			Foreground(theme.FgSubtle).
-			Italic(true).
-			Render("Ready to chat. Running locally via LM Studio.")
-		sb.WriteString(welcome)
-		sb.WriteString("\n\n")
-
-		// Show quick start hint
-		hint := lipgloss.NewStyle().
-			Foreground(theme.FgMuted).
-			Render("Type a message or use /help for commands")
-		sb.WriteString(hint)
-		sb.WriteString("\n")
-		return sb.String()
-	}
-
-	// Render each message
+	// Convert messages to items
+	items := make([]MessageItem, 0, len(ml.messages))
+	
 	for i, msg := range ml.messages {
-		// Always show system messages (they contain important info like analysis results)
-		// Debug metadata is handled separately below
-
-		// Style based on role
-		var rolePrefix string
-		var contentStyle lipgloss.Style
-
-		switch msg.Role {
-		case "user":
-			rolePrefix = "You:"
-			contentStyle = getUserStyle()
-		case "assistant":
-			rolePrefix = "Loco:"
-			contentStyle = getAssistantStyle()
-		case "system":
-			// Check if this is analysis results
-			if strings.Contains(msg.Content, "Analysis Results") {
-				rolePrefix = "📊 Analysis:"
-			} else {
-				rolePrefix = "🔧 System:"
-			}
-			contentStyle = getSystemStyle()
+		item := NewMessageCmp(msg, ml.messagesMeta[i], ml.showDebug, ml.toolRegistry)
+		if mc, ok := item.(*messageCmp); ok {
+			mc.SetIndex(i)
+			mc.width = ml.width
 		}
-
-		// Add role prefix
-		sb.WriteString(rolePrefix)
-		sb.WriteString("\n")
-
-		// Render content
-		content := msg.Content
-
-		// Apply markdown rendering for assistant messages
-		if msg.Role == "assistant" {
-			rendered, err := ml.renderMarkdown(content)
-			if err == nil {
-				content = rendered
-			}
-		} else {
-			// Apply word wrapping for non-assistant messages
-			content = ml.wrapText(content, ml.width-4)
-		}
-
-		// Apply style
-		sb.WriteString(contentStyle.Render(content))
-		
-		// Render tool calls if present
-		if len(msg.ToolCalls) > 0 {
-			sb.WriteString("\n\n")
-			for _, toolCall := range msg.ToolCalls {
-				// For now, render tool calls without results
-				// In real implementation, we'd track tool results separately
-				toolView := ml.toolRegistry.Get(toolCall.Name).Render(toolCall, nil, ml.width-4)
-				sb.WriteString(toolView)
-				sb.WriteString("\n")
-			}
-		}
-
-		// Add metadata if in debug mode
-		if ml.showDebug {
-			if meta, exists := ml.messagesMeta[i]; exists {
-				metaInfo := ml.formatMetadata(meta)
-				sb.WriteString("\n")
-				sb.WriteString(getMetaStyle().Render(metaInfo))
-			}
-		}
-
-		sb.WriteString("\n")
+		items = append(items, item)
 	}
-
-	// Add streaming message if any
+	
+	// Add streaming item if needed
 	if ml.isStreaming {
-		if ml.streamingMsg != "" {
-			sb.WriteString("Loco:\n")
-			sb.WriteString(getAssistantStyle().Render(ml.streamingMsg))
-			sb.WriteString(" ")
-			sb.WriteString(ml.spinner.View())
-			sb.WriteString("\n")
-		} else {
-			// Show static thinking text
-			sb.WriteString("\n")
-			sb.WriteString(styles.RenderThemeGradient("🤔 Thinking...", false))
-			sb.WriteString("\n")
+		streamingItem := NewMessageCmp(
+			llm.Message{
+				Role:    "assistant",
+				Content: ml.streamingMsg,
+			},
+			nil,
+			ml.showDebug,
+			ml.toolRegistry,
+		)
+		if mc, ok := streamingItem.(*messageCmp); ok {
+			mc.SetIndex(len(items))
+			mc.SetStreaming(true, ml.streamingMsg)
+			mc.width = ml.width
+			mc.spinner = ml.spinner
 		}
+		items = append(items, streamingItem)
 	}
-
-	return sb.String()
+	
+	// Update list
+	ml.list.SetItems(items)
+	
+	// Auto-scroll to bottom
+	if len(items) > 0 {
+		ml.list.GoToBottom()
+	}
 }
 
-func (ml *MessageListModel) formatMetadata(meta *MessageMetadata) string {
+// Helper functions
+
+func formatMetadata(meta *MessageMetadata) string {
 	parts := []string{
 		"🕐 " + meta.Timestamp.Format("15:04:05"),
 	}
@@ -317,11 +438,11 @@ func (ml *MessageListModel) formatMetadata(meta *MessageMetadata) string {
 	return strings.Join(parts, " • ")
 }
 
-func (ml *MessageListModel) renderMarkdown(content string) (string, error) {
+func renderMarkdown(content string, width int) (string, error) {
 	// Create a glamour renderer with a custom style
 	r, err := glamour.NewTermRenderer(
 		glamour.WithStylePath("dracula"),
-		glamour.WithWordWrap(ml.width-4), // Account for padding
+		glamour.WithWordWrap(width),
 		glamour.WithPreservedNewLines(),
 		glamour.WithEmoji(),
 	)
@@ -340,8 +461,8 @@ func (ml *MessageListModel) renderMarkdown(content string) (string, error) {
 	return rendered, nil
 }
 
-// wrapText wraps text at word boundaries to fit within the specified width.
-func (ml *MessageListModel) wrapText(text string, width int) string {
+// wrapText wraps text at word boundaries to fit within the specified width
+func wrapText(text string, width int) string {
 	if width <= 0 {
 		return text
 	}

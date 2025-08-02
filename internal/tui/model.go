@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"fmt"
 	"os"
 	"strings"
 	"time"
@@ -167,6 +168,16 @@ func (m *Model) Init() tea.Cmd {
 
 	// Start event processing
 	cmds = append(cmds, m.listenForEvents())
+	
+	// Initialize default size if not set (will be updated by WindowSizeMsg)
+	if m.width == 0 || m.height == 0 {
+		// Set reasonable defaults that will be overridden
+		m.width = 80
+		m.height = 24
+	}
+	
+	// ALWAYS set component sizes during init to ensure proper layout
+	cmds = append(cmds, m.resizeComponents())
 
 	// Load session messages from app
 	if m.app.Sessions != nil {
@@ -267,23 +278,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
-
-		// Calculate layout dimensions
-		const sidebarWidth = 28  // Keep consistent with View() method
-		const statusHeight = 1
-		const inputHeight = 3  // Content height only
-		const inputTotalHeight = 5  // Including borders
-
-		mainWidth := m.width - sidebarWidth
-		messagesHeight := m.height - statusHeight - inputTotalHeight
-
-		// Set component sizes
-		cmds = append(cmds, m.sidebar.SetSize(sidebarWidth, m.height-statusHeight))
-		cmds = append(cmds, m.messageList.SetSize(mainWidth, messagesHeight))
-		cmds = append(cmds, m.input.SetSize(mainWidth, inputHeight))
-		cmds = append(cmds, m.statusBar.SetSize(m.width, statusHeight))
-		cmds = append(cmds, m.layout.SetSize(m.width, m.height))
-		cmds = append(cmds, m.dialogManager.SetSize(m.width, m.height))
+		cmds = append(cmds, m.resizeComponents())
 
 		// Sync all state to components
 		m.syncStateToComponents()
@@ -743,6 +738,11 @@ func (m *Model) handleEvent(event events.Event) (tea.Model, tea.Cmd) {
 	case events.UserMessageEvent:
 		if payload, ok := event.Payload.(events.MessagePayload); ok {
 			m.messages.Append(payload.Message)
+			// DEBUG: Also add a debug message
+			m.messages.Append(llm.Message{
+				Role:    "system",
+				Content: "🐛 DEBUG: UserMessageEvent received: " + payload.Message.Content,
+			})
 			m.syncMessagesToComponents()
 		}
 
@@ -954,4 +954,58 @@ func (m *Model) SetAvailableModels(models []llm.Model) {
 // SetModelManager sets the model manager
 func (m *Model) SetModelManager(mm *llm.ModelManager) {
 	m.app.SetModelManager(mm)
+}
+
+// resizeComponents updates all component sizes based on current terminal dimensions
+func (m *Model) resizeComponents() tea.Cmd {
+	// Layout constants - centralized for consistency
+	const (
+		sidebarWidth     = 28  // Fixed sidebar width
+		statusHeight     = 1   // Status bar height
+		inputHeight      = 3   // Content height only
+		inputTotalHeight = 5   // Including borders
+		minWidth         = 40  // Minimum terminal width
+		minHeight        = 10  // Minimum terminal height
+	)
+	
+	// Validate dimensions
+	if m.width < minWidth {
+		m.width = minWidth
+	}
+	if m.height < minHeight {
+		m.height = minHeight
+	}
+	
+	// Calculate component dimensions
+	mainWidth := m.width - sidebarWidth
+	messagesHeight := m.height - statusHeight - inputTotalHeight
+	
+	// DEBUG: Show calculation
+	if messagesHeight < 5 {
+		// Add debug message to show sizing calculation
+		m.messages.Append(llm.Message{
+			Role:    "system",
+			Content: fmt.Sprintf("🐛 DEBUG: Terminal h=%d - status=%d - input=%d = messages=%d", 
+				m.height, statusHeight, inputTotalHeight, messagesHeight),
+		})
+	}
+	
+	// Ensure positive dimensions
+	if mainWidth < 1 {
+		mainWidth = 1
+	}
+	if messagesHeight < 1 {
+		messagesHeight = 1
+	}
+	
+	// Resize all components
+	var cmds []tea.Cmd
+	cmds = append(cmds, m.sidebar.SetSize(sidebarWidth, m.height-statusHeight))
+	cmds = append(cmds, m.messageList.SetSize(mainWidth, messagesHeight))
+	cmds = append(cmds, m.input.SetSize(mainWidth, inputHeight))
+	cmds = append(cmds, m.statusBar.SetSize(m.width, statusHeight))
+	cmds = append(cmds, m.layout.SetSize(m.width, m.height))
+	cmds = append(cmds, m.dialogManager.SetSize(m.width, m.height))
+	
+	return tea.Batch(cmds...)
 }

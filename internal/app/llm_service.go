@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"time"
 
@@ -19,6 +20,9 @@ type LLMService struct {
 	streamingMsg string
 	streamingTokens int
 	streamingStart time.Time
+	
+	// Debug mode
+	debugMode    bool
 }
 
 // NewLLMService creates a new LLM service
@@ -36,6 +40,15 @@ func (s *LLMService) SetClient(client llm.Client) {
 
 // HandleUserMessage processes a user message and streams the response
 func (s *LLMService) HandleUserMessage(messages []llm.Message, userMessage string) {
+	// Enable debug mode for now since we don't have LLM client
+	s.debugMode = true
+	
+	// If in debug mode, create debug echo response
+	if s.debugMode {
+		s.handleDebugEcho(userMessage)
+		return
+	}
+	
 	// Add user message to history
 	messages = append(messages, llm.Message{
 		Role:    "user",
@@ -141,4 +154,89 @@ func (s *LLMService) endStreaming() {
 // IsStreaming returns whether the service is currently streaming
 func (s *LLMService) IsStreaming() bool {
 	return s.isStreaming
+}
+
+// handleDebugEcho creates a debug echo response with metadata
+func (s *LLMService) handleDebugEcho(userMessage string) {
+	// Create timestamp
+	timestamp := time.Now()
+	
+	// Create debug response with metadata
+	debugResponse := fmt.Sprintf(`🤖 DEBUG ECHO RESPONSE
+━━━━━━━━━━━━━━━━━━━━━
+📥 Input: "%s"
+📏 Length: %d characters
+🔤 Words: %d
+⏰ Time: %s
+🆔 Message ID: %d
+━━━━━━━━━━━━━━━━━━━━━
+
+📋 METADATA:
+• Spaces detected: %d
+• Has slash command: %v
+• Starts with capital: %v
+• Contains numbers: %v
+
+🔄 ECHO: %s
+
+🎯 This is a debug echo response showing message metadata!`,
+		userMessage,
+		len(userMessage),
+		len(strings.Fields(userMessage)),
+		timestamp.Format("15:04:05.000"),
+		timestamp.UnixNano(),
+		strings.Count(userMessage, " "),
+		strings.HasPrefix(userMessage, "/"),
+		len(userMessage) > 0 && userMessage[0] >= 'A' && userMessage[0] <= 'Z',
+		strings.ContainsAny(userMessage, "0123456789"),
+		userMessage,
+	)
+	
+	// Simulate streaming by sending it in chunks
+	go func() {
+		// Start streaming
+		s.eventBroker.Publish(events.Event{
+			Type: events.StreamStartEvent,
+		})
+		
+		s.isStreaming = true
+		s.streamingMsg = ""
+		
+		// Split response into words and stream them
+		words := strings.Fields(debugResponse)
+		for i, word := range words {
+			s.streamingMsg += word
+			if i < len(words)-1 {
+				s.streamingMsg += " "
+			}
+			
+			// Send chunk event
+			s.eventBroker.Publish(events.Event{
+				Type: events.StreamChunkEvent,
+				Payload: events.StreamChunkPayload{
+					Content: word + " ",
+				},
+			})
+			
+			// Small delay to simulate streaming
+			time.Sleep(20 * time.Millisecond)
+		}
+		
+		// Send final assistant message
+		s.eventBroker.Publish(events.Event{
+			Type: events.AssistantMessageEvent,
+			Payload: events.MessagePayload{
+				Message: llm.Message{
+					Role:    "assistant",
+					Content: s.streamingMsg,
+				},
+			},
+		})
+		
+		// End streaming
+		s.isStreaming = false
+		s.eventBroker.Publish(events.Event{
+			Type: events.StreamEndEvent,
+		})
+	}()
 }

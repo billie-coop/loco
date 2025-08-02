@@ -4,6 +4,8 @@
 help:
 	@echo "Loco Development Commands:"
 	@echo "  make run          - Run the application"
+	@echo "  make run-debug    - Run with debug symbols (for attach)"
+	@echo "  make run-dlv      - Run with dlv server (port 2345)"
 	@echo "  make test         - Run all tests"
 	@echo "  make watch        - Run tests in watch mode (TDD)"
 	@echo "  make coverage     - Generate test coverage report"
@@ -16,6 +18,17 @@ help:
 run:
 	rm -rf .loco
 	go run .
+
+# Run with debug symbols for attaching debugger
+run-debug:
+	rm -rf .loco
+	go build -gcflags="all=-N -l" -o loco
+	./loco
+
+# Run with dlv debugger in headless mode (for VSCode attach)
+run-dlv:
+	rm -rf .loco
+	dlv debug --headless --listen=:2345 --api-version=2 --accept-multiclient
 
 # Run all tests
 test:
