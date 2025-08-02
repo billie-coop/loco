@@ -7,6 +7,7 @@ import (
 
 	"github.com/billie-coop/loco/internal/llm"
 	"github.com/billie-coop/loco/internal/tui/components/core"
+	"github.com/billie-coop/loco/internal/tui/styles"
 	"github.com/charmbracelet/bubbles/v2/spinner"
 	"github.com/charmbracelet/bubbles/v2/viewport"
 	tea "github.com/charmbracelet/bubbletea/v2"
@@ -36,6 +37,9 @@ type MessageListModel struct {
 	isStreaming    bool
 	streamingMsg   string
 	showDebug      bool
+	
+	// Tool rendering
+	toolRegistry   *ToolRegistry
 }
 
 // Ensure MessageListModel implements required interfaces
@@ -53,11 +57,14 @@ func NewMessageList() *MessageListModel {
 		viewport:     vp,
 		spinner:      s,
 		messagesMeta: make(map[int]*MessageMetadata),
+		toolRegistry: NewToolRegistry(),
 	}
 }
 
 // Init initializes the message list component
 func (ml *MessageListModel) Init() tea.Cmd {
+	// Set initial welcome content
+	ml.refreshContent()
 	return ml.spinner.Tick
 }
 
@@ -143,6 +150,10 @@ func (ml *MessageListModel) SetContent(content string) {
 func (ml *MessageListModel) refreshContent() {
 	content := ml.renderMessages()
 	ml.viewport.SetContent(content)
+	// Ensure we scroll to bottom if there are messages
+	if len(ml.messages) > 0 {
+		ml.viewport.GotoBottom()
+	}
 }
 
 func (ml *MessageListModel) renderMessages() string {
@@ -150,8 +161,9 @@ func (ml *MessageListModel) renderMessages() string {
 
 	// Show welcome message only if there are truly no messages at all
 	if len(ml.messages) == 0 && !ml.isStreaming {
+		theme := styles.CurrentTheme()
 		welcome := lipgloss.NewStyle().
-			Foreground(lipgloss.Color("241")).
+			Foreground(theme.FgSubtle).
 			Italic(true).
 			Render("Ready to chat. Running locally via LM Studio.")
 		sb.WriteString(welcome)
@@ -159,7 +171,7 @@ func (ml *MessageListModel) renderMessages() string {
 
 		// Show quick start hint
 		hint := lipgloss.NewStyle().
-			Foreground(lipgloss.Color("239")).
+			Foreground(theme.FgMuted).
 			Render("Type a message or use /help for commands")
 		sb.WriteString(hint)
 		sb.WriteString("\n")
@@ -168,10 +180,8 @@ func (ml *MessageListModel) renderMessages() string {
 
 	// Render each message
 	for i, msg := range ml.messages {
-		// Skip system messages unless debug mode
-		if msg.Role == "system" && !ml.showDebug {
-			continue
-		}
+		// Always show system messages (they contain important info like analysis results)
+		// Debug metadata is handled separately below
 
 		// Style based on role
 		var rolePrefix string
@@ -180,13 +190,18 @@ func (ml *MessageListModel) renderMessages() string {
 		switch msg.Role {
 		case "user":
 			rolePrefix = "You:"
-			contentStyle = userStyle
+			contentStyle = getUserStyle()
 		case "assistant":
 			rolePrefix = "Loco:"
-			contentStyle = assistantStyle
+			contentStyle = getAssistantStyle()
 		case "system":
-			rolePrefix = "System:"
-			contentStyle = systemStyle
+			// Check if this is analysis results
+			if strings.Contains(msg.Content, "Analysis Results") {
+				rolePrefix = "📊 Analysis:"
+			} else {
+				rolePrefix = "🔧 System:"
+			}
+			contentStyle = getSystemStyle()
 		}
 
 		// Add role prefix
@@ -209,13 +224,25 @@ func (ml *MessageListModel) renderMessages() string {
 
 		// Apply style
 		sb.WriteString(contentStyle.Render(content))
+		
+		// Render tool calls if present
+		if len(msg.ToolCalls) > 0 {
+			sb.WriteString("\n\n")
+			for _, toolCall := range msg.ToolCalls {
+				// For now, render tool calls without results
+				// In real implementation, we'd track tool results separately
+				toolView := ml.toolRegistry.Get(toolCall.Name).Render(toolCall, nil, ml.width-4)
+				sb.WriteString(toolView)
+				sb.WriteString("\n")
+			}
+		}
 
 		// Add metadata if in debug mode
 		if ml.showDebug {
 			if meta, exists := ml.messagesMeta[i]; exists {
 				metaInfo := ml.formatMetadata(meta)
 				sb.WriteString("\n")
-				sb.WriteString(metaStyle.Render(metaInfo))
+				sb.WriteString(getMetaStyle().Render(metaInfo))
 			}
 		}
 
@@ -225,7 +252,7 @@ func (ml *MessageListModel) renderMessages() string {
 	// Add streaming message if any
 	if ml.isStreaming && ml.streamingMsg != "" {
 		sb.WriteString("Loco:\n")
-		sb.WriteString(assistantStyle.Render(ml.streamingMsg))
+		sb.WriteString(getAssistantStyle().Render(ml.streamingMsg))
 		sb.WriteString(" ")
 		sb.WriteString(ml.spinner.View())
 		sb.WriteString("\n")
@@ -343,20 +370,30 @@ func (ml *MessageListModel) wrapText(text string, width int) string {
 	return result.String()
 }
 
-// Message styling (shared with sidebar component, could be moved to shared styles)
-var (
-	userStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("205")).
-			Bold(true)
+// Message styling functions that use current theme
+func getUserStyle() lipgloss.Style {
+	theme := styles.CurrentTheme()
+	return lipgloss.NewStyle().
+		Foreground(theme.Accent).
+		Bold(true)
+}
 
-	assistantStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("86"))
+func getAssistantStyle() lipgloss.Style {
+	theme := styles.CurrentTheme()
+	return lipgloss.NewStyle().
+		Foreground(theme.Primary)
+}
 
-	systemStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("241")).
-			Italic(true)
+func getSystemStyle() lipgloss.Style {
+	theme := styles.CurrentTheme()
+	return lipgloss.NewStyle().
+		Foreground(theme.FgSubtle).
+		Italic(true)
+}
 
-	metaStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("239")).
-			Italic(true)
-)
+func getMetaStyle() lipgloss.Style {
+	theme := styles.CurrentTheme()
+	return lipgloss.NewStyle().
+		Foreground(theme.FgMuted).
+		Italic(true)
+}

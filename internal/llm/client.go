@@ -14,8 +14,23 @@ import (
 
 // Message represents a chat message.
 type Message struct {
-	Role    string `json:"role"`
-	Content string `json:"content"`
+	Role      string     `json:"role"`
+	Content   string     `json:"content"`
+	ToolCalls []ToolCall `json:"tool_calls,omitempty"`
+}
+
+// ToolCall represents a tool invocation by the assistant
+type ToolCall struct {
+	ID         string `json:"id"`
+	Name       string `json:"name"`
+	Parameters string `json:"parameters"`
+}
+
+// ToolResult represents the result of a tool execution
+type ToolResult struct {
+	ToolCallID string `json:"tool_call_id"`
+	Output     string `json:"output"`
+	Error      error  `json:"error,omitempty"`
 }
 
 // Client interface for LLM operations.

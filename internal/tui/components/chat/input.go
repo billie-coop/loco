@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	"github.com/billie-coop/loco/internal/tui/components/core"
+	"github.com/billie-coop/loco/internal/tui/styles"
 	tea "github.com/charmbracelet/bubbletea/v2"
 	"github.com/charmbracelet/lipgloss/v2"
 )
@@ -82,10 +83,15 @@ func (im *InputModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			im.value = im.value[im.cursorPos:]
 			im.cursorPos = 0
 		default:
-			// Regular character input
-			if len(msg.String()) == 1 && msg.String()[0] >= 32 && msg.String()[0] < 127 {
-				im.value = im.value[:im.cursorPos] + msg.String() + im.value[im.cursorPos:]
-				im.cursorPos++
+			// Regular character input - accept printable ASCII including space
+			s := msg.String()
+			if len(s) == 1 {
+				char := s[0]
+				// Printable ASCII: space (32) through tilde (126)
+				if char >= 32 && char <= 126 {
+					im.value = im.value[:im.cursorPos] + s + im.value[im.cursorPos:]
+					im.cursorPos++
+				}
 			}
 		}
 	}
@@ -102,15 +108,17 @@ func (im *InputModel) SetSize(width, height int) tea.Cmd {
 
 // View renders the input component
 func (im *InputModel) View() string {
-	// Create styles
+	theme := styles.CurrentTheme()
+	
+	// Create styles with theme colors
 	inputStyle := lipgloss.NewStyle().
 		Width(im.width - 2).
 		Padding(0, 1)
 
 	var display string
 	if im.value == "" && im.placeholder != "" && !im.focused {
-		// Show placeholder
-		placeholderStyle := inputStyle.Copy().Foreground(lipgloss.Color("241"))
+		// Show placeholder with theme colors
+		placeholderStyle := inputStyle.Copy().Foreground(theme.FgSubtle)
 		display = placeholderStyle.Render(im.placeholder)
 	} else {
 		// Show value with cursor
@@ -125,9 +133,10 @@ func (im *InputModel) View() string {
 				after = im.value[im.cursorPos+1:]
 			}
 			
+			// Use theme primary color for cursor
 			cursorStyle := lipgloss.NewStyle().
-				Background(lipgloss.Color("205")).
-				Foreground(lipgloss.Color("0"))
+				Background(theme.Primary).
+				Foreground(theme.FgInverted)
 			
 			display = inputStyle.Render(before + cursorStyle.Render(cursor) + after)
 		} else {

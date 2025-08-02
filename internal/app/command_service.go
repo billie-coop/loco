@@ -1,6 +1,10 @@
 package app
 
 import (
+	"context"
+	"fmt"
+	"os/exec"
+	"strconv"
 	"strings"
 
 	"github.com/billie-coop/loco/internal/llm"
@@ -48,6 +52,10 @@ func (s *CommandService) HandleCommand(command string) {
 		}
 	case "/debug":
 		s.handleDebugToggle()
+	case "/analyze":
+		s.handleAnalyze(parts[1:]) // Pass remaining arguments
+	case "/copy":
+		s.handleCopy(parts[1:]) // Pass remaining arguments
 	case "/quit", "/exit":
 		s.handleQuit()
 	default:
@@ -133,6 +141,255 @@ func (s *CommandService) handleDebugToggle() {
 	})
 }
 
+// handleAnalyze runs project analysis with specified tier
+func (s *CommandService) handleAnalyze(args []string) {
+	// Parse tier argument
+	tier := "quick" // Default to quick analysis
+	if len(args) > 0 {
+		tier = strings.ToLower(args[0])
+	}
+	
+	// Validate tier
+	validTiers := map[string]bool{
+		"quick": true, "detailed": true, "deep": true, "full": true,
+	}
+	if !validTiers[tier] {
+		s.eventBroker.Publish(events.Event{
+			Type: events.StatusMessageEvent,
+			Payload: events.StatusMessagePayload{
+				Message: "Invalid tier. Use: quick, detailed, deep, or full",
+				Type:    "error",
+			},
+		})
+		return
+	}
+	
+	// Check if analysis service is available
+	if s.app.Analysis == nil {
+		s.eventBroker.Publish(events.Event{
+			Type: events.StatusMessageEvent,
+			Payload: events.StatusMessagePayload{
+				Message: "Analysis service not available",
+				Type:    "error",
+			},
+		})
+		return
+	}
+	
+	// Show start message
+	s.eventBroker.Publish(events.Event{
+		Type: events.StatusMessageEvent,
+		Payload: events.StatusMessagePayload{
+			Message: "Starting " + tier + " analysis...",
+			Type:    "info",
+		},
+	})
+	
+	// Run analysis in background
+	go func() {
+		workingDir := "."
+		if s.app.Sessions != nil && s.app.Sessions.ProjectPath != "" {
+			workingDir = s.app.Sessions.ProjectPath
+		}
+		
+		// Publish analysis started event
+		s.eventBroker.Publish(events.Event{
+			Type: events.AnalysisStartedEvent,
+			Payload: events.AnalysisProgressPayload{
+				Phase:          tier,
+				TotalFiles:     0, // Will be updated during progress
+				CompletedFiles: 0,
+				CurrentFile:    "Starting analysis...",
+			},
+		})
+		
+		var result interface{}
+		var err error
+		
+		// Call appropriate analysis tier
+		ctx := context.Background()
+		switch tier {
+		case "quick":
+			result, err = s.app.Analysis.QuickAnalyze(ctx, workingDir)
+		case "detailed":
+			result, err = s.app.Analysis.DetailedAnalyze(ctx, workingDir)
+		case "deep":
+			result, err = s.app.Analysis.DeepAnalyze(ctx, workingDir)
+		case "full":
+			result, err = s.app.Analysis.FullAnalyze(ctx, workingDir)
+		}
+		
+		if err != nil {
+			// Publish analysis error event
+			s.eventBroker.Publish(events.Event{
+				Type: events.AnalysisErrorEvent,
+				Payload: events.StatusMessagePayload{
+					Message: "Analysis failed: " + err.Error(),
+					Type:    "error",
+				},
+			})
+			s.eventBroker.Publish(events.Event{
+				Type: events.StatusMessageEvent,
+				Payload: events.StatusMessagePayload{
+					Message: "Analysis failed: " + err.Error(),
+					Type:    "error",
+				},
+			})
+			return
+		}
+		
+		// Publish analysis completed event
+		s.eventBroker.Publish(events.Event{
+			Type: events.AnalysisCompletedEvent,
+			Payload: events.AnalysisProgressPayload{
+				Phase:          tier,
+				TotalFiles:     0, // TODO: Get from result if available
+				CompletedFiles: 0, // TODO: Get from result if available
+				CurrentFile:    "Analysis complete",
+			},
+		})
+		
+		// Format and display results
+		if analyser, ok := result.(interface{ FormatForPrompt() string }); ok {
+			content := analyser.FormatForPrompt()
+			
+			// Create system message with results
+			s.eventBroker.Publish(events.Event{
+				Type: events.SystemMessageEvent,
+				Payload: events.MessagePayload{
+					Message: llm.Message{
+						Role:    "system",
+						Content: "## " + strings.Title(tier) + " Analysis Results\n\n" + content,
+					},
+				},
+			})
+			
+			s.eventBroker.Publish(events.Event{
+				Type: events.StatusMessageEvent,
+				Payload: events.StatusMessagePayload{
+					Message: strings.Title(tier) + " analysis complete! ✨",
+					Type:    "success",
+				},
+			})
+		}
+	}()
+}
+
+// handleCopy copies the last N messages to clipboard
+func (s *CommandService) handleCopy(args []string) {
+	// Parse count argument (default to 1)
+	count := 1
+	if len(args) > 0 {
+		if parsedCount, err := strconv.Atoi(args[0]); err == nil && parsedCount > 0 {
+			count = parsedCount
+		} else {
+			s.eventBroker.Publish(events.Event{
+				Type: events.StatusMessageEvent,
+				Payload: events.StatusMessagePayload{
+					Message: "Invalid count. Use a positive number.",
+					Type:    "error",
+				},
+			})
+			return
+		}
+	}
+	
+	// Get current messages
+	messages, err := s.app.Sessions.GetMessages()
+	if err != nil {
+		s.eventBroker.Publish(events.Event{
+			Type: events.StatusMessageEvent,
+			Payload: events.StatusMessagePayload{
+				Message: "Could not get messages: " + err.Error(),
+				Type:    "error",
+			},
+		})
+		return
+	}
+	
+	if len(messages) == 0 {
+		s.eventBroker.Publish(events.Event{
+			Type: events.StatusMessageEvent,
+			Payload: events.StatusMessagePayload{
+				Message: "No messages to copy",
+				Type:    "warning",
+			},
+		})
+		return
+	}
+	
+	// Get the last N messages
+	start := len(messages) - count
+	if start < 0 {
+		start = 0
+	}
+	messagesToCopy := messages[start:]
+	
+	// Format messages
+	var formatted strings.Builder
+	for i, msg := range messagesToCopy {
+		if i > 0 {
+			formatted.WriteString("\n\n")
+		}
+		
+		// Add role prefix
+		switch msg.Role {
+		case "user":
+			formatted.WriteString("👤 User: ")
+		case "assistant":
+			formatted.WriteString("🤖 Assistant: ")
+		case "system":
+			formatted.WriteString("🔧 System: ")
+		default:
+			formatted.WriteString(fmt.Sprintf("%s: ", strings.Title(msg.Role)))
+		}
+		
+		formatted.WriteString(msg.Content)
+	}
+	
+	// Copy to clipboard
+	content := formatted.String()
+	if err := copyToClipboard(content); err != nil {
+		s.eventBroker.Publish(events.Event{
+			Type: events.StatusMessageEvent,
+			Payload: events.StatusMessagePayload{
+				Message: "Failed to copy to clipboard: " + err.Error(),
+				Type:    "error",
+			},
+		})
+		return
+	}
+	
+	// Show success message
+	messageWord := "message"
+	if count > 1 {
+		messageWord = "messages"
+	}
+	s.eventBroker.Publish(events.Event{
+		Type: events.StatusMessageEvent,
+		Payload: events.StatusMessagePayload{
+			Message: fmt.Sprintf("Copied %d %s to clipboard! 📋", len(messagesToCopy), messageWord),
+			Type:    "success",
+		},
+	})
+}
+
+// copyToClipboard copies text to the system clipboard
+func copyToClipboard(text string) error {
+	var cmd *exec.Cmd
+	
+	// Detect platform and use appropriate command
+	// macOS
+	cmd = exec.Command("pbcopy")
+	
+	// You could add Linux/Windows support later:
+	// Linux: xclip -selection clipboard
+	// Windows: clip
+	
+	cmd.Stdin = strings.NewReader(text)
+	return cmd.Run()
+}
+
 // handleQuit quits the application
 func (s *CommandService) handleQuit() {
 	s.eventBroker.Publish(events.Event{
@@ -151,6 +408,8 @@ func (s *CommandService) GetAvailableCommands() []struct {
 	}{
 		{"/help", "Show help message"},
 		{"/clear", "Clear all messages"},
+		{"/copy", "Copy last N messages to clipboard"},
+		{"/analyze", "Run project analysis (quick/detailed/deep/full)"},
 		{"/model", "Show current model"},
 		{"/model select", "Select a different model"},
 		{"/team", "Show current team"},

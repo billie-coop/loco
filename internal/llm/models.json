@@ -4,121 +4,141 @@
       "size": "XS",
       "params": "0.5B",
       "category": "general",
-      "description": "Ultra-fast Qwen model for basic tasks"
+      "description": "Ultra-fast Qwen model for basic tasks",
+      "tool_calls": false
     },
     "liquid/lfm2-1.2b": {
       "size": "XS",
       "params": "1.2B",
       "category": "general",
-      "description": "Liquid Foundation Model, very fast"
+      "description": "Liquid Foundation Model, very fast",
+      "tool_calls": false
     },
     "deepseek-coder-1.3b-kexer": {
       "size": "XS",
       "params": "1.3B",
       "category": "coding",
-      "description": "Tiny DeepSeek coder for quick completions"
+      "description": "Tiny DeepSeek coder for quick completions",
+      "tool_calls": false
     },
     "qwen/qwen3-1.7b": {
       "size": "XS",
       "params": "1.7B",
       "category": "general",
-      "description": "Small Qwen 3 model"
+      "description": "Small Qwen 3 model",
+      "tool_calls": false
     },
     "smollm2-1.7b-instruct": {
       "size": "XS",
       "params": "1.7B",
       "category": "general",
-      "description": "Small language model v2"
+      "description": "Small language model v2",
+      "tool_calls": false
     },
     "smollm3-3b-mlx": {
       "size": "S",
       "params": "3B",
       "category": "general",
-      "description": "Small language model v3 optimized for Apple Silicon"
+      "description": "Small language model v3 optimized for Apple Silicon",
+      "tool_calls": false
     },
     "microsoft/phi-4-mini-reasoning": {
       "size": "S",
       "params": "3.8B",
       "category": "reasoning",
-      "description": "Phi-4 specialized in math and reasoning"
+      "description": "Phi-4 specialized in math and reasoning",
+      "tool_calls": false
     },
     "qwen2.5-coder-7b-instruct": {
       "size": "M",
       "params": "7B",
       "category": "coding",
-      "description": "Excellent coding model from Qwen 2.5 series"
+      "description": "Excellent coding model from Qwen 2.5 series",
+      "tool_calls": true
     },
     "deepseek-r1-distill-qwen-7b": {
       "size": "M",
       "params": "7B",
       "category": "reasoning",
-      "description": "DeepSeek R1 reasoning distilled into Qwen"
+      "description": "DeepSeek R1 reasoning distilled into Qwen",
+      "tool_calls": false
     },
     "deepseek/deepseek-r1-0528-qwen3-8b": {
       "size": "M",
       "params": "8B",
       "category": "reasoning",
-      "description": "DeepSeek R1 reasoning model"
+      "description": "DeepSeek R1 reasoning model",
+      "tool_calls": true
     },
     "ibm/granite-3.1-8b": {
       "size": "M",
       "params": "8B",
       "category": "general",
-      "description": "IBM's Granite model for enterprise use"
+      "description": "IBM's Granite model for enterprise use",
+      "tool_calls": true
     },
     "google/gemma-3-12b": {
       "size": "M",
       "params": "12B",
       "category": "general",
-      "description": "Google's Gemma 3 model"
+      "description": "Google's Gemma 3 model",
+      "tool_calls": true
     },
     "mistralai/mistral-small-3.2": {
       "size": "M",
       "params": "12B",
       "category": "general",
-      "description": "Mistral Small latest version"
+      "description": "Mistral Small latest version",
+      "tool_calls": true
     },
     "mistralai/magistral-small": {
       "size": "M",
       "params": "12B",
       "category": "general",
-      "description": "Mistral's Magistral variant"
+      "description": "Mistral's Magistral variant",
+      "tool_calls": true
     },
     "mistralai/devstral-small-2505": {
       "size": "M",
       "params": "12B",
       "category": "coding",
-      "description": "Mistral's developer-focused model"
+      "description": "Mistral's developer-focused model",
+      "tool_calls": true
     },
     "qwen3-30b-a3b-instruct-2507-mlx": {
       "size": "L",
       "params": "30B",
       "category": "general",
-      "description": "Large Qwen 3 model optimized for Apple Silicon"
+      "description": "Large Qwen 3 model optimized for Apple Silicon",
+      "tool_calls": true
     },
     "qwen2.5-vl-32b-instruct": {
       "size": "L",
       "params": "32B",
       "category": "multimodal",
-      "description": "Qwen 2.5 vision-language model"
+      "description": "Qwen 2.5 vision-language model",
+      "tool_calls": true
     },
     "deepseek-coder-33b-instruct": {
       "size": "L",
       "params": "33B",
       "category": "coding",
-      "description": "DeepSeek's powerful coding model"
+      "description": "DeepSeek's powerful coding model",
+      "tool_calls": true
     },
     "llama-3.3-70b-instruct": {
       "size": "XL",
       "params": "70B",
       "category": "general",
-      "description": "Meta's latest Llama 3.3 model"
+      "description": "Meta's latest Llama 3.3 model",
+      "tool_calls": true
     },
     "text-embedding-nomic-embed-text-v1.5": {
       "size": "special",
       "params": "137M",
       "category": "embedding",
-      "description": "Nomic embedding model (not for generation)"
+      "description": "Nomic embedding model (not for generation)",
+      "tool_calls": false
     }
   }
 }

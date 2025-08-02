@@ -2,11 +2,16 @@
 
 This document describes the user interface structure of the Loco application for easy reference.
 
-## Application States
+## Architecture Overview
 
-The Loco application has two main states:
-1. **Model Selection State** (`StateModelSelect`) - Initial screen for choosing an AI model
-2. **Chat State** (`StateChat`) - Main chat interface
+**Status**: Updated January 2025 - Now Component-Based Architecture  
+**Framework**: Bubble Tea v2 with component isolation and event-driven communication
+
+## Application Flow
+
+1. **Initialization** - App creates services and TUI components  
+2. **Main Chat Interface** - Component-based layout with sidebar + main content  
+3. **Event-Driven Updates** - Real-time communication via pubsub system
 
 ## Main Chat UI Layout
 
@@ -53,25 +58,25 @@ Loco UI Structure - Chat State
 └─────────────────────────┴───────────────────────────────────────────────────────┘
 ```
 
-## UI Component Names
+## Component Architecture 
 
-### **Primary Areas:**
-- **SIDEBAR** - Left panel with model/session info
-- **MAIN CONTENT AREA** - Right panel with chat interface
+### **Core Components** (All implement Sizeable + Component interfaces)
+- **`SidebarModel`** - Left panel (`internal/tui/components/chat/sidebar.go`)
+- **`MessageListModel`** - Chat viewport (`internal/tui/components/chat/messages.go`)  
+- **`InputModel`** - Text input area (`internal/tui/components/chat/input.go`)
+- **`StatusComponent`** - Status bar (`internal/tui/components/status/status.go`)
+- **`DialogManager`** - Modal dialogs (`internal/tui/components/dialog/manager.go`)
 
-### **Main Content Sub-sections:**
-- **MESSAGE VIEWPORT** - Scrollable chat history area
-- **STATUS LINE** - Thin bar with streaming info and notifications  
-- **INPUT SECTION** - Bottom area with text input and help
+### **Event System**
+- **`EventBroker`** - Pubsub for component communication (`internal/tui/events/broker.go`)
+- **Event Types**: UserMessage, SystemMessage, StreamChunk, StatusMessage, etc.
+- **No Direct Coupling** - Components communicate only via events
 
-### **Sidebar Sections:**
-- **App Header** - Title and status indicator
-- **Model Info** - Current model and size
-- **Model List** - Available models by size
-- **Session Info** - Current chat session
-- **Project Info** - Analyzed project context
-- **Stats** - Message counts
-- **Tips** - Keyboard shortcuts
+### **Service Layer** 
+- **`App`** - Core business logic (`internal/app/app.go`)
+- **`CommandService`** - Slash command handling (`internal/app/command_service.go`)
+- **`LLMService`** - AI streaming management (`internal/app/llm_service.go`)
+- **`AnalysisService`** - 4-tier project analysis (`internal/analysis/service.go`)
 
 ## Detailed Component Descriptions
 
@@ -140,15 +145,45 @@ Loco UI Structure - Chat State
 - Shows technical metadata (toggle with `/debug`)
 - Displays timestamps, token counts, tool execution info
 
+## Three-Tier Output System (Following Crush Patterns)
+
+**CRITICAL**: No direct terminal output (`fmt.Printf`) anywhere in codebase! All output through Bubble Tea.
+
+### 1. **Status Bar** - Brief notifications
+```go
+// For errors, warnings, success messages
+util.ReportError(err)      // ❌ Error messages  
+util.ReportInfo(msg)       // ℹ️  Info messages
+util.ReportWarn(msg)       // ⚠️  Warning messages
+```
+
+### 2. **Message Viewport** - Persistent content
+```go
+// Chat messages, analysis results, system logs
+events.SystemMessageEvent  // 🔧 System: or 📊 Analysis:
+events.UserMessageEvent    // 👤 You:
+events.AssistantMessageEvent // 🤖 Loco:
+```
+
+### 3. **Dialog System** - Modal interactions  
+```go
+// Model selection, settings, permissions
+dialog.ModelSelectDialogType
+dialog.SettingsDialogType
+dialog.PermissionsDialogType
+```
+
 ## Key UI Features
 
-1. **Responsive Design**: Layout adjusts based on terminal size with minimum constraints
-2. **Markdown Rendering**: Uses Glamour for rich text formatting with syntax highlighting
-3. **Real-time Updates**: Streaming responses with live token counting
-4. **Debug Mode**: Toggle-able metadata display showing performance info
-5. **Session Management**: Visual indicators for current session
-6. **Project Context**: Shows analyzed project information
-7. **Tool Integration**: Visual feedback for tool execution and confirmation
+1. **Component-Based Architecture**: Isolated, testable components with clear interfaces
+2. **Event-Driven Communication**: No tight coupling between components
+3. **Responsive Design**: Layout adjusts based on terminal size with minimum constraints
+4. **Markdown Rendering**: Uses Glamour for rich text formatting with syntax highlighting
+5. **Real-time Updates**: Streaming responses with live token counting via events
+6. **Debug Mode**: Toggle-able metadata display (`/debug` command)
+7. **Session Management**: Thread-safe session storage with JSON persistence
+8. **Project Analysis**: 4-tier progressive analysis (Quick→Detailed→Deep→Full)
+9. **Tool Integration**: Visual feedback for tool execution and confirmation
 
 ## Color Scheme
 

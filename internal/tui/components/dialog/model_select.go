@@ -6,6 +6,7 @@ import (
 
 	"github.com/billie-coop/loco/internal/llm"
 	"github.com/billie-coop/loco/internal/tui/events"
+	"github.com/billie-coop/loco/internal/tui/styles"
 	tea "github.com/charmbracelet/bubbletea/v2"
 	"github.com/charmbracelet/lipgloss/v2"
 )
@@ -27,6 +28,8 @@ type ModelSelectDialog struct {
 
 // NewModelSelectDialog creates a new model selection dialog
 func NewModelSelectDialog(eventBroker *events.Broker) *ModelSelectDialog {
+	theme := styles.CurrentTheme()
+	
 	d := &ModelSelectDialog{
 		BaseDialog:     NewBaseDialog("Select Model"),
 		models:         []llm.Model{},
@@ -38,14 +41,14 @@ func NewModelSelectDialog(eventBroker *events.Broker) *ModelSelectDialog {
 
 		selectedStyle: lipgloss.NewStyle().
 			PaddingLeft(1).
-			Foreground(lipgloss.Color("205")).
+			Foreground(theme.Accent).
 			Bold(true),
 
 		sizeStyle: lipgloss.NewStyle().
-			Foreground(lipgloss.Color("244")),
+			Foreground(theme.FgMuted),
 
 		descStyle: lipgloss.NewStyle().
-			Foreground(lipgloss.Color("241")).
+			Foreground(theme.FgSubtle).
 			Italic(true),
 	}
 	return d

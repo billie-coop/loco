@@ -3,6 +3,7 @@ package tui
 import (
 	"os"
 	"strings"
+	"time"
 
 	"github.com/billie-coop/loco/internal/app"
 	"github.com/billie-coop/loco/internal/llm"
@@ -12,6 +13,7 @@ import (
 	"github.com/billie-coop/loco/internal/tui/components/dialog"
 	"github.com/billie-coop/loco/internal/tui/components/status"
 	"github.com/billie-coop/loco/internal/tui/events"
+	"github.com/billie-coop/loco/internal/tui/styles"
 	tea "github.com/charmbracelet/bubbletea/v2"
 	"github.com/charmbracelet/lipgloss/v2"
 )
@@ -45,8 +47,51 @@ type Model struct {
 	showDebug        bool
 }
 
-// NewModel creates a new component-based TUI model
+// New creates a new TUI model from an app instance and event broker
+func New(appInstance *app.App, eventBroker *events.Broker) *Model {
+	// Initialize theme manager with default theme
+	styles.SetDefaultManager(styles.NewManager("loco"))
+	
+	// Create components
+	sidebar := chat.NewSidebar()
+	messageList := chat.NewMessageList()
+	input := chat.NewInput()
+	statusBar := status.New()
+	dialogManager := dialog.NewManager(eventBroker)
+
+	// Create layout manager
+	layout := core.NewSimpleLayout()
+
+	// Add components to layout
+	layout.AddComponent("sidebar", sidebar)
+	layout.AddComponent("messages", messageList)
+	layout.AddComponent("input", input)
+	layout.AddComponent("status", statusBar)
+
+	m := &Model{
+		layout:        layout,
+		sidebar:       sidebar,
+		messageList:   messageList,
+		input:         input,
+		statusBar:     statusBar,
+		dialogManager: dialogManager,
+		messagesMeta:  make(map[int]*chat.MessageMetadata),
+		messages:      []llm.Message{},
+		eventBroker:   eventBroker,
+		app:           appInstance,
+	}
+
+	// Subscribe to all events
+	m.eventSub = eventBroker.Subscribe()
+
+	return m
+}
+
+// NewModel creates a new component-based TUI model (legacy compatibility)
 func NewModel(client llm.Client) *Model {
+	// Initialize theme manager with default theme
+	styles.SetDefaultManager(styles.NewManager("loco"))
+	
 	// Create event broker first
 	eventBroker := events.NewBroker()
 
@@ -120,8 +165,10 @@ func (m *Model) Init() tea.Cmd {
 		currentSession, err := m.app.Sessions.GetCurrent()
 		if err == nil && currentSession != nil {
 			// Load existing messages from session
-			m.messages = currentSession.Messages
-			m.syncMessagesToComponents()
+			if messages, err := m.app.Sessions.GetMessages(); err == nil {
+				m.messages = messages
+				m.syncMessagesToComponents()
+			}
 		}
 	}
 
@@ -169,10 +216,10 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.height = msg.Height
 
 		// Calculate layout dimensions
-		sidebarWidth := 30
-		statusHeight := 1
-		inputHeight := 3  // Content height only
-		inputTotalHeight := 5  // Including borders
+		const sidebarWidth = 28  // Keep consistent with View() method
+		const statusHeight = 1
+		const inputHeight = 3  // Content height only
+		const inputTotalHeight = 5  // Including borders
 
 		mainWidth := m.width - sidebarWidth
 		messagesHeight := m.height - statusHeight - inputTotalHeight
@@ -296,35 +343,36 @@ func (m *Model) View() string {
 	}
 
 	// Fixed dimensions
-	const sidebarWidth = 30
+	const sidebarWidth = 28  // Good balance of info and main content space
 	const inputHeight = 3
 	const statusHeight = 1
 
 	mainWidth := m.width - sidebarWidth
 	viewportHeight := m.height - inputHeight - statusHeight - 1 // -1 for spacing
 
-	// Build the sidebar
+	// Build the sidebar with theme colors
+	theme := styles.CurrentTheme()
 	sidebarStyle := lipgloss.NewStyle().
-		Width(sidebarWidth).
+		Width(sidebarWidth-2). // Account for border width
 		Height(m.height - statusHeight).
 		BorderStyle(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color("86"))
+		BorderForeground(theme.BorderFocus)
 	sidebarView := sidebarStyle.Render(m.sidebar.View())
 
 	// Build the main view area
 	mainViewStyle := lipgloss.NewStyle().
-		Width(mainWidth).
+		Width(mainWidth-2). // Account for border width
 		Height(viewportHeight).
 		BorderStyle(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color("86"))
+		BorderForeground(theme.Border)
 	mainView := mainViewStyle.Render(m.messageList.View())
 
 	// Build the input area
 	inputStyle := lipgloss.NewStyle().
-		Width(mainWidth).
+		Width(mainWidth-2). // Account for border width
 		Height(inputHeight).
 		BorderStyle(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color("86"))
+		BorderForeground(theme.BorderFocus)
 	inputView := inputStyle.Render(m.input.View())
 
 	// Stack main view and input
@@ -336,8 +384,8 @@ func (m *Model) View() string {
 	// Create status bar that spans full width
 	statusStyle := lipgloss.NewStyle().
 		Width(m.width).
-		Background(lipgloss.Color("235")).
-		Foreground(lipgloss.Color("252"))
+		Background(theme.BgBase).
+		Foreground(theme.FgBase)
 	statusView := statusStyle.Render(m.statusBar.View())
 
 	// Final assembly
@@ -429,6 +477,12 @@ func (m *Model) handleTabCompletion() (tea.Model, tea.Cmd) {
 	commands := []string{
 		"/help",
 		"/clear", 
+		"/copy",
+		"/analyze",
+		"/analyze quick",
+		"/analyze detailed", 
+		"/analyze deep",
+		"/analyze full",
 		"/model",
 		"/model select",
 		"/team",
@@ -639,6 +693,63 @@ func (m *Model) handleEvent(event events.Event) (tea.Model, tea.Cmd) {
 				Type:    "info",
 			},
 		})
+		
+	case events.AnalysisStartedEvent:
+		if payload, ok := event.Payload.(events.AnalysisProgressPayload); ok {
+			// Update sidebar analysis state
+			analysisState := &chat.AnalysisState{
+				IsRunning:    true,
+				CurrentPhase: payload.Phase,
+				StartTime:    time.Now(),
+				TotalFiles:   payload.TotalFiles,
+				CompletedFiles: payload.CompletedFiles,
+			}
+			// Set tier-specific flags
+			switch payload.Phase {
+			case "detailed":
+				analysisState.DetailedRunning = true
+			case "deep":
+				analysisState.KnowledgeRunning = true
+			}
+			m.sidebar.SetAnalysisState(analysisState)
+		}
+		
+	case events.AnalysisProgressEvent:
+		if payload, ok := event.Payload.(events.AnalysisProgressPayload); ok {
+			// Update progress in sidebar
+			analysisState := &chat.AnalysisState{
+				IsRunning:      true,
+				CurrentPhase:   payload.Phase,
+				StartTime:      time.Now(), // Keep existing start time if we had one
+				TotalFiles:     payload.TotalFiles,
+				CompletedFiles: payload.CompletedFiles,
+			}
+			m.sidebar.SetAnalysisState(analysisState)
+		}
+		
+	case events.AnalysisCompletedEvent:
+		if payload, ok := event.Payload.(events.AnalysisProgressPayload); ok {
+			// Mark analysis as completed
+			analysisState := &chat.AnalysisState{
+				IsRunning:    false,
+				CurrentPhase: "complete",
+			}
+			// Set tier-specific completion flags
+			switch payload.Phase {
+			case "detailed":
+				analysisState.DetailedCompleted = true
+			case "deep":
+				analysisState.KnowledgeCompleted = true
+			}
+			m.sidebar.SetAnalysisState(analysisState)
+		}
+		
+	case events.AnalysisErrorEvent:
+		// Clear analysis state on error
+		analysisState := &chat.AnalysisState{
+			IsRunning: false,
+		}
+		m.sidebar.SetAnalysisState(analysisState)
 	}
 
 	return m, tea.Batch(cmds...)

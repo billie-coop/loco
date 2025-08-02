@@ -2,6 +2,7 @@ package dialog
 
 import (
 	"github.com/billie-coop/loco/internal/tui/components/core"
+	"github.com/billie-coop/loco/internal/tui/styles"
 	tea "github.com/charmbracelet/bubbletea/v2"
 	"github.com/charmbracelet/lipgloss/v2"
 )
@@ -25,6 +26,8 @@ type BaseDialog struct {
 
 // NewBaseDialog creates a new base dialog
 func NewBaseDialog(title string) *BaseDialog {
+	theme := styles.CurrentTheme()
+	
 	return &BaseDialog{
 		title:     title,
 		isOpen:    false,
@@ -32,19 +35,19 @@ func NewBaseDialog(title string) *BaseDialog {
 
 		borderStyle: lipgloss.NewStyle().
 			BorderStyle(lipgloss.RoundedBorder()).
-			BorderForeground(lipgloss.Color("86")).
+			BorderForeground(theme.BorderFocus).
 			Padding(1),
 
 		titleStyle: lipgloss.NewStyle().
 			Bold(true).
-			Foreground(lipgloss.Color("205")).
+			Foreground(theme.Accent).
 			MarginBottom(1),
 
 		contentStyle: lipgloss.NewStyle(),
 
 		overlayStyle: lipgloss.NewStyle().
-			Background(lipgloss.Color("0")).
-			Foreground(lipgloss.Color("7")),
+			Background(theme.BgSubtle).
+			Foreground(theme.FgBase),
 	}
 }
 

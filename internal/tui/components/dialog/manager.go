@@ -18,6 +18,7 @@ const (
 	QuitDialogType          DialogType = "quit"
 	CommandPaletteDialogType DialogType = "command_palette"
 	HelpDialogType          DialogType = "help"
+	ThemeSwitcherDialogType DialogType = "theme_switcher"
 )
 
 // Manager manages all dialogs in the application
@@ -44,6 +45,7 @@ func NewManager(eventBroker *events.Broker) *Manager {
 	m.dialogs[QuitDialogType] = NewQuitDialog(eventBroker)
 	m.dialogs[CommandPaletteDialogType] = NewCommandPaletteDialog(eventBroker)
 	m.dialogs[HelpDialogType] = NewHelpDialog(eventBroker)
+	m.dialogs[ThemeSwitcherDialogType] = NewThemeSwitcher()
 
 	return m
 }

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/billie-coop/loco/internal/tui/styles"
 	tea "github.com/charmbracelet/bubbletea/v2"
 	"github.com/charmbracelet/lipgloss/v2"
 )
@@ -116,12 +117,14 @@ func (c *Component) View() string {
 		return ""
 	}
 	
-	// Create status bar style
+	theme := styles.CurrentTheme()
+	
+	// Create status bar style with theme colors
 	statusStyle := lipgloss.NewStyle().
 		Width(c.width).
 		Height(1).
-		Background(lipgloss.Color("240")).
-		Foreground(lipgloss.Color("250")).
+		Background(theme.BgSubtle).
+		Foreground(theme.FgBase).
 		Padding(0, 1)
 	
 	// Prepare left and right content

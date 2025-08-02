@@ -2,14 +2,13 @@ package chat
 
 import (
 	"fmt"
-	"os"
 	"strings"
 	"time"
 
 	"github.com/billie-coop/loco/internal/llm"
-	"github.com/billie-coop/loco/internal/project"
 	"github.com/billie-coop/loco/internal/session"
 	"github.com/billie-coop/loco/internal/tui/components/core"
+	"github.com/billie-coop/loco/internal/tui/styles"
 	tea "github.com/charmbracelet/bubbletea/v2"
 	"github.com/charmbracelet/lipgloss/v2"
 )
@@ -175,22 +174,41 @@ func (s *SidebarModel) SetMessages(messages []llm.Message) {
 // Private rendering methods
 
 func (s *SidebarModel) renderTitle(content *strings.Builder) {
-	// Calculate actual content width (account for padding and borders)
-	contentWidth := s.width - 4
+	// Calculate actual content width (account for borders only)
+	contentWidth := s.width - 2
 	if contentWidth < 10 {
 		contentWidth = 10
 	}
 
-	titleStyle := lipgloss.NewStyle().
-		Bold(true).
-		Foreground(lipgloss.Color("205")).
-		Width(contentWidth).
-		Align(lipgloss.Center)
-	content.WriteString(titleStyle.Render("🚂 Loco"))
+	theme := styles.CurrentTheme()
+	
+	// Compact locomotive ASCII art - 3 lines, sparse mist, centered, all 21 chars
+	asciiArt := []string{
+		"  ⢀⣴⣾⣿⣷⣶⣤⣶⣾⣿⣿⣷⣦⡀   ", // sparser top mist (18->21: +3)
+		"  ⣿⣷⣯⣿⡿⠀LOCO⢿⣿⣷⣻⣷⣿ ", // main locomotive body (20->21: +1)
+		"   ⠻⢿⡿⠟⠛⠻⣿⠿⠛⠉⠉⠁    ", // sparser bottom mist (18->21: +3)
+	}
+	
+	// Render ASCII art with theme colors - join as one block
+	artStyle := lipgloss.NewStyle().
+		Align(lipgloss.Center).
+		Foreground(theme.Accent)
+	
+	// Join all ASCII lines together, then render as one block
+	asciiBlock := strings.Join(asciiArt, "\n")
+	content.WriteString(artStyle.Render(asciiBlock))
 	content.WriteString("\n")
 
-	subtitleStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("241")).
+	// Version number like Crush
+	versionStyle := theme.S().Subtle.
+		Italic(true).
+		Width(contentWidth).
+		Align(lipgloss.Center)
+	content.WriteString(versionStyle.Render("v0.0.1"))
+	content.WriteString("\n")
+
+	// Subtitle with theme colors
+	subtitleStyle := theme.S().Subtle.
 		Italic(true).
 		Width(contentWidth).
 		Align(lipgloss.Center)
@@ -199,8 +217,9 @@ func (s *SidebarModel) renderTitle(content *strings.Builder) {
 }
 
 func (s *SidebarModel) renderStatus(content *strings.Builder) {
-	statusStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("86"))
-	labelStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("241"))
+	theme := styles.CurrentTheme()
+	statusStyle := theme.S().Success
+	labelStyle := theme.S().Muted
 
 	content.WriteString(labelStyle.Render("Status: "))
 	if s.isStreaming {
@@ -213,7 +232,7 @@ func (s *SidebarModel) renderStatus(content *strings.Builder) {
 	// LM Studio connection
 	content.WriteString(labelStyle.Render("LM Studio: "))
 	if s.error != nil {
-		content.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("196")).Render("❌ Disconnected"))
+		content.WriteString(theme.S().Error.Render("❌ Disconnected"))
 	} else {
 		content.WriteString(statusStyle.Render("✅ Connected"))
 	}
@@ -221,9 +240,10 @@ func (s *SidebarModel) renderStatus(content *strings.Builder) {
 }
 
 func (s *SidebarModel) renderModelInfo(content *strings.Builder) {
-	labelStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("241"))
-	statusStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("86"))
-	dimStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("239")).Italic(true)
+	theme := styles.CurrentTheme()
+	labelStyle := theme.S().Muted
+	statusStyle := theme.S().Success
+	dimStyle := theme.S().Subtle.Italic(true)
 
 	// Current Model info
 	if s.modelName != "" {
@@ -270,8 +290,9 @@ func (s *SidebarModel) renderModelInfo(content *strings.Builder) {
 }
 
 func (s *SidebarModel) renderSessionInfo(content *strings.Builder) {
-	labelStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("241"))
-	statusStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("86"))
+	theme := styles.CurrentTheme()
+	labelStyle := theme.S().Muted
+	statusStyle := theme.S().Info
 
 	if s.sessionManager != nil {
 		currentSession, err := s.sessionManager.GetCurrent()
@@ -292,9 +313,10 @@ func (s *SidebarModel) renderSessionInfo(content *strings.Builder) {
 }
 
 func (s *SidebarModel) renderProjectInfo(content *strings.Builder) {
-	labelStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("241"))
-	statusStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("86"))
-	dimStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("239")).Italic(true)
+	theme := styles.CurrentTheme()
+	labelStyle := theme.S().Muted
+	statusStyle := theme.S().Info
+	dimStyle := theme.S().Subtle.Italic(true)
 
 	if s.projectContext != nil {
 		content.WriteString(labelStyle.Render("Project:"))
@@ -313,8 +335,9 @@ func (s *SidebarModel) renderProjectInfo(content *strings.Builder) {
 }
 
 func (s *SidebarModel) renderAnalysisTiers(content *strings.Builder) {
-	labelStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("241"))
-	dimStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("239")).Italic(true)
+	theme := styles.CurrentTheme()
+	labelStyle := theme.S().Muted
+	dimStyle := theme.S().Subtle.Italic(true)
 
 	content.WriteString(labelStyle.Render("Analysis Tiers:"))
 	content.WriteString("\n")
@@ -325,19 +348,15 @@ func (s *SidebarModel) renderAnalysisTiers(content *strings.Builder) {
 	deepIcon := "💎"
 	fullIcon := "🚀"
 
-	completeStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("46"))                           // Green
-	runningStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("226"))                           // Yellow
-	pendingStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("240"))                           // Gray
-	strikethroughStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("238")).Strikethrough(true) // Dark gray with strikethrough
+	completeStyle := theme.S().Success
+	runningStyle := theme.S().Warning
+	pendingStyle := theme.S().Subtle
+	strikethroughStyle := theme.S().Subtle.Strikethrough(true)
 
 	// Check if we have quick analysis cache
-	workingDir, err := os.Getwd()
 	hasQuickCache := false
-	if err == nil {
-		if _, loadErr := project.LoadQuickAnalysis(workingDir); loadErr == nil {
-			hasQuickCache = true
-		}
-	}
+	// TODO: Check for new analysis cache when available
+	// For now, assume no cache
 
 	// Tier 1: Quick Analysis
 	if hasQuickCache {
@@ -434,7 +453,8 @@ func (s *SidebarModel) renderAnalysisTiers(content *strings.Builder) {
 }
 
 func (s *SidebarModel) renderMessageCounts(content *strings.Builder) {
-	labelStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("241"))
+	theme := styles.CurrentTheme()
+	labelStyle := theme.S().Muted
 
 	// Count messages
 	userMessages := 0
@@ -456,8 +476,9 @@ func (s *SidebarModel) renderMessageCounts(content *strings.Builder) {
 }
 
 func (s *SidebarModel) renderTips(content *strings.Builder) {
-	labelStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("241"))
-	dimStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("239")).Italic(true)
+	theme := styles.CurrentTheme()
+	labelStyle := theme.S().Muted
+	dimStyle := theme.S().Subtle.Italic(true)
 
 	content.WriteString(labelStyle.Render("Tip:"))
 	content.WriteString("\n")

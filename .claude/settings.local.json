@@ -33,7 +33,8 @@
       "Bash(mv:*)",
       "Bash(find:*)",
       "Bash(tree:*)",
-      "Bash(touch:*)"
+      "Bash(touch:*)",
+      "Bash(go list:*)"
     ],
     "deny": []
   }

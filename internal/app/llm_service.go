@@ -6,14 +6,12 @@ import (
 	"time"
 
 	"github.com/billie-coop/loco/internal/llm"
-	"github.com/billie-coop/loco/internal/orchestrator"
 	"github.com/billie-coop/loco/internal/tui/events"
 )
 
 // LLMService handles all LLM-related business logic
 type LLMService struct {
 	client       llm.Client
-	orchestrator *orchestrator.Orchestrator
 	eventBroker  *events.Broker
 	
 	// Current state
@@ -35,10 +33,6 @@ func (s *LLMService) SetClient(client llm.Client) {
 	s.client = client
 }
 
-// SetOrchestrator sets the orchestrator
-func (s *LLMService) SetOrchestrator(orch *orchestrator.Orchestrator) {
-	s.orchestrator = orch
-}
 
 // HandleUserMessage processes a user message and streams the response
 func (s *LLMService) HandleUserMessage(messages []llm.Message, userMessage string) {

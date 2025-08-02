@@ -1,10 +1,12 @@
 package app
 
 import (
+	"github.com/billie-coop/loco/internal/analysis"
+	"github.com/billie-coop/loco/internal/config"
 	"github.com/billie-coop/loco/internal/knowledge"
 	"github.com/billie-coop/loco/internal/llm"
-	"github.com/billie-coop/loco/internal/orchestrator"
 	"github.com/billie-coop/loco/internal/parser"
+	"github.com/billie-coop/loco/internal/permission"
 	"github.com/billie-coop/loco/internal/session"
 	"github.com/billie-coop/loco/internal/tools"
 	"github.com/billie-coop/loco/internal/tui/events"
@@ -13,13 +15,16 @@ import (
 // App holds all the core services and business logic
 type App struct {
 	// Core services
+	Config           *config.Manager
 	Sessions         *session.Manager
 	LLM              llm.Client  
 	Knowledge        *knowledge.Manager
 	Tools            *tools.Registry
 	Parser           *parser.Parser
-	Orchestrator     *orchestrator.Orchestrator
 	ModelManager     *llm.ModelManager
+	
+	// Analysis service
+	Analysis         analysis.Service
 	
 	// New services we'll add
 	LLMService       *LLMService
@@ -36,6 +41,13 @@ func New(workingDir string, eventBroker *events.Broker) *App {
 		EventBroker: eventBroker,
 	}
 	
+	// Initialize configuration first
+	app.Config = config.NewManager(workingDir)
+	if err := app.Config.Load(); err != nil {
+		// Log but continue with defaults
+		_ = err
+	}
+	
 	// Initialize existing services
 	app.Sessions = session.NewManager(workingDir)
 	if err := app.Sessions.Initialize(); err != nil {
@@ -43,10 +55,14 @@ func New(workingDir string, eventBroker *events.Broker) *App {
 		_ = err
 	}
 	
-	app.Tools = tools.NewRegistry(workingDir)
-	app.Tools.Register(tools.NewReadTool(workingDir))
-	app.Tools.Register(tools.NewWriteTool(workingDir))
-	app.Tools.Register(tools.NewListTool(workingDir))
+	// Create permission service first
+	permissionService := permission.NewService()
+	
+	// Create analysis service (will be set up properly when LLM client is available)
+	app.Analysis = analysis.NewService(nil)
+	
+	// Initialize new tool registry with Crush-style tools
+	app.Tools = tools.CreateDefaultRegistry(permissionService, workingDir, app.Analysis)
 	
 	app.Parser = parser.New()
 	app.Knowledge = knowledge.NewManager(workingDir, nil)
@@ -64,15 +80,26 @@ func (a *App) SetLLMClient(client llm.Client) {
 	a.LLM = client
 	a.LLMService.SetClient(client)
 	
-	// Create orchestrator if we have all dependencies
-	if a.LLM != nil && a.Tools != nil {
-		// For now, we'll pass empty model name - it will be set later
-		a.Orchestrator = orchestrator.NewOrchestrator("", a.Tools)
-		a.LLMService.SetOrchestrator(a.Orchestrator)
-	}
+	// Recreate analysis service with LLM client
+	a.Analysis = analysis.NewService(client)
 }
 
 // SetModelManager sets the model manager
 func (a *App) SetModelManager(mm *llm.ModelManager) {
 	a.ModelManager = mm
+}
+
+// InitLLMFromConfig initializes the LLM client using configuration settings
+func (a *App) InitLLMFromConfig() error {
+	// TODO: Use cfg := a.Config.Get() to get LM Studio URL when needed
+	
+	// Create LLM client
+	client := llm.NewLMStudioClient()
+	a.SetLLMClient(client)
+	
+	// Create model manager
+	modelManager := llm.NewModelManager(a.Sessions.ProjectPath)
+	a.SetModelManager(modelManager)
+	
+	return nil
 }
