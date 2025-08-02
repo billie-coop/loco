@@ -95,13 +95,24 @@ func (im *InputModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// Kill to beginning of line
 			im.value = im.value[im.cursorPos:]
 			im.cursorPos = 0
+		case " ":
+			// Handle space explicitly
+			im.value = im.value[:im.cursorPos] + " " + im.value[im.cursorPos:]
+			im.cursorPos++
+			
+			// Close completions on space
+			if im.completionsOpen {
+				im.completionsOpen = false
+				im.completionQuery = ""
+				return im, im.closeCompletions()
+			}
 		default:
-			// Regular character input - accept printable ASCII including space
+			// Regular character input - accept printable ASCII excluding space
 			s := msg.String()
 			if len(s) == 1 {
 				char := s[0]
-				// Printable ASCII: space (32) through tilde (126)
-				if char >= 32 && char <= 126 {
+				// Printable ASCII: exclamation (33) through tilde (126)
+				if char >= 33 && char <= 126 {
 					im.value = im.value[:im.cursorPos] + s + im.value[im.cursorPos:]
 					im.cursorPos++
 					
@@ -110,13 +121,6 @@ func (im *InputModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						im.completionsOpen = true
 						im.completionQuery = ""
 						return im, im.triggerCompletions()
-					}
-					
-					// Close completions on space
-					if char == ' ' && im.completionsOpen {
-						im.completionsOpen = false
-						im.completionQuery = ""
-						return im, im.closeCompletions()
 					}
 				}
 			}
