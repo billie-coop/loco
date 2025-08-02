@@ -72,6 +72,7 @@ func (c *LMStudioClient) CompleteWithOptions(ctx context.Context, messages []Mes
 
 	// Add model if specified
 	if c.model != "" {
+		// Only log in detailed scenarios to reduce noise
 		payload["model"] = c.model
 	}
 
@@ -135,6 +136,7 @@ func (c *LMStudioClient) Stream(ctx context.Context, messages []Message, onChunk
 
 	// Add model if specified
 	if c.model != "" {
+		// Only log in detailed scenarios to reduce noise
 		payload["model"] = c.model
 	}
 

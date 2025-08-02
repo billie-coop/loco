@@ -30,7 +30,9 @@
       "Bash(go install:*)",
       "Bash(sed:*)",
       "WebFetch(domain:www.jons.ink)",
-      "Bash(mv:*)"
+      "Bash(mv:*)",
+      "Bash(find:*)",
+      "Bash(tree:*)"
     ],
     "deny": []
   }

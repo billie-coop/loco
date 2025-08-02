@@ -86,6 +86,15 @@ func (m *Model) doStream() tea.Cmd {
 		go func() {
 			defer close(streamChannel)
 
+			// Select appropriate model based on context when using team selection
+			modelToUse := m.selectModelForMessage()
+			if modelToUse != "" {
+				// Cast to concrete type to set model
+				if lmClient, ok := m.llmClient.(*llm.LMStudioClient); ok {
+					lmClient.SetModel(modelToUse)
+				}
+			}
+
 			err := m.llmClient.Stream(ctx, m.messages, func(chunk string) {
 				// Send each chunk as a message
 				streamChannel <- streamChunkMsg{chunk: chunk}

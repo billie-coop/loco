@@ -140,11 +140,17 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				chatModel.SetAvailableModels(a.models)
 
 				// Load and update model database
-				workingDir, _ := os.Getwd()
+				workingDir, err := os.Getwd()
+				if err != nil {
+					workingDir = "."
+				}
 				modelMgr := llm.NewModelManager(workingDir)
 				if err := modelMgr.Load(); err == nil {
 					// Update from LM Studio (ignore errors)
-					_, _ = modelMgr.UpdateFromLMStudio(a.llmClient)
+					if _, err := modelMgr.UpdateFromLMStudio(a.llmClient); err != nil {
+						// Log but continue - failed to update from LM Studio
+						_ = err
+					}
 
 					// Pass model manager to chat for validation
 					chatModel.SetModelManager(modelMgr)

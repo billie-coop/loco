@@ -661,15 +661,19 @@ func (fa *FileAnalyzer) AnalyzeAllFilesIncremental(maxWorkers int, progressChan 
 				CurrentFile:    "No cache found, analyzing all files...",
 			}
 		}
-		
+
 		// Analyze all files
 		analyses, analyzeErr := fa.analyzeFiles(filesToAnalyze, maxWorkers, progressChan)
 		if analyzeErr != nil {
 			return nil, analyzeErr
 		}
-		
+
 		// Create initial cache with the results
-		headCommit, isDirty, _ := getProjectGitStatus(fa.workingDir)
+		headCommit, isDirty, gitErr := getProjectGitStatus(fa.workingDir)
+		if gitErr != nil {
+			headCommit = "unknown"
+			isDirty = false
+		}
 		newCache := &AnalysisCache{
 			HeadCommit: headCommit,
 			IsDirty:    isDirty,
@@ -677,7 +681,7 @@ func (fa *FileAnalyzer) AnalyzeAllFilesIncremental(maxWorkers int, progressChan 
 			Model:      fa.smallModel,
 			FileHashes: make([]FileCache, 0, len(analyses)),
 		}
-		
+
 		// Populate cache with analysis results
 		for i := range analyses {
 			analysis := analyses[i] // Create a copy to avoid pointer issues
@@ -689,7 +693,7 @@ func (fa *FileAnalyzer) AnalyzeAllFilesIncremental(maxWorkers int, progressChan 
 			}
 			newCache.FileHashes = append(newCache.FileHashes, fc)
 		}
-		
+
 		// Save the new cache
 		if saveErr := SaveAnalysisCache(fa.workingDir, newCache); saveErr != nil {
 			// Log but don't fail - we still have the analyses
@@ -701,7 +705,7 @@ func (fa *FileAnalyzer) AnalyzeAllFilesIncremental(maxWorkers int, progressChan 
 				CurrentFile:    "✅ Cache created for future runs!",
 			}
 		}
-		
+
 		return analyses, nil
 	}
 
@@ -715,18 +719,22 @@ func (fa *FileAnalyzer) AnalyzeAllFilesIncremental(maxWorkers int, progressChan 
 	// Send detailed cache status
 	cachedCount := len(filesToAnalyze) - len(changedFiles)
 	if progressChan != nil {
-		statusMsg := fmt.Sprintf("📊 Cache status: %d cached, %d changed (total: %d files)", 
+		statusMsg := fmt.Sprintf("📊 Cache status: %d cached, %d changed (total: %d files)",
 			cachedCount, len(changedFiles), len(filesToAnalyze))
-		
+
 		// Check git status for additional context
-		headCommit, isDirty, _ := getProjectGitStatus(fa.workingDir)
+		headCommit, isDirty, gitErr := getProjectGitStatus(fa.workingDir)
+		if gitErr != nil {
+			headCommit = "unknown"
+			isDirty = false
+		}
 		if isDirty {
 			statusMsg += "\n⚠️  Working directory has uncommitted changes"
 		}
 		if headCommit != cache.HeadCommit {
 			statusMsg += fmt.Sprintf("\n🔄 HEAD changed: %.7s → %.7s", cache.HeadCommit, headCommit)
 		}
-		
+
 		progressChan <- AnalysisProgress{
 			TotalFiles:     len(filesToAnalyze),
 			CompletedFiles: 0,
@@ -757,9 +765,9 @@ func (fa *FileAnalyzer) AnalyzeAllFilesIncremental(maxWorkers int, progressChan 
 	// Analyze only changed files
 	if progressChan != nil {
 		// Show first few changed files for debugging
-		debugInfo := fmt.Sprintf("🔍 Analyzing %d changed files (%.0f%% cache hit rate)...", 
+		debugInfo := fmt.Sprintf("🔍 Analyzing %d changed files (%.0f%% cache hit rate)...",
 			len(changedFiles), float64(cachedCount)/float64(len(filesToAnalyze))*100)
-		
+
 		if len(changedFiles) <= 5 {
 			// If only a few files changed, list them
 			debugInfo += "\n📝 Changed files:"
@@ -767,7 +775,7 @@ func (fa *FileAnalyzer) AnalyzeAllFilesIncremental(maxWorkers int, progressChan 
 				debugInfo += fmt.Sprintf("\n  • %s", f)
 			}
 		}
-		
+
 		progressChan <- AnalysisProgress{
 			TotalFiles:     len(changedFiles),
 			CompletedFiles: 0,

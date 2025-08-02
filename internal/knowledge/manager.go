@@ -38,28 +38,11 @@ func NewManager(projectPath string, team *session.ModelTeam) *Manager {
 	}
 }
 
-// Initialize sets up the knowledge directory and creates initial templates.
+// Initialize sets up the knowledge directory.
 func (m *Manager) Initialize() error {
 	// Create knowledge directory
 	if err := os.MkdirAll(m.basePath, 0o755); err != nil {
 		return fmt.Errorf("failed to create knowledge directory: %w", err)
-	}
-
-	// Create initial template files if they don't exist
-	templates := map[string]string{
-		"overview.md":  overviewTemplate,
-		"structure.md": structureTemplate,
-		"patterns.md":  patternsTemplate,
-		"context.md":   contextTemplate,
-	}
-
-	for filename, template := range templates {
-		path := filepath.Join(m.basePath, filename)
-		if _, err := os.Stat(path); os.IsNotExist(err) {
-			if err := os.WriteFile(path, []byte(template), 0o644); err != nil {
-				return fmt.Errorf("failed to create %s: %w", filename, err)
-			}
-		}
 	}
 
 	// Start background update worker
@@ -269,60 +252,3 @@ func (m *Manager) getRelevantFiles(query string) []string {
 	return []string{"overview.md", "structure.md", "patterns.md", "context.md"}
 }
 
-// Template content for initial files.
-const overviewTemplate = `# Project Overview
-
-## What It Does
-[To be discovered - what this project does in simple terms]
-
-## Technical Summary
-[To be discovered - main technologies and architecture style]
-
-## Key Capabilities
-[To be discovered - main features and functionality]
-
-## Entry Points
-[To be discovered - how users and developers interact with the system]
-`
-
-const structureTemplate = `# Code Structure
-
-## Directory Layout
-[To be discovered - how the codebase is organized]
-
-## Key Files
-[To be discovered - most important files and their purposes]
-
-## Module Organization
-[To be discovered - how code is grouped and structured]
-`
-
-const patternsTemplate = `# Development Patterns
-
-## Adding New Features
-[To be discovered - typical workflow for adding functionality]
-
-## Code Style
-[To be discovered - naming conventions and patterns]
-
-## Common Operations
-[To be discovered - frequently used commands and procedures]
-
-## Data Flow
-[To be discovered - how data moves through the system]
-`
-
-const contextTemplate = `# Project Context
-
-## Recent Changes
-[To be discovered - what has been modified recently]
-
-## Known Issues
-[To be discovered - current problems and workarounds]
-
-## Design Decisions
-[To be discovered - architectural choices and their rationale]
-
-## Future Direction
-[To be discovered - roadmap and planned improvements]
-`

@@ -389,6 +389,7 @@ Please provide a markdown document following this template:
 func (kg *KnowledgeGenerator) generateWithModel(prompt, taskName string) (string, error) {
 	// Create a dedicated LLM client for this goroutine to avoid concurrency issues
 	llmClient := llm.NewLMStudioClient()
+
 	llmClient.SetModel(kg.mediumModel)
 
 	ctx := context.Background()

@@ -71,6 +71,7 @@ type Model struct {
 	knowledgeManager *knowledge.Manager
 	analysisState    *AnalysisState
 	modelManager     *llm.ModelManager
+	lastUserActivity time.Time
 }
 
 // New creates a new chat model.
@@ -137,6 +138,21 @@ func (m *Model) AddSystemMessage(content string) {
 	m.viewport.GotoBottom()
 }
 
+// isUserActive returns true if the user has been active in the last 30 seconds.
+func (m *Model) isUserActive() bool {
+	return time.Since(m.lastUserActivity) < 30*time.Second
+}
+
+// IsUserActive implements the ActivityChecker interface.
+func (m *Model) IsUserActive() bool {
+	return m.isUserActive()
+}
+
+// markUserActivity updates the last user activity timestamp.
+func (m *Model) markUserActivity() {
+	m.lastUserActivity = time.Now()
+}
+
 // SetAvailableModels sets all available models for display in sidebar.
 func (m *Model) SetAvailableModels(models []llm.Model) {
 	m.allModels = models
@@ -156,6 +172,30 @@ func (m *Model) SetModelManager(mm *llm.ModelManager) {
 	if mm != nil {
 		m.validateCurrentTeamModels()
 	}
+}
+
+// selectModelForMessage chooses the appropriate model based on the current context.
+func (m *Model) selectModelForMessage() string {
+	// Get current session
+	currentSession, err := m.sessionManager.GetCurrent()
+	if err != nil || currentSession == nil || currentSession.Team == nil {
+		// No team configured, use whatever is currently set
+		return ""
+	}
+
+	// For now, use the medium model as default for general chat
+	// In the future, we could be smarter about this based on message complexity
+	if currentSession.Team.Medium != "" {
+		return currentSession.Team.Medium
+	}
+
+	// Fallback to small if no medium
+	if currentSession.Team.Small != "" {
+		return currentSession.Team.Small
+	}
+
+	// Fallback to large if nothing else
+	return currentSession.Team.Large
 }
 
 // validateCurrentTeamModels checks if the current team's models are available.
@@ -466,6 +506,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "enter":
 			// Send message on plain Enter
 			if !m.isStreaming && m.input.Value() != "" {
+				// Mark user activity
+				m.markUserActivity()
+
 				// Check for slash commands
 				if strings.HasPrefix(m.input.Value(), "/") {
 					return m.handleSlashCommand(m.input.Value())

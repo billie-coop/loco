@@ -574,10 +574,20 @@ func (m *Model) runProgressiveAnalysis(workingDir string, currentSession *sessio
 	// ==== TIER 1: QUICK ANALYSIS ====
 	m.analysisState.CurrentPhase = "quick"
 	m.viewport.SetContent(m.renderMessages())
-	m.showStatus("⚡ Running quick analysis...")
+	m.showStatus("⚡ Running ensemble quick analysis...")
 
 	quickStart := time.Now()
 	quickAnalyzer := project.NewQuickAnalyzer(workingDir, smallModel)
+
+	// Add progress callback
+	quickAnalyzer.SetProgressCallback(func(current, total int) {
+		if current == total {
+			m.showStatus("⚡ Synthesizing ensemble results...")
+		} else {
+			m.showStatus(fmt.Sprintf("⚡ Running ensemble quick analysis (%d/%d)...", current, total))
+		}
+	})
+
 	quickAnalysis, err := quickAnalyzer.Analyze()
 	quickDuration := time.Since(quickStart)
 
@@ -781,7 +791,12 @@ func (m *Model) runProgressiveAnalysis(workingDir string, currentSession *sessio
 		deepKnowStart := time.Now()
 		m.showStatus("💎 Generating deep knowledge...")
 
-		dkg := project.NewDeepKnowledgeGenerator(workingDir, currentSession.Team.Large, &analysisSummary)
+		// Create status callback to show progress
+		statusCallback := func(message string) {
+			m.AddSystemMessage(message)
+		}
+
+		dkg := project.NewDeepKnowledgeGenerator(workingDir, currentSession.Team.Large, &analysisSummary, m, statusCallback)
 		if err := dkg.GenerateDeepKnowledge(); err != nil {
 			m.messages = append(m.messages, llm.Message{
 				Role:    "system",
@@ -873,16 +888,25 @@ func (m *Model) handleQuickAnalyzeCommand() (tea.Model, tea.Cmd) {
 
 	m.messages = append(m.messages, llm.Message{
 		Role:    "system",
-		Content: "⚡ Running quick analysis...",
+		Content: "⚡ Running ensemble quick analysis...",
 	})
 	m.viewport.SetContent(m.renderMessages())
 	m.viewport.GotoBottom()
-	m.showStatus("⚡ Quick analysis running...")
+	m.showStatus("⚡ Ensemble quick analysis running...")
 
 	// Run analysis in background
 	go func() {
 		start := time.Now()
 		analyzer := project.NewQuickAnalyzer(workingDir, currentSession.Team.Small)
+
+		// Add progress callback
+		analyzer.SetProgressCallback(func(current, total int) {
+			if current == total {
+				m.showStatus("⚡ Synthesizing ensemble results...")
+			} else {
+				m.showStatus(fmt.Sprintf("⚡ Ensemble quick analysis (%d/%d)...", current, total))
+			}
+		})
 
 		analysis, err := analyzer.Analyze()
 		if err != nil {

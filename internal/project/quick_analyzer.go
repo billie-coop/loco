@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/billie-coop/loco/internal/llm"
@@ -28,11 +29,20 @@ type QuickAnalysis struct {
 	Duration       time.Duration `json:"analysis_duration_ms"`
 }
 
+// individualAnalysis represents a single analysis attempt.
+type individualAnalysis struct {
+	ProjectType  string
+	MainLanguage string
+	Framework    string
+	Description  string
+}
+
 // QuickAnalyzer provides fast, lightweight project analysis.
 type QuickAnalyzer struct {
-	workingDir string
-	smallModel string
-	llmClient  *llm.LMStudioClient
+	workingDir       string
+	smallModel       string
+	llmClient        *llm.LMStudioClient
+	progressCallback func(int, int) // current, total
 }
 
 // NewQuickAnalyzer creates a new quick analyzer.
@@ -44,7 +54,12 @@ func NewQuickAnalyzer(workingDir, smallModel string) *QuickAnalyzer {
 	}
 }
 
-// Analyze performs a quick analysis of the project.
+// SetProgressCallback sets a callback for progress updates during ensemble analysis.
+func (qa *QuickAnalyzer) SetProgressCallback(callback func(int, int)) {
+	qa.progressCallback = callback
+}
+
+// Analyze performs an ensemble quick analysis with 10 parallel calls.
 func (qa *QuickAnalyzer) Analyze() (*QuickAnalysis, error) {
 	start := time.Now()
 
@@ -65,29 +80,57 @@ func (qa *QuickAnalyzer) Analyze() (*QuickAnalysis, error) {
 	analysis.CodeFiles, analysis.KeyDirectories = qa.categorizeFiles(files)
 	analysis.EntryPoints = qa.findEntryPoints(files)
 
-	// Create prompt for AI analysis
+	// Run ensemble analysis (10 parallel calls)
+	const numAnalyses = 10
+	analyses := make([]individualAnalysis, numAnalyses)
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+	completedCount := 0
+
 	prompt := qa.buildAnalysisPrompt(files)
 
-	// Get AI analysis
-	qa.llmClient.SetModel(qa.smallModel)
-	ctx := context.Background()
-	response, err := qa.llmClient.Complete(ctx, []llm.Message{
-		{
-			Role:    "system",
-			Content: "You are a code analyzer. Be concise and accurate. Respond in the exact format requested.",
-		},
-		{
-			Role:    "user",
-			Content: prompt,
-		},
-	})
+	wg.Add(numAnalyses)
+	for i := 0; i < numAnalyses; i++ {
+		go func(index int) {
+			defer wg.Done()
 
-	if err != nil {
-		return nil, fmt.Errorf("AI analysis failed: %w", err)
+			// Create separate client for each goroutine
+			client := llm.NewLMStudioClient()
+			client.SetModel(qa.smallModel)
+			ctx := context.Background()
+
+			response, err := client.Complete(ctx, []llm.Message{
+				{
+					Role:    "system",
+					Content: "You are a code analyzer. Be concise and accurate. Respond in the exact format requested.",
+				},
+				{
+					Role:    "user",
+					Content: prompt,
+				},
+			})
+
+			if err == nil {
+				analyses[index] = qa.parseIndividualResponse(response)
+			}
+
+			// Update progress
+			mu.Lock()
+			completedCount++
+			if qa.progressCallback != nil {
+				qa.progressCallback(completedCount, numAnalyses)
+			}
+			mu.Unlock()
+		}(i)
 	}
 
-	// Parse AI response
-	qa.parseResponse(response, analysis)
+	wg.Wait()
+
+	// Synthesize final result using another LLM call
+	if err := qa.synthesizeWithLLM(analyses, analysis); err != nil {
+		// Fallback to manual consensus if synthesis fails
+		qa.buildConsensus(analyses, analysis)
+	}
 
 	analysis.Duration = time.Since(start)
 	return analysis, nil
@@ -239,6 +282,180 @@ func (qa *QuickAnalyzer) parseResponse(response string, analysis *QuickAnalysis)
 	if analysis.Description == "" {
 		analysis.Description = "Project analysis incomplete"
 	}
+}
+
+// parseIndividualResponse extracts information for a single analysis attempt.
+func (qa *QuickAnalyzer) parseIndividualResponse(response string) individualAnalysis {
+	analysis := individualAnalysis{}
+	lines := strings.Split(response, "\n")
+
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "PROJECT_TYPE:") {
+			analysis.ProjectType = strings.TrimSpace(strings.TrimPrefix(line, "PROJECT_TYPE:"))
+		} else if strings.HasPrefix(line, "LANGUAGE:") {
+			analysis.MainLanguage = strings.TrimSpace(strings.TrimPrefix(line, "LANGUAGE:"))
+		} else if strings.HasPrefix(line, "FRAMEWORK:") {
+			framework := strings.TrimSpace(strings.TrimPrefix(line, "FRAMEWORK:"))
+			if framework != "none" && framework != "" {
+				analysis.Framework = framework
+			}
+		} else if strings.HasPrefix(line, "DESCRIPTION:") {
+			analysis.Description = strings.TrimSpace(strings.TrimPrefix(line, "DESCRIPTION:"))
+		}
+	}
+
+	return analysis
+}
+
+// synthesizeWithLLM uses an LLM to synthesize multiple analyses into one final result.
+func (qa *QuickAnalyzer) synthesizeWithLLM(analyses []individualAnalysis, final *QuickAnalysis) error {
+	// Filter out empty analyses
+	var validAnalyses []individualAnalysis
+	for _, analysis := range analyses {
+		if analysis.ProjectType != "" || analysis.MainLanguage != "" || analysis.Description != "" {
+			validAnalyses = append(validAnalyses, analysis)
+		}
+	}
+
+	if len(validAnalyses) == 0 {
+		return fmt.Errorf("no valid analyses to synthesize")
+	}
+
+	// Build synthesis prompt
+	prompt := qa.buildSynthesisPrompt(validAnalyses)
+
+	// Call LLM for synthesis
+	client := llm.NewLMStudioClient()
+	client.SetModel(qa.smallModel)
+	ctx := context.Background()
+
+	response, err := client.Complete(ctx, []llm.Message{
+		{
+			Role:    "system",
+			Content: "You are an expert project analyzer. Synthesize multiple analyses into one accurate result. Choose the most common and accurate values. Respond in the exact format requested.",
+		},
+		{
+			Role:    "user",
+			Content: prompt,
+		},
+	})
+
+	if err != nil {
+		return fmt.Errorf("synthesis LLM call failed: %w", err)
+	}
+
+	// Parse the synthesis result
+	qa.parseResponse(response, final)
+	return nil
+}
+
+// buildSynthesisPrompt creates a prompt for synthesizing multiple analyses.
+func (qa *QuickAnalyzer) buildSynthesisPrompt(analyses []individualAnalysis) string {
+	var prompt strings.Builder
+
+	prompt.WriteString("Here are multiple analyses of the same project. Synthesize them into the best single analysis by choosing the most accurate and common values:\n\n")
+
+	for i, analysis := range analyses {
+		prompt.WriteString(fmt.Sprintf("Analysis %d:\n", i+1))
+		if analysis.ProjectType != "" {
+			prompt.WriteString(fmt.Sprintf("PROJECT_TYPE: %s\n", analysis.ProjectType))
+		}
+		if analysis.MainLanguage != "" {
+			prompt.WriteString(fmt.Sprintf("LANGUAGE: %s\n", analysis.MainLanguage))
+		}
+		if analysis.Framework != "" {
+			prompt.WriteString(fmt.Sprintf("FRAMEWORK: %s\n", analysis.Framework))
+		}
+		if analysis.Description != "" {
+			prompt.WriteString(fmt.Sprintf("DESCRIPTION: %s\n", analysis.Description))
+		}
+		prompt.WriteString("\n")
+	}
+
+	prompt.WriteString("Based on these analyses, provide the CONSENSUS result in this EXACT format:\n")
+	prompt.WriteString("PROJECT_TYPE: <choose the most common and accurate type>\n")
+	prompt.WriteString("LANGUAGE: <choose the most common language>\n")
+	prompt.WriteString("FRAMEWORK: <choose the most common framework or 'none'>\n")
+	prompt.WriteString("DESCRIPTION: <synthesize the best description that accurately reflects the consensus>\n")
+	prompt.WriteString("\nGo with the majority opinion and ignore obvious outliers. Focus on accuracy over verbosity.")
+
+	return prompt.String()
+}
+
+// buildConsensus aggregates multiple analyses into a final result.
+func (qa *QuickAnalyzer) buildConsensus(analyses []individualAnalysis, final *QuickAnalysis) {
+	// Count votes for each field
+	projectTypes := make(map[string]int)
+	languages := make(map[string]int)
+	frameworks := make(map[string]int)
+	descriptions := []string{}
+
+	for _, analysis := range analyses {
+		if analysis.ProjectType != "" {
+			projectTypes[analysis.ProjectType]++
+		}
+		if analysis.MainLanguage != "" {
+			languages[analysis.MainLanguage]++
+		}
+		if analysis.Framework != "" {
+			frameworks[analysis.Framework]++
+		}
+		if analysis.Description != "" {
+			descriptions = append(descriptions, analysis.Description)
+		}
+	}
+
+	// Choose most common values
+	final.ProjectType = qa.getMostCommon(projectTypes)
+	final.MainLanguage = qa.getMostCommon(languages)
+	final.Framework = qa.getMostCommon(frameworks)
+	final.Description = qa.synthesizeDescriptions(descriptions)
+
+	// Set defaults if consensus failed
+	if final.ProjectType == "" {
+		final.ProjectType = "unknown"
+	}
+	if final.MainLanguage == "" {
+		final.MainLanguage = "unknown"
+	}
+	if final.Description == "" {
+		final.Description = "Project analysis incomplete"
+	}
+}
+
+// getMostCommon returns the most frequently occurring value.
+func (qa *QuickAnalyzer) getMostCommon(counts map[string]int) string {
+	if len(counts) == 0 {
+		return ""
+	}
+
+	var best string
+	var maxCount int
+	for value, count := range counts {
+		if count > maxCount {
+			maxCount = count
+			best = value
+		}
+	}
+	return best
+}
+
+// synthesizeDescriptions combines multiple descriptions into one cohesive description.
+func (qa *QuickAnalyzer) synthesizeDescriptions(descriptions []string) string {
+	if len(descriptions) == 0 {
+		return ""
+	}
+
+	// For now, just take the longest description
+	// TODO: Could implement more sophisticated synthesis
+	var longest string
+	for _, desc := range descriptions {
+		if len(desc) > len(longest) {
+			longest = desc
+		}
+	}
+	return longest
 }
 
 // SaveQuickAnalysis saves the quick analysis to a JSON file.

@@ -12,8 +12,8 @@ import (
 
 // QuickKnowledgeGenerator generates quick knowledge files from file list analysis.
 type QuickKnowledgeGenerator struct {
-	workingDir   string
-	smallModel   string
+	workingDir    string
+	smallModel    string
 	quickAnalysis *QuickAnalysis
 }
 
@@ -170,7 +170,7 @@ func (qkg *QuickKnowledgeGenerator) generateWithModel(prompt, taskName string) (
 	llmClient.SetModel(qkg.smallModel)
 
 	ctx := context.Background()
-	
+
 	response, err := llmClient.Complete(ctx, []llm.Message{
 		{
 			Role:    "system",

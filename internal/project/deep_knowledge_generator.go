@@ -5,28 +5,37 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"sync"
+	"time"
 
 	"github.com/billie-coop/loco/internal/llm"
 )
+
+// ActivityChecker interface for checking if user is active.
+type ActivityChecker interface {
+	IsUserActive() bool
+}
 
 // DeepKnowledgeGenerator generates deep knowledge files using large models.
 type DeepKnowledgeGenerator struct {
 	workingDir      string
 	largeModel      string
 	analysisSummary *AnalysisSummary
+	activityChecker ActivityChecker
+	statusCallback  func(string) // Callback for status updates
 }
 
 // NewDeepKnowledgeGenerator creates a new deep knowledge generator.
-func NewDeepKnowledgeGenerator(workingDir, largeModel string, summary *AnalysisSummary) *DeepKnowledgeGenerator {
+func NewDeepKnowledgeGenerator(workingDir, largeModel string, summary *AnalysisSummary, activityChecker ActivityChecker, statusCallback func(string)) *DeepKnowledgeGenerator {
 	return &DeepKnowledgeGenerator{
 		workingDir:      workingDir,
 		largeModel:      largeModel,
 		analysisSummary: summary,
+		activityChecker: activityChecker,
+		statusCallback:  statusCallback,
 	}
 }
 
-// GenerateDeepKnowledge generates all 4 knowledge files using large models.
+// GenerateDeepKnowledge generates all 4 knowledge files sequentially with pause/resume.
 func (dkg *DeepKnowledgeGenerator) GenerateDeepKnowledge() error {
 	// Create knowledge/deep directory
 	knowledgeDir := filepath.Join(dkg.workingDir, ".loco", "knowledge", "deep")
@@ -36,12 +45,8 @@ func (dkg *DeepKnowledgeGenerator) GenerateDeepKnowledge() error {
 
 	// Read the detailed knowledge files to critique
 	detailedDir := filepath.Join(dkg.workingDir, ".loco", "knowledge", "detailed")
-	
-	// Generate each file in parallel
-	var wg sync.WaitGroup
-	var mu sync.Mutex
-	var errors []error
 
+	// Sequential generation with pause/resume capability
 	files := []struct {
 		name      string
 		generator func(string) (string, error)
@@ -52,46 +57,55 @@ func (dkg *DeepKnowledgeGenerator) GenerateDeepKnowledge() error {
 		{"overview.md", dkg.generateDeepOverview},
 	}
 
-	wg.Add(len(files))
+	for i, file := range files {
+		// Wait for user to be idle before starting each file
+		if err := dkg.waitForUserIdle(fmt.Sprintf("🧠 Deep analysis: %s (%d/4)", file.name, i+1)); err != nil {
+			return err
+		}
 
-	for _, f := range files {
-		go func(file struct {
-			name      string
-			generator func(string) (string, error)
-		}) {
-			defer wg.Done()
+		// Read the detailed version
+		detailedContent, err := os.ReadFile(filepath.Join(detailedDir, file.name))
+		if err != nil {
+			return fmt.Errorf("failed to read detailed %s: %w", file.name, err)
+		}
 
-			// Read the detailed version
-			detailedContent, err := os.ReadFile(filepath.Join(detailedDir, file.name))
-			if err != nil {
-				mu.Lock()
-				errors = append(errors, fmt.Errorf("failed to read detailed %s: %w", file.name, err))
-				mu.Unlock()
-				return
-			}
+		// Generate deep version
+		content, err := file.generator(string(detailedContent))
+		if err != nil {
+			return fmt.Errorf("failed to generate deep %s: %w", file.name, err)
+		}
 
-			// Generate deep version
-			content, err := file.generator(string(detailedContent))
-			if err != nil {
-				mu.Lock()
-				errors = append(errors, fmt.Errorf("failed to generate deep %s: %w", file.name, err))
-				mu.Unlock()
-				return
-			}
+		// Write the file
+		if err := os.WriteFile(filepath.Join(knowledgeDir, file.name), []byte(content), 0o644); err != nil {
+			return fmt.Errorf("failed to write deep %s: %w", file.name, err)
+		}
 
-			// Write the file
-			if err := os.WriteFile(filepath.Join(knowledgeDir, file.name), []byte(content), 0o644); err != nil {
-				mu.Lock()
-				errors = append(errors, fmt.Errorf("failed to write deep %s: %w", file.name, err))
-				mu.Unlock()
-			}
-		}(f)
+		// Notify completion
+		if dkg.statusCallback != nil {
+			dkg.statusCallback(fmt.Sprintf("🧠 Deep analysis: %s complete (%d/4)", file.name, i+1))
+		}
 	}
 
-	wg.Wait()
+	return nil
+}
 
-	if len(errors) > 0 {
-		return errors[0] // Return first error
+// waitForUserIdle waits until user is idle before proceeding.
+func (dkg *DeepKnowledgeGenerator) waitForUserIdle(startMessage string) error {
+	if dkg.activityChecker == nil {
+		return nil // No activity checker, proceed immediately
+	}
+
+	// Show start message
+	if dkg.statusCallback != nil {
+		dkg.statusCallback(startMessage)
+	}
+
+	// Wait for user to be idle
+	for dkg.activityChecker.IsUserActive() {
+		if dkg.statusCallback != nil {
+			dkg.statusCallback("🧠 Deep analysis paused (chat active)")
+		}
+		time.Sleep(5 * time.Second) // Check every 5 seconds
 	}
 
 	return nil
@@ -104,7 +118,7 @@ func (dkg *DeepKnowledgeGenerator) generateDeepStructure(detailedContent string)
 	importantFiles := 0
 	for _, file := range dkg.analysisSummary.Files {
 		if file.Importance >= 8 && importantFiles < 10 {
-			fileContext += fmt.Sprintf("\n- %s: %s (dependencies: %v)", 
+			fileContext += fmt.Sprintf("\n- %s: %s (dependencies: %v)",
 				file.Path, file.Purpose, file.Dependencies)
 			importantFiles++
 		}
@@ -125,7 +139,7 @@ Your task:
 4. Provide more nuanced understanding of the codebase structure
 5. Add specific examples from the actual code
 
-Be skeptical but constructive. The detailed analysis is a good start but lacks the depth you can provide.`, 
+Be skeptical but constructive. The detailed analysis is a good start but lacks the depth you can provide.`,
 		detailedContent, fileContext)
 
 	return dkg.generateWithModel(prompt, "deep structure")
@@ -235,7 +249,7 @@ func (dkg *DeepKnowledgeGenerator) generateWithModel(prompt, taskName string) (s
 	// Large models can handle bigger contexts
 	opts := llm.CompleteOptions{
 		Temperature: 0.7,
-		MaxTokens:   4000, // More tokens for deeper analysis
+		MaxTokens:   4000,  // More tokens for deeper analysis
 		ContextSize: 32768, // Start with 32k context
 	}
 
