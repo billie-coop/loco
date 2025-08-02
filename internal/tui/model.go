@@ -331,7 +331,8 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, m.dialogManager.OpenDialog(dialog.HelpDialogType)
 			}
 		case "enter":
-			if !m.input.IsEmpty() && !m.app.LLMService.IsStreaming() {
+			if !m.input.IsEmpty() {
+				// Allow sending messages even while streaming - user wants constant typing!
 				if m.input.IsSlashCommand() {
 					return m.handleSlashCommand(m.input.Value())
 				} else {
@@ -352,7 +353,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		
 		// For all other keys (including regular typing), update input ONCE
-		if m.input.Focused() && !m.app.LLMService.IsStreaming() {
+		if m.input.Focused() {
 			var inputModel tea.Model
 			inputModel, cmd := m.input.Update(msg)
 			if im, ok := inputModel.(*chat.InputModel); ok {
@@ -505,7 +506,18 @@ func (m *Model) handleUserMessage(message string) (tea.Model, tea.Cmd) {
 	// Clear input
 	m.input.Reset()
 	
-	// Let the LLM service handle everything
+	// Add the user message to the timeline immediately so you can see it
+	m.eventBroker.Publish(events.Event{
+		Type: events.UserMessageEvent,
+		Payload: events.MessagePayload{
+			Message: llm.Message{
+				Role:    "user",
+				Content: message,
+			},
+		},
+	})
+	
+	// Let the LLM service handle everything (if it's connected)
 	go m.app.LLMService.HandleUserMessage(m.messages.All(), message)
 	
 	return m, nil
@@ -674,8 +686,8 @@ func (m *Model) syncStateToComponents() {
 	// Sync to message list
 	m.syncMessagesToComponents()
 
-	// Sync to input
-	m.input.SetEnabled(!m.app.LLMService.IsStreaming())
+	// Sync to input - always enabled!
+	// m.input.SetEnabled(!m.app.LLMService.IsStreaming()) // NO! User wants to type constantly!
 }
 
 func (m *Model) syncMessagesToComponents() {
@@ -748,7 +760,7 @@ func (m *Model) handleEvent(event events.Event) (tea.Model, tea.Cmd) {
 
 	case events.StreamStartEvent:
 		m.messageList.SetStreamingState(true, "")
-		m.input.SetEnabled(false)
+		// DON'T disable input - user wants to type constantly!
 
 	case events.StreamChunkEvent:
 		if payload, ok := event.Payload.(events.StreamChunkPayload); ok {
@@ -758,7 +770,7 @@ func (m *Model) handleEvent(event events.Event) (tea.Model, tea.Cmd) {
 
 	case events.StreamEndEvent:
 		m.messageList.SetStreamingState(false, "")
-		m.input.SetEnabled(true)
+		// Input stays enabled always
 		m.syncMessagesToComponents()
 
 	case events.StatusMessageEvent:
