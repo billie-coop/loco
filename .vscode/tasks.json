@@ -1,0 +1,28 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "Build Loco",
+            "type": "shell",
+            "command": "go build",
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            },
+            "problemMatcher": ["$go"]
+        },
+        {
+            "label": "Run Tests",
+            "type": "shell",
+            "command": "go test ./...",
+            "group": "test",
+            "problemMatcher": ["$go"]
+        },
+        {
+            "label": "Run Linting",
+            "type": "shell",
+            "command": "make lint",
+            "problemMatcher": ["$go"]
+        }
+    ]
+}

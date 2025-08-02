@@ -15,7 +15,7 @@ go.work
 
 # IDE
 .idea/
-.vscode/
+# .vscode/  # We want VSCode debug configs in the repo
 *.swp
 *.swo
 

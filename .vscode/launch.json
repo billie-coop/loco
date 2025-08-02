@@ -1,0 +1,41 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Debug Loco",
+            "type": "go",
+            "request": "launch",
+            "mode": "debug",
+            "program": "${workspaceFolder}",
+            "args": [],
+            "env": {},
+            "showLog": true,
+            "trace": "verbose"
+        },
+        {
+            "name": "Debug Loco (with dlv)",
+            "type": "go",
+            "request": "launch",
+            "mode": "debug",
+            "program": "${workspaceFolder}",
+            "args": [],
+            "env": {
+                "LOCO_DEBUG": "true"
+            },
+            "dlvLoadConfig": {
+                "followPointers": true,
+                "maxVariableRecurse": 3,
+                "maxStringLen": 1024,
+                "maxArrayValues": 128,
+                "maxStructFields": -1
+            }
+        },
+        {
+            "name": "Attach to Process",
+            "type": "go",
+            "request": "attach",
+            "mode": "local",
+            "processId": "${command:pickProcess}"
+        }
+    ]
+}
