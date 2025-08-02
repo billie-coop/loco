@@ -14,6 +14,7 @@ const (
 	ModelSelectDialogType DialogType = "model_select"
 	TeamSelectDialogType  DialogType = "team_select"
 	SettingsDialogType    DialogType = "settings"
+	PermissionsDialogType DialogType = "permissions"
 )
 
 // Manager manages all dialogs in the application
@@ -36,6 +37,7 @@ func NewManager(eventBroker *events.Broker) *Manager {
 	m.dialogs[ModelSelectDialogType] = NewModelSelectDialog(eventBroker)
 	m.dialogs[TeamSelectDialogType] = NewTeamSelectDialog(eventBroker)
 	m.dialogs[SettingsDialogType] = NewSettingsDialog(eventBroker)
+	m.dialogs[PermissionsDialogType] = NewPermissionsDialog(eventBroker)
 
 	return m
 }
@@ -180,4 +182,11 @@ func (m *Manager) GetSettings() *Settings {
 		}
 	}
 	return nil
+}
+
+// SetToolRequest sets the tool execution request for the permissions dialog
+func (m *Manager) SetToolRequest(toolName string, args map[string]interface{}, requestID string) {
+	if dialog, ok := m.dialogs[PermissionsDialogType].(*PermissionsDialog); ok {
+		dialog.SetToolRequest(toolName, args, requestID)
+	}
 }

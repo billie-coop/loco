@@ -30,7 +30,7 @@ type Model struct {
 	layout         *core.SimpleLayout
 	sidebar        *chat.SidebarModel
 	messageList    *chat.MessageListModel
-	input          *chat.InputModel
+	input          *chat.SimpleInputModel
 	statusBar      *status.Component
 	dialogManager  *dialog.Manager
 
@@ -74,7 +74,7 @@ func NewModel(client llm.Client) *Model {
 	// Create components
 	sidebar := chat.NewSidebar()
 	messageList := chat.NewMessageList()
-	input := chat.NewInput()
+	input := chat.NewSimpleInput()
 	statusBar := status.New()
 	dialogManager := dialog.NewManager(eventBroker)
 
@@ -203,8 +203,8 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		cmds = append(cmds, cmd)
 		
-		// If dialog handled the message, don't process further
-		if cmd != nil {
+		// Don't process key events further if a dialog is open
+		if _, ok := msg.(tea.KeyMsg); ok {
 			return m, tea.Batch(cmds...)
 		}
 	}
@@ -250,6 +250,8 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return m.handleUserMessage(m.input.Value())
 				}
 			}
+			// Don't pass enter to the input after handling
+			return m, nil
 		case "tab":
 			if m.input.IsSlashCommand() {
 				return m.handleTabCompletion()
@@ -259,6 +261,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if !m.input.IsEmpty() {
 				m.input.Reset()
 				m.input.Focus()
+				return m, nil
 			}
 		}
 	}
@@ -281,7 +284,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	var inputModel tea.Model
 	inputModel, cmd = m.input.Update(msg)
-	if im, ok := inputModel.(*chat.InputModel); ok {
+	if im, ok := inputModel.(*chat.SimpleInputModel); ok {
 		m.input = im
 	}
 	cmds = append(cmds, cmd)
@@ -853,6 +856,13 @@ func (m *Model) handleEvent(event events.Event) (tea.Model, tea.Cmd) {
 					m.messageList.SetDebugMode(m.showDebug)
 				}
 			}
+		}
+	
+	case events.ToolExecutionRequestEvent:
+		if payload, ok := event.Payload.(events.ToolExecutionPayload); ok {
+			// Show permissions dialog
+			m.dialogManager.SetToolRequest(payload.ToolName, payload.Args, payload.ID)
+			cmds = append(cmds, m.dialogManager.OpenDialog(dialog.PermissionsDialogType))
 		}
 	}
 
