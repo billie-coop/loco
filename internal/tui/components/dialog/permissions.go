@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/billie-coop/loco/internal/tui/events"
+	"github.com/billie-coop/loco/internal/tui/styles"
 	tea "github.com/charmbracelet/bubbletea/v2"
 	"github.com/charmbracelet/lipgloss/v2"
 )
@@ -29,27 +30,29 @@ type PermissionsDialog struct {
 
 // NewPermissionsDialog creates a new permissions dialog
 func NewPermissionsDialog(eventBroker *events.Broker) *PermissionsDialog {
+	theme := styles.CurrentTheme()
+	
 	d := &PermissionsDialog{
 		BaseDialog:  NewBaseDialog("Tool Execution Request"),
 		eventBroker: eventBroker,
 
 		toolStyle: lipgloss.NewStyle().
 			Bold(true).
-			Foreground(lipgloss.Color("205")),
+			Foreground(theme.Accent),
 
 		argsStyle: lipgloss.NewStyle().
-			Foreground(lipgloss.Color("244")).
+			Foreground(theme.FgMuted).
 			PaddingLeft(2),
 
 		warningStyle: lipgloss.NewStyle().
-			Foreground(lipgloss.Color("214")).
+			Foreground(theme.Warning).
 			Bold(true),
 
 		optionStyle: lipgloss.NewStyle().
 			PaddingLeft(2),
 
 		selectedStyle: lipgloss.NewStyle().
-			Foreground(lipgloss.Color("86")).
+			Foreground(theme.Primary).
 			Bold(true),
 	}
 	return d

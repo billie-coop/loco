@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/billie-coop/loco/internal/llm"
+	// "github.com/billie-coop/loco/internal/tui/components/anim" // Disabled
 	"github.com/billie-coop/loco/internal/tui/components/core"
 	"github.com/billie-coop/loco/internal/tui/styles"
 	"github.com/charmbracelet/bubbles/v2/spinner"
@@ -26,10 +27,11 @@ type MessageMetadata struct {
 
 // MessageListModel implements the message viewport component
 type MessageListModel struct {
-	viewport viewport.Model
-	spinner  spinner.Model
-	width    int
-	height   int
+	viewport          viewport.Model
+	spinner           spinner.Model
+	// thinkingIndicator *anim.ThinkingIndicator // Disabled
+	width             int
+	height            int
 
 	// State
 	messages       []llm.Message
@@ -54,10 +56,11 @@ func NewMessageList() *MessageListModel {
 	s := spinner.New(spinner.WithSpinner(spinner.Dot))
 
 	return &MessageListModel{
-		viewport:     vp,
-		spinner:      s,
-		messagesMeta: make(map[int]*MessageMetadata),
-		toolRegistry: NewToolRegistry(),
+		viewport:          vp,
+		spinner:           s,
+		// thinkingIndicator: anim.NewThinkingIndicator(), // Disabled
+		messagesMeta:      make(map[int]*MessageMetadata),
+		toolRegistry:      NewToolRegistry(),
 	}
 }
 
@@ -65,22 +68,36 @@ func NewMessageList() *MessageListModel {
 func (ml *MessageListModel) Init() tea.Cmd {
 	// Set initial welcome content
 	ml.refreshContent()
-	return ml.spinner.Tick
+	return tea.Batch(
+		ml.spinner.Tick,
+		// ml.thinkingIndicator.Init(), // Disabled
+	)
 }
 
 // Update handles messages for the message list
 func (ml *MessageListModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	var cmd tea.Cmd
+	var cmds []tea.Cmd
 
 	// Update spinner if streaming
 	if ml.isStreaming {
+		var cmd tea.Cmd
 		ml.spinner, cmd = ml.spinner.Update(msg)
+		cmds = append(cmds, cmd)
+		
+		// Thinking indicator disabled
+		// thinkingModel, cmd := ml.thinkingIndicator.Update(msg)
+		// if indicator, ok := thinkingModel.(*anim.ThinkingIndicator); ok {
+		// 	ml.thinkingIndicator = indicator
+		// }
+		// cmds = append(cmds, cmd)
 	}
 
 	// Update viewport
+	var cmd tea.Cmd
 	ml.viewport, cmd = ml.viewport.Update(msg)
+	cmds = append(cmds, cmd)
 
-	return ml, cmd
+	return ml, tea.Batch(cmds...)
 }
 
 // SetSize sets the dimensions of the message list
@@ -121,6 +138,14 @@ func (ml *MessageListModel) SetMessageMeta(meta map[int]*MessageMetadata) {
 func (ml *MessageListModel) SetStreamingState(isStreaming bool, streamingMsg string) {
 	ml.isStreaming = isStreaming
 	ml.streamingMsg = streamingMsg
+	
+	// Thinking indicator disabled
+	// if isStreaming && streamingMsg == "" {
+	// 	ml.thinkingIndicator.Start()
+	// } else {
+	// 	ml.thinkingIndicator.Stop()
+	// }
+	
 	ml.refreshContent()
 }
 
@@ -250,12 +275,19 @@ func (ml *MessageListModel) renderMessages() string {
 	}
 
 	// Add streaming message if any
-	if ml.isStreaming && ml.streamingMsg != "" {
-		sb.WriteString("Loco:\n")
-		sb.WriteString(getAssistantStyle().Render(ml.streamingMsg))
-		sb.WriteString(" ")
-		sb.WriteString(ml.spinner.View())
-		sb.WriteString("\n")
+	if ml.isStreaming {
+		if ml.streamingMsg != "" {
+			sb.WriteString("Loco:\n")
+			sb.WriteString(getAssistantStyle().Render(ml.streamingMsg))
+			sb.WriteString(" ")
+			sb.WriteString(ml.spinner.View())
+			sb.WriteString("\n")
+		} else {
+			// Show static thinking text
+			sb.WriteString("\n")
+			sb.WriteString(styles.RenderThemeGradient("🤔 Thinking...", false))
+			sb.WriteString("\n")
+		}
 	}
 
 	return sb.String()

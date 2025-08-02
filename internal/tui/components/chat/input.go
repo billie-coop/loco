@@ -3,10 +3,19 @@ package chat
 import (
 	"strings"
 
+	"github.com/billie-coop/loco/internal/tui/components/chat/completions"
 	"github.com/billie-coop/loco/internal/tui/components/core"
 	"github.com/billie-coop/loco/internal/tui/styles"
 	tea "github.com/charmbracelet/bubbletea/v2"
 	"github.com/charmbracelet/lipgloss/v2"
+)
+
+// Re-export completion types for easier access
+type (
+	Command              = completions.Command
+	OpenCompletionsMsg   = completions.OpenCompletionsMsg
+	FilterCompletionsMsg = completions.FilterCompletionsMsg
+	CloseCompletionsMsg  = completions.CloseCompletionsMsg
 )
 
 // InputModel implements the text input component for chat
@@ -18,6 +27,10 @@ type InputModel struct {
 	height      int
 	focused     bool
 	enabled     bool
+	
+	// For completion support
+	completionsOpen bool
+	completionQuery string
 }
 
 // Ensure InputModel implements required interfaces
@@ -91,6 +104,20 @@ func (im *InputModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if char >= 32 && char <= 126 {
 					im.value = im.value[:im.cursorPos] + s + im.value[im.cursorPos:]
 					im.cursorPos++
+					
+					// Check if we just typed a slash at the beginning or after whitespace
+					if char == '/' && (im.cursorPos == 1 || (im.cursorPos > 1 && im.value[im.cursorPos-2] == ' ')) {
+						im.completionsOpen = true
+						im.completionQuery = ""
+						return im, im.triggerCompletions()
+					}
+					
+					// Close completions on space
+					if char == ' ' && im.completionsOpen {
+						im.completionsOpen = false
+						im.completionQuery = ""
+						return im, im.closeCompletions()
+					}
 				}
 			}
 		}
@@ -207,4 +234,82 @@ func (im *InputModel) IsSlashCommand() bool {
 // SetPlaceholder sets the placeholder text
 func (im *InputModel) SetPlaceholder(placeholder string) {
 	im.placeholder = placeholder
+}
+
+// Helper methods for completions
+
+func (im *InputModel) triggerCompletions() tea.Cmd {
+	return func() tea.Msg {
+		// Get available commands
+		commands := []Command{
+			{Name: "/analyze", Description: "Analyze the current project"},
+			{Name: "/copy", Description: "Copy the last N messages"},
+			{Name: "/help", Description: "Show available commands"},
+			{Name: "/clear", Description: "Clear the message history"},
+			{Name: "/model", Description: "Switch to a different model"},
+			{Name: "/session", Description: "Manage chat sessions"},
+			{Name: "/quit", Description: "Exit the application"},
+		}
+		
+		// Calculate position for popup (just above input)
+		// TODO: Get actual cursor position from parent
+		return OpenCompletionsMsg{
+			Commands: commands,
+			X:        2, // Approximate position
+			Y:        -3, // Above the input
+		}
+	}
+}
+
+func (im *InputModel) filterCompletions() tea.Cmd {
+	return func() tea.Msg {
+		return FilterCompletionsMsg{
+			Query: im.value,
+		}
+	}
+}
+
+func (im *InputModel) closeCompletions() tea.Cmd {
+	return func() tea.Msg {
+		return CloseCompletionsMsg{}
+	}
+}
+
+// HandleCompletionSelect handles when a completion is selected
+func (im *InputModel) HandleCompletionSelect(value string) {
+	im.value = value
+	im.cursorPos = len(value)
+	im.completionsOpen = false
+	im.completionQuery = ""
+}
+
+// IsCompletionsOpen returns true if completions are open
+func (im *InputModel) IsCompletionsOpen() bool {
+	return im.completionsOpen
+}
+
+// GetCurrentWord returns the current word being typed (for slash commands)
+func (im *InputModel) GetCurrentWord() string {
+	// Find the start of the current word (after last space or beginning)
+	start := 0
+	for i := im.cursorPos - 1; i >= 0; i-- {
+		if im.value[i] == ' ' {
+			start = i + 1
+			break
+		}
+	}
+	
+	// Return the word from start to cursor position
+	if start < im.cursorPos {
+		return im.value[start:im.cursorPos]
+	}
+	return ""
+}
+
+// SetCompletionsOpen sets the completions open state
+func (im *InputModel) SetCompletionsOpen(open bool) {
+	im.completionsOpen = open
+	if !open {
+		im.completionQuery = ""
+	}
 }

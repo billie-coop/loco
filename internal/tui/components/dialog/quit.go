@@ -2,6 +2,7 @@ package dialog
 
 import (
 	"github.com/billie-coop/loco/internal/tui/events"
+	"github.com/billie-coop/loco/internal/tui/styles"
 	tea "github.com/charmbracelet/bubbletea/v2"
 	"github.com/charmbracelet/lipgloss/v2"
 )
@@ -21,6 +22,8 @@ type QuitDialog struct {
 
 // NewQuitDialog creates a new quit confirmation dialog
 func NewQuitDialog(eventBroker *events.Broker) *QuitDialog {
+	theme := styles.CurrentTheme()
+	
 	d := &QuitDialog{
 		BaseDialog:  NewBaseDialog("Quit Loco?"),
 		selectedNo:  true, // Default to "No" for safety
@@ -28,17 +31,17 @@ func NewQuitDialog(eventBroker *events.Broker) *QuitDialog {
 
 		questionStyle: lipgloss.NewStyle().
 			Bold(true).
-			Foreground(lipgloss.Color("205")),
+			Foreground(theme.Accent),
 
 		buttonStyle: lipgloss.NewStyle().
 			Padding(0, 3).
-			Background(lipgloss.Color("235")).
-			Foreground(lipgloss.Color("252")),
+			Background(theme.BgSubtle).
+			Foreground(theme.FgBase),
 
 		selectedButtonStyle: lipgloss.NewStyle().
 			Padding(0, 3).
-			Background(lipgloss.Color("205")).
-			Foreground(lipgloss.Color("0")).
+			Background(theme.Accent).
+			Foreground(theme.FgInverted).
 			Bold(true),
 	}
 	return d
@@ -118,8 +121,9 @@ func (d *QuitDialog) View() string {
 		Render(buttons)
 
 	// Add help text
+	theme := styles.CurrentTheme()
 	helpStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("241")).
+		Foreground(theme.FgSubtle).
 		Italic(true)
 	helpText := helpStyle.Render("Ctrl+C again to quit • Esc to cancel")
 

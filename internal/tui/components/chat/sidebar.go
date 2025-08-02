@@ -7,6 +7,7 @@ import (
 
 	"github.com/billie-coop/loco/internal/llm"
 	"github.com/billie-coop/loco/internal/session"
+	// "github.com/billie-coop/loco/internal/tui/components/anim" // Disabled
 	"github.com/billie-coop/loco/internal/tui/components/core"
 	"github.com/billie-coop/loco/internal/tui/styles"
 	tea "github.com/charmbracelet/bubbletea/v2"
@@ -49,6 +50,12 @@ type SidebarModel struct {
 	projectContext   *Context
 	analysisState    *AnalysisState
 	messages         []llm.Message
+	
+	// Animation components (disabled)
+	// thinkingSpinner  *anim.Spinner
+	// gradientText     *styles.AnimatedGradientText
+	// gradientBar      *anim.GradientBar
+	// animating        bool
 }
 
 // Ensure SidebarModel implements required interfaces
@@ -58,17 +65,28 @@ var _ core.Sizeable = (*SidebarModel)(nil)
 // NewSidebar creates a new sidebar component
 func NewSidebar() *SidebarModel {
 	return &SidebarModel{
-		modelUsage: make(map[string]int),
+		modelUsage:      make(map[string]int),
+		// thinkingSpinner: anim.NewSpinner(anim.SpinnerGradient).WithLabel("Processing"),
+		// gradientText:    styles.NewAnimatedGradientText("LOCO"),
+		// gradientBar:     anim.NewGradientBar(20),
 	}
 }
 
 // Init initializes the sidebar component
 func (s *SidebarModel) Init() tea.Cmd {
+	// Animations disabled
+	// s.animating = true
+	// return tea.Batch(
+	// 	s.thinkingSpinner.Init(),
+	// 	s.gradientBar.Init(),
+	// 	s.animateGradientText(),
+	// )
 	return nil
 }
 
 // Update handles messages for the sidebar
 func (s *SidebarModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	// All animations disabled
 	return s, nil
 }
 
@@ -128,6 +146,13 @@ func (s *SidebarModel) View() string {
 // SetStreamingState updates the streaming state
 func (s *SidebarModel) SetStreamingState(isStreaming bool) {
 	s.isStreaming = isStreaming
+	
+	// Control spinner animation
+	if isStreaming {
+		// s.thinkingSpinner.Start()
+	} else {
+		// s.thinkingSpinner.Stop()
+	}
 }
 
 // SetError updates the error state
@@ -164,6 +189,13 @@ func (s *SidebarModel) SetProjectContext(ctx *Context) {
 // SetAnalysisState updates the analysis state
 func (s *SidebarModel) SetAnalysisState(state *AnalysisState) {
 	s.analysisState = state
+	
+	// Control gradient bar animation
+	if state != nil && state.IsRunning {
+		// s.gradientBar.Start()
+	} else {
+		// s.gradientBar.Stop()
+	}
 }
 
 // SetMessages updates the messages for count calculation
@@ -185,7 +217,7 @@ func (s *SidebarModel) renderTitle(content *strings.Builder) {
 	// Compact locomotive ASCII art - 3 lines, sparse mist, centered, all 21 chars
 	asciiArt := []string{
 		"  ⢀⣴⣾⣿⣷⣶⣤⣶⣾⣿⣿⣷⣦⡀   ", // sparser top mist (18->21: +3)
-		"  ⣿⣷⣯⣿⡿⠀LOCO⢿⣿⣷⣻⣷⣿ ", // main locomotive body (20->21: +1)
+		"  ⣿⣷⣯⣿⡿⠀    ⢿⣿⣷⣻⣷⣿ ", // main locomotive body - space for animated LOCO
 		"   ⠻⢿⡿⠟⠛⠻⣿⠿⠛⠉⠉⠁    ", // sparser bottom mist (18->21: +3)
 	}
 	
@@ -194,9 +226,20 @@ func (s *SidebarModel) renderTitle(content *strings.Builder) {
 		Align(lipgloss.Center).
 		Foreground(theme.Accent)
 	
-	// Join all ASCII lines together, then render as one block
-	asciiBlock := strings.Join(asciiArt, "\n")
-	content.WriteString(artStyle.Render(asciiBlock))
+	// Render first line
+	content.WriteString(artStyle.Render(asciiArt[0]))
+	content.WriteString("\n")
+	
+	// Render second line with animated LOCO
+	asciiLine2Prefix := "  ⣿⣷⣯⣿⡿⠀"
+	asciiLine2Suffix := "⢿⣿⣷⣻⣷⣿ "
+	content.WriteString(artStyle.Render(asciiLine2Prefix))
+	content.WriteString(styles.RenderThemeGradient("LOCO", false))
+	content.WriteString(artStyle.Render(asciiLine2Suffix))
+	content.WriteString("\n")
+	
+	// Render third line
+	content.WriteString(artStyle.Render(asciiArt[2]))
 	content.WriteString("\n")
 
 	// Version number like Crush
@@ -223,7 +266,8 @@ func (s *SidebarModel) renderStatus(content *strings.Builder) {
 
 	content.WriteString(labelStyle.Render("Status: "))
 	if s.isStreaming {
-		content.WriteString(statusStyle.Render("✨ Thinking..."))
+		// Show animated spinner when streaming
+		content.WriteString(theme.S().Info.Render("🔄 Processing"))
 	} else {
 		content.WriteString(statusStyle.Render("✅ Ready"))
 	}
@@ -376,14 +420,17 @@ func (s *SidebarModel) renderAnalysisTiers(content *strings.Builder) {
 			content.WriteString(completeStyle.Render(fmt.Sprintf("%s Detailed", detailedIcon)))
 			content.WriteString(" ")
 			content.WriteString(dimStyle.Render("✓"))
-		} else if s.analysisState.DetailedRunning || s.analysisState.IsRunning {
+		} else if s.analysisState.DetailedRunning || (s.analysisState.IsRunning && s.analysisState.CurrentPhase == "detailed") {
 			content.WriteString(runningStyle.Render(fmt.Sprintf("%s Detailed", detailedIcon)))
-			content.WriteString(" ")
+			content.WriteString("\n")
+			// Show animated gradient progress bar
 			if s.analysisState.TotalFiles > 0 {
-				progress := fmt.Sprintf("%d/%d", s.analysisState.CompletedFiles, s.analysisState.TotalFiles)
-				content.WriteString(dimStyle.Render(progress))
+				progress := float64(s.analysisState.CompletedFiles) / float64(s.analysisState.TotalFiles)
+				filled := int(20 * progress)
+				bar := strings.Repeat("█", filled) + strings.Repeat("░", 20-filled)
+				content.WriteString(theme.S().Success.Render(bar))
 			} else {
-				content.WriteString(dimStyle.Render("⏳"))
+				content.WriteString(dimStyle.Render(strings.Repeat("░", 20)))
 			}
 		} else {
 			content.WriteString(pendingStyle.Render(fmt.Sprintf("%s Detailed", detailedIcon)))

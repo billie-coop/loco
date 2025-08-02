@@ -6,9 +6,11 @@ import (
 	"time"
 
 	"github.com/billie-coop/loco/internal/app"
+	"github.com/billie-coop/loco/internal/csync"
 	"github.com/billie-coop/loco/internal/llm"
 	"github.com/billie-coop/loco/internal/session"
 	"github.com/billie-coop/loco/internal/tui/components/chat"
+	"github.com/billie-coop/loco/internal/tui/components/chat/completions"
 	"github.com/billie-coop/loco/internal/tui/components/core"
 	"github.com/billie-coop/loco/internal/tui/components/dialog"
 	"github.com/billie-coop/loco/internal/tui/components/status"
@@ -30,6 +32,7 @@ type Model struct {
 	input          *chat.InputModel
 	statusBar      *status.Component
 	dialogManager  *dialog.Manager
+	completions    *completions.CompletionsModel
 
 	// Event system
 	eventBroker *events.Broker
@@ -39,8 +42,8 @@ type Model struct {
 	app *app.App
 
 	// UI state only
-	messages         []llm.Message
-	messagesMeta     map[int]*chat.MessageMetadata
+	messages         *csync.Slice[llm.Message]
+	messagesMeta     *csync.Map[int, *chat.MessageMetadata]
 	modelName        string
 	modelSize        llm.ModelSize
 	allModels        []llm.Model
@@ -58,6 +61,7 @@ func New(appInstance *app.App, eventBroker *events.Broker) *Model {
 	input := chat.NewInput()
 	statusBar := status.New()
 	dialogManager := dialog.NewManager(eventBroker)
+	completions := completions.NewCompletions()
 
 	// Create layout manager
 	layout := core.NewSimpleLayout()
@@ -75,8 +79,9 @@ func New(appInstance *app.App, eventBroker *events.Broker) *Model {
 		input:         input,
 		statusBar:     statusBar,
 		dialogManager: dialogManager,
-		messagesMeta:  make(map[int]*chat.MessageMetadata),
-		messages:      []llm.Message{},
+		completions:   completions,
+		messagesMeta:  csync.NewMap[int, *chat.MessageMetadata](),
+		messages:      csync.NewSlice[llm.Message](),
 		eventBroker:   eventBroker,
 		app:           appInstance,
 	}
@@ -101,6 +106,7 @@ func NewModel(client llm.Client) *Model {
 	input := chat.NewInput()
 	statusBar := status.New()
 	dialogManager := dialog.NewManager(eventBroker)
+	completions := completions.NewCompletions()
 
 	// Create layout manager
 	layout := core.NewSimpleLayout()
@@ -130,8 +136,9 @@ func NewModel(client llm.Client) *Model {
 		input:         input,
 		statusBar:     statusBar,
 		dialogManager: dialogManager,
-		messagesMeta:  make(map[int]*chat.MessageMetadata),
-		messages:      []llm.Message{},
+		completions:   completions,
+		messagesMeta:  csync.NewMap[int, *chat.MessageMetadata](),
+		messages:      csync.NewSlice[llm.Message](),
 		eventBroker:   eventBroker,
 		app:           appInstance,
 	}
@@ -153,6 +160,7 @@ func (m *Model) Init() tea.Cmd {
 	cmds = append(cmds, m.input.Init())
 	cmds = append(cmds, m.statusBar.Init())
 	cmds = append(cmds, m.dialogManager.Init())
+	cmds = append(cmds, m.completions.Init())
 	
 	// Focus the input by default
 	cmds = append(cmds, m.input.Focus())
@@ -166,7 +174,7 @@ func (m *Model) Init() tea.Cmd {
 		if err == nil && currentSession != nil {
 			// Load existing messages from session
 			if messages, err := m.app.Sessions.GetMessages(); err == nil {
-				m.messages = messages
+				m.messages.Replace(messages)
 				m.syncMessagesToComponents()
 			}
 		}
@@ -210,6 +218,51 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	}
 
+	// Handle completion messages
+	switch msg := msg.(type) {
+	case chat.OpenCompletionsMsg:
+		compModel, cmd := m.completions.Update(msg)
+		if cm, ok := compModel.(*completions.CompletionsModel); ok {
+			m.completions = cm
+			// Mark input as having completions open
+			m.input.SetCompletionsOpen(true)
+		}
+		cmds = append(cmds, cmd)
+		return m, tea.Batch(cmds...)
+		
+	case chat.FilterCompletionsMsg:
+		compModel, cmd := m.completions.Update(msg)
+		if cm, ok := compModel.(*completions.CompletionsModel); ok {
+			m.completions = cm
+		}
+		cmds = append(cmds, cmd)
+		return m, tea.Batch(cmds...)
+		
+	case completions.SelectCompletionMsg:
+		// Handle completion selection
+		if value, ok := msg.Value.(string); ok {
+			m.input.HandleCompletionSelect(value)
+			m.input.Focus()
+		}
+		// Close completions
+		compModel, cmd := m.completions.Update(chat.CloseCompletionsMsg{})
+		if cm, ok := compModel.(*completions.CompletionsModel); ok {
+			m.completions = cm
+		}
+		cmds = append(cmds, cmd)
+		return m, tea.Batch(cmds...)
+		
+	case chat.CloseCompletionsMsg:
+		compModel, cmd := m.completions.Update(msg)
+		if cm, ok := compModel.(*completions.CompletionsModel); ok {
+			m.completions = cm
+			// Mark input as having completions closed
+			m.input.SetCompletionsOpen(false)
+		}
+		cmds = append(cmds, cmd)
+		return m, tea.Batch(cmds...)
+	}
+
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
@@ -238,6 +291,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	// Handle keyboard input - check for special keys first
 	if keyMsg, ok := msg.(tea.KeyMsg); ok {
+		// Handle special keys that should bypass normal input processing
 		switch keyMsg.String() {
 		case "ctrl+c":
 			// Open quit dialog instead of quitting immediately
@@ -248,12 +302,33 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "ctrl+p":
 			// Open command palette
 			return m, m.dialogManager.OpenDialog(dialog.CommandPaletteDialogType)
+		}
+		
+		// If completions are open, let them handle certain keys
+		if m.completions.IsOpen() {
+			switch keyMsg.String() {
+			case "tab", "up", "down":
+				compModel, cmd := m.completions.Update(msg)
+				if cm, ok := compModel.(*completions.CompletionsModel); ok {
+					m.completions = cm
+				}
+				return m, cmd
+			case "esc":
+				compModel, cmd := m.completions.Update(chat.CloseCompletionsMsg{})
+				if cm, ok := compModel.(*completions.CompletionsModel); ok {
+					m.completions = cm
+				}
+				return m, cmd
+			}
+		}
+		
+		// Handle other special keys
+		switch keyMsg.String() {
 		case "?":
-			// Open help dialog
+			// Open help dialog only if input is empty
 			if m.input.IsEmpty() {
 				return m, m.dialogManager.OpenDialog(dialog.HelpDialogType)
 			}
-			// Fall through if input is not empty to let it type "?"
 		case "enter":
 			if !m.input.IsEmpty() && !m.app.LLMService.IsStreaming() {
 				if m.input.IsSlashCommand() {
@@ -262,32 +337,39 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return m.handleUserMessage(m.input.Value())
 				}
 			}
-			// Fall through to let input handle empty enter
 		case "tab":
+			// Handle tab completion for slash commands
 			if m.input.IsSlashCommand() {
 				return m.handleTabCompletion()
 			}
-			// Fall through to let input handle tab
 		case "esc":
 			if !m.input.IsEmpty() {
 				m.input.Reset()
 				m.input.Focus()
 				return m, nil
 			}
-			// Fall through to let input handle esc if empty
-		default:
-			// For regular typing keys, only update the input component
-			// to avoid double processing
-			if m.input.Focused() && !m.app.LLMService.IsStreaming() {
-				var inputModel tea.Model
-				inputModel, cmd := m.input.Update(msg)
-				if im, ok := inputModel.(*chat.InputModel); ok {
-					m.input = im
-				}
-				return m, cmd
-			}
 		}
-		// For special keys that fell through, continue to update all components
+		
+		// For all other keys (including regular typing), update input ONCE
+		if m.input.Focused() && !m.app.LLMService.IsStreaming() {
+			var inputModel tea.Model
+			inputModel, cmd := m.input.Update(msg)
+			if im, ok := inputModel.(*chat.InputModel); ok {
+				m.input = im
+				
+				// Handle completion filtering after input update
+				cmds = append(cmds, cmd)
+				filterCmd := m.handleCompletionFiltering()
+				if filterCmd != nil {
+					cmds = append(cmds, filterCmd)
+				}
+			}
+			// IMPORTANT: Return here to prevent double processing
+			return m, tea.Batch(cmds...)
+		}
+		
+		// If input is not focused or streaming, just return
+		return m, nil
 	}
 
 	// Update all components (they'll get the original message)
@@ -399,6 +481,20 @@ func (m *Model) View() string {
 		}
 	}
 	
+	// Overlay completions if open
+	if m.completions.IsOpen() {
+		// Get completions view
+		compView := m.completions.View()
+		if compView != "" {
+			// Use lipgloss layers to overlay completions
+			// Since lipgloss doesn't have native layering in v2, we'll need to
+			// position it manually. For now, let's just render it above the input
+			// This is a simplified approach - Crush uses more advanced positioning
+			// TODO: Implement proper positioning with lipgloss layers
+			return baseView + "\n" + compView
+		}
+	}
+	
 	return baseView
 }
 
@@ -409,7 +505,7 @@ func (m *Model) handleUserMessage(message string) (tea.Model, tea.Cmd) {
 	m.input.Reset()
 	
 	// Let the LLM service handle everything
-	go m.app.LLMService.HandleUserMessage(m.messages, message)
+	go m.app.LLMService.HandleUserMessage(m.messages.All(), message)
 	
 	return m, nil
 }
@@ -417,6 +513,17 @@ func (m *Model) handleUserMessage(message string) (tea.Model, tea.Cmd) {
 func (m *Model) handleSlashCommand(command string) (tea.Model, tea.Cmd) {
 	// Clear input
 	m.input.Reset()
+	
+	// Add the command to the message timeline as a user message
+	m.eventBroker.Publish(events.Event{
+		Type: events.UserMessageEvent,
+		Payload: events.MessagePayload{
+			Message: llm.Message{
+				Role:    "user",
+				Content: command,
+			},
+		},
+	})
 	
 	// Parse command
 	parts := strings.Fields(command)
@@ -455,8 +562,8 @@ func (m *Model) handleSlashCommand(command string) (tea.Model, tea.Cmd) {
 
 
 func (m *Model) clearMessages() {
-	m.messages = []llm.Message{}
-	m.messagesMeta = make(map[int]*chat.MessageMetadata)
+	m.messages.Clear()
+	m.messagesMeta.Clear()
 	m.syncMessagesToComponents()
 	m.eventBroker.Publish(events.Event{
 		Type: events.StatusMessageEvent,
@@ -465,6 +572,33 @@ func (m *Model) clearMessages() {
 			Type:    "success",
 			},
 	})
+}
+
+// handleCompletionFiltering checks if we need to filter completions after input changes
+func (m *Model) handleCompletionFiltering() tea.Cmd {
+	// Only handle if input has completions open
+	if !m.input.IsCompletionsOpen() {
+		return nil
+	}
+	
+	// Get the current word being typed
+	word := m.input.GetCurrentWord()
+	
+	// Check if still a slash command
+	if strings.HasPrefix(word, "/") {
+		// Filter completions based on current word
+		return func() tea.Msg {
+			return chat.FilterCompletionsMsg{
+				Query: word, // Send full word including "/"
+			}
+		}
+	} else {
+		// No longer a slash command, close completions
+		m.input.SetCompletionsOpen(false)
+		return func() tea.Msg {
+			return chat.CloseCompletionsMsg{}
+		}
+	}
 }
 
 func (m *Model) handleTabCompletion() (tea.Model, tea.Cmd) {
@@ -496,7 +630,7 @@ func (m *Model) handleTabCompletion() (tea.Model, tea.Cmd) {
 	// Find matching commands
 	var matches []string
 	for _, cmd := range commands {
-		if strings.HasPrefix(cmd, value) {
+		if strings.HasPrefix(cmd, value) && cmd != value {
 			matches = append(matches, cmd)
 		}
 	}
@@ -505,19 +639,22 @@ func (m *Model) handleTabCompletion() (tea.Model, tea.Cmd) {
 		// Single match - complete it
 		m.input.SetValue(matches[0] + " ")
 		m.input.CursorEnd()
+		return m, nil
 	} else if len(matches) > 1 {
-		// Multiple matches - show them
+		// Multiple matches - show them in status bar
 		var matchList string
-		for _, match := range matches {
-			matchList += match + "  "
+		for i, match := range matches {
+			if i > 0 {
+				matchList += "  "
+			}
+			matchList += match
 		}
-		m.eventBroker.Publish(events.Event{
-			Type: events.StatusMessageEvent,
-			Payload: events.StatusMessagePayload{
-				Message: "Commands: " + matchList,
-				Type:    "info",
-			},
-		})
+		m.statusBar.ShowInfo("Tab: " + matchList)
+		return m, nil
+	} else if len(matches) == 0 {
+		// No matches
+		m.statusBar.ShowWarning("No matching commands")
+		return m, nil
 	}
 	
 	return m, nil
@@ -531,7 +668,7 @@ func (m *Model) syncStateToComponents() {
 	m.sidebar.SetModel(m.modelName, m.modelSize)
 	m.sidebar.SetModels(m.allModels)
 	m.sidebar.SetSessionManager(m.app.Sessions)
-	m.sidebar.SetMessages(m.messages)
+	m.sidebar.SetMessages(m.messages.All())
 
 	// Sync to message list
 	m.syncMessagesToComponents()
@@ -541,12 +678,21 @@ func (m *Model) syncStateToComponents() {
 }
 
 func (m *Model) syncMessagesToComponents() {
-	m.messageList.SetMessages(m.messages)
-	m.messageList.SetMessageMeta(m.messagesMeta)
+	messages := m.messages.All()
+	messageMeta := make(map[int]*chat.MessageMetadata)
+	
+	// Convert thread-safe map to regular map for component
+	m.messagesMeta.Range(func(k int, v *chat.MessageMetadata) bool {
+		messageMeta[k] = v
+		return true
+	})
+	
+	m.messageList.SetMessages(messages)
+	m.messageList.SetMessageMeta(messageMeta)
 	m.messageList.SetDebugMode(m.showDebug)
 	
 	// Auto-scroll to bottom on new messages
-	if len(m.messages) > 0 {
+	if len(messages) > 0 {
 		m.messageList.GotoBottom()
 	}
 }
@@ -555,7 +701,7 @@ func (m *Model) syncMessagesToComponents() {
 // Public getters for compatibility
 
 func (m *Model) GetMessages() []llm.Message {
-	return m.messages
+	return m.messages.All()
 }
 
 func (m *Model) IsStreaming() bool {
@@ -583,19 +729,19 @@ func (m *Model) handleEvent(event events.Event) (tea.Model, tea.Cmd) {
 	switch event.Type {
 	case events.UserMessageEvent:
 		if payload, ok := event.Payload.(events.MessagePayload); ok {
-			m.messages = append(m.messages, payload.Message)
+			m.messages.Append(payload.Message)
 			m.syncMessagesToComponents()
 		}
 
 	case events.AssistantMessageEvent:
 		if payload, ok := event.Payload.(events.MessagePayload); ok {
-			m.messages = append(m.messages, payload.Message)
+			m.messages.Append(payload.Message)
 			m.syncMessagesToComponents()
 		}
 
 	case events.SystemMessageEvent:
 		if payload, ok := event.Payload.(events.MessagePayload); ok {
-			m.messages = append(m.messages, payload.Message)
+			m.messages.Append(payload.Message)
 			m.syncMessagesToComponents()
 		}
 
@@ -706,6 +852,8 @@ func (m *Model) handleEvent(event events.Event) (tea.Model, tea.Cmd) {
 			}
 			// Set tier-specific flags
 			switch payload.Phase {
+			case "quick":
+				// Quick doesn't have a running state, it's too fast
 			case "detailed":
 				analysisState.DetailedRunning = true
 			case "deep":

@@ -214,6 +214,19 @@ func (s *Slice[T]) Clear() {
 	s.data = s.data[:0]
 }
 
+// Replace replaces all elements with the provided slice
+func (s *Slice[T]) Replace(elements []T) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.data = make([]T, len(elements))
+	copy(s.data, elements)
+}
+
+// All returns a copy of all elements (alias for ToSlice for convenience)
+func (s *Slice[T]) All() []T {
+	return s.ToSlice()
+}
+
 // Clone creates a shallow copy of the slice
 func (s *Slice[T]) Clone() *Slice[T] {
 	s.mu.RLock()

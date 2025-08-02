@@ -57,6 +57,12 @@ const (
 	TabCompletionEvent      EventType = "command.tab"
 	CommandSelectedEvent    EventType = "command.selected"
 	
+	// Completion events
+	CompletionsOpenEvent    EventType = "completions.open"
+	CompletionsFilterEvent  EventType = "completions.filter"
+	CompletionsSelectEvent  EventType = "completions.select"
+	CompletionsCloseEvent   EventType = "completions.close"
+	
 	// App events
 	MessagesClearEvent      EventType = "messages.clear"
 	DebugToggleEvent        EventType = "debug.toggle"

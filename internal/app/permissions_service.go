@@ -1,6 +1,7 @@
 package app
 
 import (
+	"github.com/billie-coop/loco/internal/csync"
 	"github.com/billie-coop/loco/internal/tui/events"
 )
 
@@ -9,23 +10,23 @@ type PermissionService struct {
 	eventBroker *events.Broker
 	
 	// Permission rules
-	alwaysAllow map[string]bool
-	neverAllow  map[string]bool
+	alwaysAllow *csync.Map[string, bool]
+	neverAllow  *csync.Map[string, bool]
 }
 
 // NewPermissionService creates a new permission service
 func NewPermissionService(eventBroker *events.Broker) *PermissionService {
 	return &PermissionService{
 		eventBroker: eventBroker,
-		alwaysAllow: make(map[string]bool),
-		neverAllow:  make(map[string]bool),
+		alwaysAllow: csync.NewMap[string, bool](),
+		neverAllow:  csync.NewMap[string, bool](),
 	}
 }
 
 // RequestPermission asks for permission to execute a tool
 func (s *PermissionService) RequestPermission(toolName string, args map[string]interface{}, requestID string) {
 	// Check if we have a rule for this tool
-	if s.alwaysAllow[toolName] {
+	if allowed, exists := s.alwaysAllow.Get(toolName); exists && allowed {
 		s.eventBroker.Publish(events.Event{
 			Type: events.ToolExecutionApprovedEvent,
 			Payload: events.ToolExecutionPayload{
@@ -37,7 +38,7 @@ func (s *PermissionService) RequestPermission(toolName string, args map[string]i
 		return
 	}
 	
-	if s.neverAllow[toolName] {
+	if denied, exists := s.neverAllow.Get(toolName); exists && denied {
 		s.eventBroker.Publish(events.Event{
 			Type: events.ToolExecutionDeniedEvent,
 			Payload: events.ToolExecutionPayload{
@@ -64,7 +65,7 @@ func (s *PermissionService) RequestPermission(toolName string, args map[string]i
 func (s *PermissionService) HandlePermissionDecision(toolName string, decision string, requestID string) {
 	switch decision {
 	case "always":
-		s.alwaysAllow[toolName] = true
+		s.alwaysAllow.Set(toolName, true)
 		s.eventBroker.Publish(events.Event{
 			Type: events.ToolExecutionApprovedEvent,
 			Payload: events.ToolExecutionPayload{
@@ -73,7 +74,7 @@ func (s *PermissionService) HandlePermissionDecision(toolName string, decision s
 			},
 		})
 	case "never":
-		s.neverAllow[toolName] = true
+		s.neverAllow.Set(toolName, true)
 		s.eventBroker.Publish(events.Event{
 			Type: events.ToolExecutionDeniedEvent,
 			Payload: events.ToolExecutionPayload{
@@ -102,6 +103,6 @@ func (s *PermissionService) HandlePermissionDecision(toolName string, decision s
 
 // ClearRules clears all permission rules
 func (s *PermissionService) ClearRules() {
-	s.alwaysAllow = make(map[string]bool)
-	s.neverAllow = make(map[string]bool)
+	s.alwaysAllow.Clear()
+	s.neverAllow.Clear()
 }

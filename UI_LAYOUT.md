@@ -18,44 +18,49 @@ This document describes the user interface structure of the Loco application for
 The chat interface uses a **horizontal split layout** with these major sections:
 
 ```
-Loco UI Structure - Chat State
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                               TERMINAL WINDOW                                   │
-├─────────────────────────┬───────────────────────────────────────────────────────┤
-│        SIDEBAR          │                MAIN CONTENT AREA                    │
-│     (Left - 20%)        │              (Right - 80%)                           │
-│                         │                                                       │
-│ ╭─ 🚂 Loco ────────────╮ │ ┌─────────────────────────────────────────────────┐ │
-│ │ Local AI Companion   │ │ │                                                 │ │
-│ │                      │ │ │              MESSAGE VIEWPORT                   │ │
-│ │ ✨ Thinking...       │ │ │              (Chat History)                     │ │
-│ │                      │ │ │                                                 │ │
-│ │ Model: llama-3.2-7b  │ │ │ You: Hello there!                             │ │
-│ │ Size: M (7B params)  │ │ │                                                 │ │
-│ │                      │ │ │ Loco: Hi! How can I help you today?           │ │
-│ │ Available Models:    │ │ │                                                 │ │
-│ │ • XS: Llama 1B      │ │ │ [Debug: 50ms, 12 tokens] (when enabled)      │ │
-│ │ • S:  Phi-3 Mini    │ │ │                                                 │ │
-│ │ • M:  Mistral 7B    │ │ │                                                 │ │
-│ │ • L:  DeepSeek 16B  │ │ │                                                 │ │
-│ │                      │ │ │                                                 │ │
-│ │ Session: chat-001    │ │ │              (Auto-scrolling)                   │ │
-│ │                      │ │ │                                                 │ │
-│ │ Project: loco        │ │ │                                                 │ │
-│ │ Files: 42 Go files   │ │ │                                                 │ │
-│ │                      │ │ │                                                 │ │
-│ │ Messages: 12U/11A    │ │ └─────────────────────────────────────────────────┘ │
-│ │                      │ │ ├─────────────────────────────────────────────────┤ │
-│ │ Tips:                │ │ │              STATUS LINE                        │ │
-│ │ • Ctrl+S: screenshot │ │ │ ⚡ 156 tokens/sec        Status messages here  │ │
-│ ╰──────────────────────╯ │ ├─────────────────────────────────────────────────┤ │
-│                         │ │               INPUT SECTION                      │ │
-│                         │ │ ─────────────────────────────────────────────── │ │
-│                         │ │ > |                                             │ │
-│                         │ │   | (Multi-line input area)                    │ │  
-│                         │ │   |                                             │ │
-│                         │ │ Ctrl+C: exit • Enter: send • Ctrl+S: screenshot │ │
-└─────────────────────────┴───────────────────────────────────────────────────────┘
+Loco UI Structure - Current Implementation (January 2025)
+╭────────────────────────╮╭─────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
+│ ⢀⣴⣾⣿⣷⣶⣤⣶⣾⣿⣿⣷⣦⡀        ││                                                                                                                 │
+│ ⣿⣷⣯⣿⡿⠀LOCO⢿⣿⣷⣻⣷⣿      ││                           MESSAGE VIEWPORT                                                                   │
+│  ⠻⢿⡿⠟⠛⠻⣿⠿⠛⠉⠉⠁         ││                          (Chat History)                                                                     │
+│                        ││                                                                                                                 │
+│v0.0.1                  ││ Ready to chat. Running locally via LM Studio.                                                                  │
+│                        ││                                                                                                                 │
+│Local AI Companion      ││ Type a message or use /help for commands                                                                       │
+│                        ││                                                                                                                 │
+│Status: ✅ Ready        ││ You: Hello there!                                                                                               │
+│                        ││                                                                                                                 │
+│LM Studio: ✅ Connected ││ Loco: Hi! How can I help you today?                                                                            │
+│                        ││                                                                                                                 │
+│Session:                ││ 📊 Analysis: Quick analysis shows this is a Go terminal UI project...                                         │
+│New Chat                ││                                                                                                                 │
+│                        ││ [Debug: 150ms, 25 tokens, BashTool] (when debug mode enabled)                                                 │
+│Analysis Tiers:         ││                                                                                                                 │
+│⚡ Quick ○              ││                        (Auto-scrolling)                                                                        │
+│📊 Detailed ○           ││                                                                                                                 │
+│💎 Deep ○               ││                                                                                                                 │
+│🚀 Full ─               ││                                                                                                                 │
+│                        ││                                                                                                                 │
+│Messages:               ││                                                                                                                 │
+│  👤 User: 0            ││                                                                                                                 │
+│  🤖 Assistant: 0       ││                                                                                                                 │
+│                        ││                                                                                                                 │
+│Tip:                    ││                                                                                                                 │
+│Press Ctrl+S to         ││                                                                                                                 │
+│copy screen to          ││                                                                                                                 │
+│clipboard               ││                                                                                                                 │
+│                        │╰─────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
+│                        │╭─────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
+│                        ││                                           STATUS LINE                                                          │
+│                        ││ ⚡ Analysis complete! ✨                                        Welcome to Loco! Type a message or use /help │
+│                        │╰─────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
+│                        │╭─────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
+│                        ││                                          INPUT SECTION                                                         │
+│                        ││ ──────────────────────────────────────────────────────────────────────────────────────────────────────────── │
+│                        ││ > |                                                                                                           │
+│                        ││   | (Multi-line input with tab completion)                                                                   │
+│                        ││ Ctrl+C: exit • Enter: send • Ctrl+P: command palette • Tab: complete                                         │
+╰────────────────────────╯╰─────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
 ```
 
 ## Component Architecture 
@@ -81,51 +86,71 @@ Loco UI Structure - Chat State
 ## Detailed Component Descriptions
 
 ### 1. **Sidebar** (Left Side)
-- **Width**: 20% of screen (minimum 20 chars, maximum 30 chars)
-- **Height**: Full terminal height
-- **Style**: Rounded border with green accent color
+- **Width**: 28 characters (fixed width for optimal balance)
+- **Height**: Full terminal height minus status bar
+- **Style**: Rounded border with theme accent color
 - **Content**:
-  - App title: "🚂 Loco" 
-  - Subtitle: "Local AI Companion"
-  - Status indicator (✨ Thinking... / ✅ Ready)
-  - LM Studio connection status
-  - Current model name and size
-  - Available models grouped by size (XS, S, M, L, XL)
-  - Current session title
-  - Project information (name, file count)
-  - Message counts (User/Assistant)
-  - Tips (like Ctrl+S shortcut)
+  - **ASCII Art Locomotive**: Beautiful 3-line Unicode art train with "LOCO" branding
+  - **Version**: "v0.0.1" centered below logo
+  - **Subtitle**: "Local AI Companion" in subtle italic style
+  - **Status Section**:
+    - Chat status (✅ Ready / ✨ Thinking...)
+    - LM Studio connection (✅ Connected / ❌ Disconnected)
+  - **Model Information**: Current model name and size when available
+  - **Session Info**: Current session title ("New Chat" by default)
+  - **Analysis Tiers** (NEW!):
+    - ⚡ Quick Analysis (○ pending, ✓ complete)
+    - 📊 Detailed Analysis (○ pending, ⏳ running, ✓ complete)
+    - 💎 Deep Analysis (○ pending, ⏳ running, ✓ complete)  
+    - 🚀 Full Analysis (strikethrough - future feature)
+    - Live progress indicators with file counts during analysis
+    - Real-time phase updates ("📊 Analyzing files...", timing)
+  - **Message Counts**: 
+    - 👤 User message count
+    - 🤖 Assistant message count
+  - **Tips**: Ctrl+S clipboard shortcut help
 
 ### 2. **Main Content Area** (Right Side)
-- **Width**: Remaining screen width minus sidebar and 1 char spacing
+- **Width**: Remaining screen width minus sidebar (28 chars)
 - **Height**: Full terminal height
 
 #### 2a. **Message Viewport** (Top)
-- **Width**: Full main content width
-- **Height**: Total height minus input area (4 lines) minus status line (1 line) minus 1 char spacing
+- **Width**: Full main content width with rounded borders
+- **Height**: Total height minus input area (5 lines)
+- **Style**: Rounded border with theme colors
 - **Content**:
-  - Chat messages with roles (You: / Loco:)
-  - Markdown-rendered content with syntax highlighting
-  - Debug metadata (timestamps, token counts, tool names) when enabled
-  - System messages (tool results, command outputs)
-  - Streaming content during AI responses
-  - Welcome message when no conversation exists
+  - **Welcome Screen**: "Ready to chat. Running locally via LM Studio." + usage hint
+  - **Chat Messages**: 
+    - "You:" for user messages (theme accent color, bold)
+    - "Loco:" for assistant messages (theme primary color)
+    - "📊 Analysis:" for analysis results (system messages)
+    - "🔧 System:" for other system messages
+  - **Markdown Rendering**: Full Glamour v2 support with syntax highlighting
+  - **Debug Metadata**: `[Debug: 150ms, 25 tokens, BashTool]` when debug mode enabled
+  - **Tool Results**: Rendered with tool-specific formatters
+  - **Streaming Content**: Live AI responses with spinners
+  - **Auto-scrolling**: Always shows latest content
 
-#### 2b. **Status Line** (Middle)
-- **Width**: Full main content width  
-- **Height**: 1 line
-- **Style**: Top border separator
-- **Content**:
-  - Left side: Spinner and token counter during streaming
-  - Right side: Status messages (auto-clear after 5 seconds)
-
-#### 2c. **Input Section** (Bottom)
-- **Width**: Full main content width
-- **Height**: 4 lines total
+#### 2b. **Input Section** (Middle)
+- **Width**: Full main content width with rounded borders
+- **Height**: 5 lines total (including borders)
+- **Style**: Rounded border with focus highlight
 - **Components**:
-  - Horizontal separator line (─────)
-  - Input prompt ("> ") + text area (3 lines, multi-line capable)
-  - Help text: "Ctrl+C: exit • Enter: send • Ctrl+S: copy chat"
+  - **Separator line**: Visual divider (─────)
+  - **Input prompt**: "> " with cursor
+  - **Multi-line input**: 3 lines with word wrap and cursor positioning
+  - **Tab completion**: Smart command completion (shows suggestions in status bar)
+  - **Help text**: "Ctrl+C: exit • Enter: send • Ctrl+P: command palette • Tab: complete"
+
+### 3. **Status Bar** (Bottom)
+- **Width**: Full terminal width (spans both sidebar and main content)
+- **Height**: 1 line
+- **Style**: No borders, spans entire bottom of terminal
+- **Content**:
+  - **Left side**: Analysis status ("⚡ Analysis complete! ✨") or streaming indicators
+  - **Right side**: Welcome/help text ("Welcome to Loco! Type a message or use /help")
+  - **During streaming**: Token counters and processing indicators
+  - **Command completion**: Shows available commands during tab completion
 
 ## Special States
 

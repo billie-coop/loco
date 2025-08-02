@@ -35,30 +35,51 @@ func (s *CommandService) HandleCommand(command string) {
 	
 	cmd := strings.ToLower(parts[0])
 	
+	// Create a system message showing command execution
+	var commandResult string
+	
 	switch cmd {
 	case "/clear":
 		s.handleClear()
+		commandResult = "✅ Cleared all messages"
 	case "/model":
 		if len(parts) > 1 && parts[1] == "select" {
 			s.handleModelSelect()
+			commandResult = "📋 Opening model selection dialog..."
 		} else {
 			s.handleModelInfo()
+			commandResult = "ℹ️ Showing current model info"
 		}
 	case "/team":
 		if len(parts) > 1 && parts[1] == "select" {
 			s.handleTeamSelect()
+			commandResult = "👥 Opening team selection dialog..."
 		} else {
 			s.handleTeamInfo()
+			commandResult = "ℹ️ Showing current team info"
 		}
 	case "/debug":
 		s.handleDebugToggle()
+		commandResult = "🐛 Toggled debug mode"
 	case "/analyze":
+		tier := "quick"
+		if len(parts) > 1 {
+			tier = parts[1]
+		}
 		s.handleAnalyze(parts[1:]) // Pass remaining arguments
+		commandResult = fmt.Sprintf("🔍 Starting %s analysis...", tier)
 	case "/copy":
+		count := "1"
+		if len(parts) > 1 {
+			count = parts[1]
+		}
 		s.handleCopy(parts[1:]) // Pass remaining arguments
+		commandResult = fmt.Sprintf("📋 Copying last %s message(s)...", count)
 	case "/quit", "/exit":
 		s.handleQuit()
+		commandResult = "👋 Exiting Loco..."
 	default:
+		commandResult = fmt.Sprintf("❌ Unknown command: %s", cmd)
 		s.eventBroker.Publish(events.Event{
 			Type: events.StatusMessageEvent,
 			Payload: events.StatusMessagePayload{
@@ -67,6 +88,17 @@ func (s *CommandService) HandleCommand(command string) {
 			},
 		})
 	}
+	
+	// Add command result to message timeline
+	s.eventBroker.Publish(events.Event{
+		Type: events.SystemMessageEvent,
+		Payload: events.MessagePayload{
+			Message: llm.Message{
+				Role:    "system",
+				Content: fmt.Sprintf("🔧 Command: `%s`\n%s", command, commandResult),
+			},
+		},
+	})
 }
 
 // handleClear clears all messages

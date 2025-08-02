@@ -2,6 +2,7 @@ package dialog
 
 import (
 	"github.com/billie-coop/loco/internal/tui/events"
+	"github.com/billie-coop/loco/internal/tui/styles"
 	tea "github.com/charmbracelet/bubbletea/v2"
 	"github.com/charmbracelet/lipgloss/v2"
 )
@@ -25,6 +26,8 @@ type HelpDialog struct {
 
 // NewHelpDialog creates a new help dialog
 func NewHelpDialog(eventBroker *events.Broker) *HelpDialog {
+	theme := styles.CurrentTheme()
+	
 	d := &HelpDialog{
 		BaseDialog:  NewBaseDialog("Help"),
 		eventBroker: eventBroker,
@@ -33,11 +36,11 @@ func NewHelpDialog(eventBroker *events.Broker) *HelpDialog {
 
 		tabStyle: lipgloss.NewStyle().
 			Padding(0, 2).
-			Foreground(lipgloss.Color("241")),
+			Foreground(theme.FgSubtle),
 
 		activeTabStyle: lipgloss.NewStyle().
 			Padding(0, 2).
-			Foreground(lipgloss.Color("205")).
+			Foreground(theme.Accent).
 			Bold(true).
 			Underline(true),
 
@@ -45,15 +48,15 @@ func NewHelpDialog(eventBroker *events.Broker) *HelpDialog {
 			MarginTop(1),
 
 		keyStyle: lipgloss.NewStyle().
-			Foreground(lipgloss.Color("86")).
+			Foreground(theme.Primary).
 			Bold(true),
 
 		descStyle: lipgloss.NewStyle().
-			Foreground(lipgloss.Color("245")),
+			Foreground(theme.FgMuted),
 
 		sectionStyle: lipgloss.NewStyle().
 			MarginBottom(1).
-			Foreground(lipgloss.Color("205")).
+			Foreground(theme.Accent).
 			Bold(true),
 	}
 

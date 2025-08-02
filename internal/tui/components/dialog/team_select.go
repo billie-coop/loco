@@ -6,6 +6,7 @@ import (
 
 	"github.com/billie-coop/loco/internal/session"
 	"github.com/billie-coop/loco/internal/tui/events"
+	"github.com/billie-coop/loco/internal/tui/styles"
 	tea "github.com/charmbracelet/bubbletea/v2"
 	"github.com/charmbracelet/lipgloss/v2"
 )
@@ -27,6 +28,8 @@ type TeamSelectDialog struct {
 
 // NewTeamSelectDialog creates a new team selection dialog
 func NewTeamSelectDialog(eventBroker *events.Broker) *TeamSelectDialog {
+	theme := styles.CurrentTheme()
+	
 	d := &TeamSelectDialog{
 		BaseDialog:     NewBaseDialog("Select Model Team"),
 		teams:          []*session.ModelTeam{},
@@ -38,15 +41,15 @@ func NewTeamSelectDialog(eventBroker *events.Broker) *TeamSelectDialog {
 
 		selectedStyle: lipgloss.NewStyle().
 			PaddingLeft(1).
-			Foreground(lipgloss.Color("205")).
+			Foreground(theme.Accent).
 			Bold(true),
 
 		tierStyle: lipgloss.NewStyle().
-			Foreground(lipgloss.Color("86")).
+			Foreground(theme.Primary).
 			Bold(true),
 
 		modelStyle: lipgloss.NewStyle().
-			Foreground(lipgloss.Color("244")),
+			Foreground(theme.FgMuted),
 	}
 	return d
 }

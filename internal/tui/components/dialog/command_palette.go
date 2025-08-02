@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	"github.com/billie-coop/loco/internal/tui/events"
+	"github.com/billie-coop/loco/internal/tui/styles"
 	tea "github.com/charmbracelet/bubbletea/v2"
 	"github.com/charmbracelet/lipgloss/v2"
 )
@@ -36,13 +37,15 @@ type CommandPaletteDialog struct {
 
 // NewCommandPaletteDialog creates a new command palette dialog
 func NewCommandPaletteDialog(eventBroker *events.Broker) *CommandPaletteDialog {
+	theme := styles.CurrentTheme()
+	
 	d := &CommandPaletteDialog{
 		BaseDialog:  NewBaseDialog("Command Palette"),
 		eventBroker: eventBroker,
 
 		searchStyle: lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
-			BorderForeground(lipgloss.Color("86")).
+			BorderForeground(theme.Primary).
 			Padding(0, 1).
 			MarginBottom(1),
 
@@ -51,14 +54,14 @@ func NewCommandPaletteDialog(eventBroker *events.Broker) *CommandPaletteDialog {
 
 		selectedItemStyle: lipgloss.NewStyle().
 			Padding(0, 2).
-			Background(lipgloss.Color("86")).
-			Foreground(lipgloss.Color("0")),
+			Background(theme.Primary).
+			Foreground(theme.FgInverted),
 
 		shortcutStyle: lipgloss.NewStyle().
-			Foreground(lipgloss.Color("241")),
+			Foreground(theme.FgSubtle),
 
 		descStyle: lipgloss.NewStyle().
-			Foreground(lipgloss.Color("245")),
+			Foreground(theme.FgMuted),
 	}
 
 	// Initialize default commands

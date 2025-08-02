@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	"github.com/billie-coop/loco/internal/tui/events"
+	"github.com/billie-coop/loco/internal/tui/styles"
 	tea "github.com/charmbracelet/bubbletea/v2"
 	"github.com/charmbracelet/lipgloss/v2"
 )
@@ -44,6 +45,8 @@ type Settings struct {
 
 // NewSettingsDialog creates a new settings dialog
 func NewSettingsDialog(eventBroker *events.Broker) *SettingsDialog {
+	theme := styles.CurrentTheme()
+	
 	d := &SettingsDialog{
 		BaseDialog:     NewBaseDialog("Settings"),
 		selectedIndex:  0,
@@ -51,17 +54,17 @@ func NewSettingsDialog(eventBroker *events.Broker) *SettingsDialog {
 
 		labelStyle: lipgloss.NewStyle().
 			Bold(true).
-			Foreground(lipgloss.Color("86")),
+			Foreground(theme.Primary),
 
 		valueStyle: lipgloss.NewStyle().
-			Foreground(lipgloss.Color("252")),
+			Foreground(theme.FgBase),
 
 		selectedStyle: lipgloss.NewStyle().
-			Foreground(lipgloss.Color("205")).
+			Foreground(theme.Accent).
 			Bold(true),
 
 		descStyle: lipgloss.NewStyle().
-			Foreground(lipgloss.Color("241")).
+			Foreground(theme.FgSubtle).
 			Italic(true),
 	}
 

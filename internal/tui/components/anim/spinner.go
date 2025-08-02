@@ -30,6 +30,7 @@ type Spinner struct {
 	speed      time.Duration
 	color1     color.Color
 	color2     color.Color
+	active     bool // Track if animation should continue
 }
 
 // NewSpinner creates a new spinner
@@ -37,7 +38,7 @@ func NewSpinner(spinnerType SpinnerType) *Spinner {
 	theme := styles.CurrentTheme()
 	return &Spinner{
 		Type:   spinnerType,
-		speed:  80 * time.Millisecond,
+		speed:  120 * time.Millisecond, // Reduced frequency for better performance
 		color1: theme.Primary,
 		color2: theme.Secondary,
 	}
@@ -64,6 +65,7 @@ func (s *Spinner) WithColors(c1, c2 color.Color) *Spinner {
 
 // Init starts the spinner animation
 func (s *Spinner) Init() tea.Cmd {
+	s.active = true
 	return s.tick()
 }
 
@@ -74,7 +76,10 @@ func (s *Spinner) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.id == s {
 			s.frame++
 			s.lastUpdate = time.Now()
-			return s, s.tick()
+			// Only continue ticking if active
+			if s.active {
+				return s, s.tick()
+			}
 		}
 	}
 	return s, nil
@@ -100,7 +105,6 @@ func (s *Spinner) View() string {
 		currentFrame = coloredFrame
 	} else {
 		// Use theme colors for other spinners
-		theme := styles.CurrentTheme()
 		currentFrame = styles.RenderThemeGradient(currentFrame, false)
 	}
 	
@@ -155,19 +159,31 @@ type tickMsg struct {
 	time time.Time
 }
 
+// Stop stops the spinner animation
+func (s *Spinner) Stop() {
+	s.active = false
+}
+
+// Start restarts the spinner animation
+func (s *Spinner) Start() tea.Cmd {
+	s.active = true
+	return s.tick()
+}
+
 // GradientBar creates an animated gradient progress bar
 type GradientBar struct {
 	Width    int
 	Progress float64
 	offset   int
 	speed    time.Duration
+	active   bool // Track if animation should continue
 }
 
 // NewGradientBar creates a new gradient progress bar
 func NewGradientBar(width int) *GradientBar {
 	return &GradientBar{
 		Width: width,
-		speed: 100 * time.Millisecond,
+		speed: 150 * time.Millisecond, // Reduced frequency for better performance
 	}
 }
 
@@ -184,6 +200,7 @@ func (g *GradientBar) SetProgress(progress float64) {
 
 // Init starts the gradient animation
 func (g *GradientBar) Init() tea.Cmd {
+	g.active = true
 	return g.tick()
 }
 
@@ -193,7 +210,10 @@ func (g *GradientBar) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case gradientTickMsg:
 		if msg.id == g {
 			g.offset++
-			return g, g.tick()
+			// Only continue ticking if active
+			if g.active {
+				return g, g.tick()
+			}
 		}
 	}
 	return g, nil
@@ -236,4 +256,15 @@ func (g *GradientBar) tick() tea.Cmd {
 type gradientTickMsg struct {
 	id   *GradientBar
 	time time.Time
+}
+
+// Stop stops the gradient bar animation
+func (g *GradientBar) Stop() {
+	g.active = false
+}
+
+// Start restarts the gradient bar animation
+func (g *GradientBar) Start() tea.Cmd {
+	g.active = true
+	return g.tick()
 }
