@@ -467,28 +467,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		spinnerCmd tea.Cmd
 	)
 
-	m.input, taCmd = m.input.Update(msg)
-
-	// Only pass certain messages to viewport to prevent key interference
-	switch msg := msg.(type) {
-	case tea.KeyMsg:
-		// Only allow specific navigation keys to reach viewport
-		switch msg.String() {
-		case "up", "down", "pgup", "pgdown", "home", "end":
-			// Allow these navigation keys only if input is empty
-			if m.input.Value() == "" {
-				m.viewport, vpCmd = m.viewport.Update(msg)
-			}
-		default:
-			// Block all other keys from viewport (including h,j,k,l)
-		}
-	default:
-		// Allow all non-key messages (mouse, resize, etc.)
-		m.viewport, vpCmd = m.viewport.Update(msg)
-	}
-
-	m.spinner, spinnerCmd = m.spinner.Update(msg)
-
+	// Handle key messages first to prevent double processing
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		switch msg.String() {
@@ -503,6 +482,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.handleTabCompletion()
 				return m, nil
 			}
+			// Let tab reach textarea for normal tab behavior
+			m.input, taCmd = m.input.Update(msg)
+			return m, taCmd
 		case "enter":
 			// Send message on plain Enter
 			if !m.isStreaming && m.input.Value() != "" {
@@ -517,7 +499,38 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				cmd := m.sendMessage()
 				return m, tea.Batch(cmd, m.spinner.Tick)
 			}
+			// Let empty enter reach textarea for normal behavior
+			m.input, taCmd = m.input.Update(msg)
+			return m, taCmd
+		case "up", "down", "pgup", "pgdown", "home", "end":
+			// Only allow specific navigation keys to reach viewport if input is empty
+			if m.input.Value() == "" {
+				m.viewport, vpCmd = m.viewport.Update(msg)
+				m.spinner, spinnerCmd = m.spinner.Update(msg)
+				return m, tea.Batch(vpCmd, spinnerCmd)
+			}
+			// Otherwise let these keys reach textarea for cursor movement
+			m.input, taCmd = m.input.Update(msg)
+			return m, taCmd
+		default:
+			// All other keys (typing, backspace, etc.) go to textarea
+			m.input, taCmd = m.input.Update(msg)
+			return m, taCmd
 		}
+	}
+
+	// Handle non-key messages
+	// Only pass non-key messages to viewport to prevent key interference
+	switch msg.(type) {
+	case tea.KeyMsg:
+		// Keys were already handled above, skip them here
+	default:
+		m.viewport, vpCmd = m.viewport.Update(msg)
+		m.spinner, spinnerCmd = m.spinner.Update(msg)
+	}
+
+	// Continue with non-key message handling
+	switch msg := msg.(type) {
 
 	case tea.WindowSizeMsg:
 		m.width = msg.Width

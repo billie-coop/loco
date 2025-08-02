@@ -15,6 +15,7 @@ const (
 	TeamSelectDialogType  DialogType = "team_select"
 	SettingsDialogType    DialogType = "settings"
 	PermissionsDialogType DialogType = "permissions"
+	QuitDialogType        DialogType = "quit"
 )
 
 // Manager manages all dialogs in the application
@@ -38,6 +39,7 @@ func NewManager(eventBroker *events.Broker) *Manager {
 	m.dialogs[TeamSelectDialogType] = NewTeamSelectDialog(eventBroker)
 	m.dialogs[SettingsDialogType] = NewSettingsDialog(eventBroker)
 	m.dialogs[PermissionsDialogType] = NewPermissionsDialog(eventBroker)
+	m.dialogs[QuitDialogType] = NewQuitDialog(eventBroker)
 
 	return m
 }

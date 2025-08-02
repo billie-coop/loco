@@ -233,13 +233,15 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		// Sync all state to components
 		m.syncStateToComponents()
+	}
 
-	case tea.KeyMsg:
-		switch msg.String() {
+	// Handle keyboard input - check for special keys first
+	if keyMsg, ok := msg.(tea.KeyMsg); ok {
+		switch keyMsg.String() {
 		case "ctrl+c":
-			return m, tea.Quit
+			// Open quit dialog instead of quitting immediately
+			return m, m.dialogManager.OpenDialog(dialog.QuitDialogType)
 		case "ctrl+l":
-			// Clear screen shortcut
 			m.clearMessages()
 			return m, nil
 		case "enter":
@@ -250,24 +252,38 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return m.handleUserMessage(m.input.Value())
 				}
 			}
-			// Don't pass enter to the input after handling
-			return m, nil
+			// Fall through to let input handle empty enter
 		case "tab":
 			if m.input.IsSlashCommand() {
 				return m.handleTabCompletion()
 			}
+			// Fall through to let input handle tab
 		case "esc":
-			// Clear input on escape
 			if !m.input.IsEmpty() {
 				m.input.Reset()
 				m.input.Focus()
 				return m, nil
 			}
+			// Fall through to let input handle esc if empty
+		default:
+			// For regular typing keys, only update the input component
+			// to avoid double processing
+			if m.input.Focused() && !m.isStreaming {
+				var inputModel tea.Model
+				inputModel, cmd := m.input.Update(msg)
+				if im, ok := inputModel.(*chat.InputModel); ok {
+					m.input = im
+				}
+				return m, cmd
+			}
 		}
+		// For special keys that fell through, continue to update all components
 	}
 
-	// Update all components
+	// Update all components (they'll get the original message)
 	var cmd tea.Cmd
+	
+	// Update sidebar
 	var sidebarModel tea.Model
 	sidebarModel, cmd = m.sidebar.Update(msg)
 	if sm, ok := sidebarModel.(*chat.SidebarModel); ok {
@@ -275,6 +291,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 	cmds = append(cmds, cmd)
 
+	// Update message list
 	var messageListModel tea.Model
 	messageListModel, cmd = m.messageList.Update(msg)
 	if mlm, ok := messageListModel.(*chat.MessageListModel); ok {
@@ -282,6 +299,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 	cmds = append(cmds, cmd)
 
+	// Update input - THIS is the key part
 	var inputModel tea.Model
 	inputModel, cmd = m.input.Update(msg)
 	if im, ok := inputModel.(*chat.InputModel); ok {
@@ -289,6 +307,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 	cmds = append(cmds, cmd)
 
+	// Update status bar
 	var statusModel tea.Model
 	statusModel, cmd = m.statusBar.Update(msg)
 	if sbm, ok := statusModel.(*status.Component); ok {
@@ -296,6 +315,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 	cmds = append(cmds, cmd)
 
+	// Update layout
 	var layoutModel tea.Model
 	layoutModel, cmd = m.layout.Update(msg)
 	if lm, ok := layoutModel.(*core.SimpleLayout); ok {

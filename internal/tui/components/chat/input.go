@@ -81,9 +81,6 @@ func (im *InputModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// Kill to beginning of line
 			im.value = im.value[im.cursorPos:]
 			im.cursorPos = 0
-		case "enter", "tab", "esc", "ctrl+c", "ctrl+l":
-			// Don't handle these - let parent handle them
-			return im, nil
 		default:
 			// Regular character input
 			if len(msg.String()) == 1 && msg.String()[0] >= 32 && msg.String()[0] < 127 {
