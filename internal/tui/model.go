@@ -300,24 +300,24 @@ func (m *Model) View() string {
 	inputHeight := 3
 	messageHeight := m.height - statusHeight - inputHeight
 	
-	// Create bordered sidebar with rounded corners (orange theme color)
+	// Create bordered sidebar with rounded corners (golden orange like dialogs)
 	sidebarStyle := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
-		BorderForeground(theme.Primary).
+		BorderForeground(theme.BorderFocus).
 		Width(sidebarWidth - 2). // Account for border
 		Height(m.height - statusHeight - 2) // Account for border and status
 	
-	// Create bordered message area with rounded corners (orange theme color)
+	// Create bordered message area with rounded corners (golden orange like dialogs)
 	messageAreaStyle := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
-		BorderForeground(theme.Primary).
+		BorderForeground(theme.BorderFocus).
 		Width(mainWidth - 2). // Account for border
 		Height(messageHeight - 2) // Account for border
 		
-	// Create bordered input area with rounded corners (orange theme color)
+	// Create bordered input area with rounded corners (golden orange like dialogs)
 	inputStyle := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
-		BorderForeground(theme.Primary).
+		BorderForeground(theme.BorderFocus).
 		Width(mainWidth - 2). // Account for border
 		Height(inputHeight - 2) // Account for border
 
