@@ -7,6 +7,7 @@ import (
 
 	"github.com/billie-coop/loco/internal/llm"
 	"github.com/billie-coop/loco/internal/session"
+
 	// "github.com/billie-coop/loco/internal/tui/components/anim" // Disabled
 	"github.com/billie-coop/loco/internal/tui/components/core"
 	"github.com/billie-coop/loco/internal/tui/styles"
@@ -23,15 +24,15 @@ type Context struct {
 
 // AnalysisState represents the state of project analysis
 type AnalysisState struct {
-	IsRunning         bool
-	DetailedRunning   bool
-	DetailedCompleted bool
-	KnowledgeRunning  bool
+	IsRunning          bool
+	DetailedRunning    bool
+	DetailedCompleted  bool
+	KnowledgeRunning   bool
 	KnowledgeCompleted bool
-	CurrentPhase      string
-	StartTime         time.Time
-	TotalFiles        int
-	CompletedFiles    int
+	CurrentPhase       string
+	StartTime          time.Time
+	TotalFiles         int
+	CompletedFiles     int
 }
 
 // SidebarModel implements the sidebar component
@@ -40,17 +41,17 @@ type SidebarModel struct {
 	height int
 
 	// Model state - this will be injected via events/props later
-	isStreaming      bool
-	error            error
-	modelName        string
-	modelSize        llm.ModelSize
-	allModels        []llm.Model
-	modelUsage       map[string]int
-	sessionManager   *session.Manager
-	projectContext   *Context
-	analysisState    *AnalysisState
-	messages         []llm.Message
-	
+	isStreaming    bool
+	error          error
+	modelName      string
+	modelSize      llm.ModelSize
+	allModels      []llm.Model
+	modelUsage     map[string]int
+	sessionManager *session.Manager
+	projectContext *Context
+	analysisState  *AnalysisState
+	messages       []llm.Message
+
 	// Animation components (disabled)
 	// thinkingSpinner  *anim.Spinner
 	// gradientText     *styles.AnimatedGradientText
@@ -65,7 +66,7 @@ var _ core.Sizeable = (*SidebarModel)(nil)
 // NewSidebar creates a new sidebar component
 func NewSidebar() *SidebarModel {
 	return &SidebarModel{
-		modelUsage:      make(map[string]int),
+		modelUsage: make(map[string]int),
 		// thinkingSpinner: anim.NewSpinner(anim.SpinnerGradient).WithLabel("Processing"),
 		// gradientText:    styles.NewAnimatedGradientText("LOCO"),
 		// gradientBar:     anim.NewGradientBar(20),
@@ -111,7 +112,7 @@ func (s *SidebarModel) View() string {
 
 	// Simple style without border (border added by parent)
 	sidebarStyle := lipgloss.NewStyle().
-		Width(width-2).
+		Width(width - 2).
 		Padding(0)
 
 	var content strings.Builder
@@ -146,7 +147,7 @@ func (s *SidebarModel) View() string {
 // SetStreamingState updates the streaming state
 func (s *SidebarModel) SetStreamingState(isStreaming bool) {
 	s.isStreaming = isStreaming
-	
+
 	// Control spinner animation
 	if isStreaming {
 		// s.thinkingSpinner.Start()
@@ -189,7 +190,7 @@ func (s *SidebarModel) SetProjectContext(ctx *Context) {
 // SetAnalysisState updates the analysis state
 func (s *SidebarModel) SetAnalysisState(state *AnalysisState) {
 	s.analysisState = state
-	
+
 	// Control gradient bar animation
 	if state != nil && state.IsRunning {
 		// s.gradientBar.Start()
@@ -213,31 +214,29 @@ func (s *SidebarModel) renderTitle(content *strings.Builder) {
 	}
 
 	theme := styles.CurrentTheme()
-	
+
 	// Compact locomotive ASCII art - 3 lines, sparse mist, centered, all 21 chars
 	asciiArt := []string{
-		"  ⢀⣴⣾⣿⣷⣶⣤⣶⣾⣿⣿⣷⣦⡀   ", // sparser top mist (18->21: +3)
-		"  ⣿⣷⣯⣿⡿⠀    ⢿⣿⣷⣻⣷⣿ ", // main locomotive body - space for animated LOCO
-		"   ⠻⢿⡿⠟⠛⠻⣿⠿⠛⠉⠉⠁    ", // sparser bottom mist (18->21: +3)
+		"  ⢀⣴⣾⣿⣷⣶⣿⣶⣾⣿⣿⣷⣦    ",  // sparser top mist (18->21: +3)
+		"  ⣿⣿⣿⣿⡿LOCO⢿⣿⣿⣿⣷   ",  // main body - space for animated LOCO
+		"   ⠻⢿⣿⠟⠛⠻⣿⠿⣿⣿⣿⠿⠁    ", // sparser bottom mist (18->21: +3)
 	}
-	
+
 	// Render ASCII art with theme colors - join as one block
 	artStyle := lipgloss.NewStyle().
 		Align(lipgloss.Center).
 		Foreground(theme.Accent)
-	
+
 	// Render first line
 	content.WriteString(artStyle.Render(asciiArt[0]))
 	content.WriteString("\n")
-	
+
 	// Render second line with animated LOCO
-	asciiLine2Prefix := "  ⣿⣷⣯⣿⡿⠀"
-	asciiLine2Suffix := "⢿⣿⣷⣻⣷⣿ "
-	content.WriteString(artStyle.Render(asciiLine2Prefix))
+	content.WriteString(artStyle.Render("  ⣿⣿⣿⣿⡿"))
 	content.WriteString(styles.RenderThemeGradient("LOCO", false))
-	content.WriteString(artStyle.Render(asciiLine2Suffix))
+	content.WriteString(artStyle.Render("⢿⣿⣿⣿⣷"))
 	content.WriteString("\n")
-	
+
 	// Render third line
 	content.WriteString(artStyle.Render(asciiArt[2]))
 	content.WriteString("\n")
