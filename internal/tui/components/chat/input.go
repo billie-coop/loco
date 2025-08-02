@@ -4,18 +4,19 @@ import (
 	"strings"
 
 	"github.com/billie-coop/loco/internal/tui/components/core"
-	"github.com/charmbracelet/bubbles/v2/textarea"
 	tea "github.com/charmbracelet/bubbletea/v2"
+	"github.com/charmbracelet/lipgloss/v2"
 )
 
 // InputModel implements the text input component for chat
 type InputModel struct {
-	textarea textarea.Model
-	width    int
-	height   int
-
-	// State
-	isEnabled bool
+	value       string
+	placeholder string
+	cursorPos   int
+	width       int
+	height      int
+	focused     bool
+	enabled     bool
 }
 
 // Ensure InputModel implements required interfaces
@@ -25,107 +26,179 @@ var _ core.Focusable = (*InputModel)(nil)
 
 // NewInput creates a new input component
 func NewInput() *InputModel {
-	ta := textarea.New()
-	ta.Placeholder = "Type a message or use /help for commands"
-	ta.Focus()
-	ta.ShowLineNumbers = false
-	ta.CharLimit = 0         // No character limit
-	ta.SetHeight(3)          // Allow 3 lines for better multi-line input
-	// Note: DeleteLine removal might be in newer bubbles version
-
 	return &InputModel{
-		textarea:  ta,
-		isEnabled: true,
+		value:       "",
+		placeholder: "Type a message or use /help for commands",
+		cursorPos:   0,
+		focused:     true,
+		enabled:     true,
 	}
 }
 
 // Init initializes the input component
 func (im *InputModel) Init() tea.Cmd {
-	return textarea.Blink
+	return nil
 }
 
 // Update handles messages for the input component
 func (im *InputModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	if !im.isEnabled {
+	if !im.enabled || !im.focused {
 		return im, nil
 	}
 
-	var cmd tea.Cmd
-	im.textarea, cmd = im.textarea.Update(msg)
-	return im, cmd
+	switch msg := msg.(type) {
+	case tea.KeyMsg:
+		switch msg.String() {
+		case "backspace":
+			if im.cursorPos > 0 {
+				im.value = im.value[:im.cursorPos-1] + im.value[im.cursorPos:]
+				im.cursorPos--
+			}
+		case "delete":
+			if im.cursorPos < len(im.value) {
+				im.value = im.value[:im.cursorPos] + im.value[im.cursorPos+1:]
+			}
+		case "left":
+			if im.cursorPos > 0 {
+				im.cursorPos--
+			}
+		case "right":
+			if im.cursorPos < len(im.value) {
+				im.cursorPos++
+			}
+		case "home":
+			im.cursorPos = 0
+		case "end":
+			im.cursorPos = len(im.value)
+		case "ctrl+a":
+			im.cursorPos = 0
+		case "ctrl+e":
+			im.cursorPos = len(im.value)
+		case "ctrl+k":
+			// Kill to end of line
+			im.value = im.value[:im.cursorPos]
+		case "ctrl+u":
+			// Kill to beginning of line
+			im.value = im.value[im.cursorPos:]
+			im.cursorPos = 0
+		case "enter", "tab", "esc", "ctrl+c", "ctrl+l":
+			// Don't handle these - let parent handle them
+			return im, nil
+		default:
+			// Regular character input
+			if len(msg.String()) == 1 && msg.String()[0] >= 32 && msg.String()[0] < 127 {
+				im.value = im.value[:im.cursorPos] + msg.String() + im.value[im.cursorPos:]
+				im.cursorPos++
+			}
+		}
+	}
+
+	return im, nil
 }
 
 // SetSize sets the dimensions of the input component
 func (im *InputModel) SetSize(width, height int) tea.Cmd {
 	im.width = width
 	im.height = height
-
-	im.textarea.SetWidth(width - 2) // Account for padding
-	im.textarea.SetHeight(height)
-
 	return nil
 }
 
 // View renders the input component
 func (im *InputModel) View() string {
-	return im.textarea.View()
+	// Create styles
+	inputStyle := lipgloss.NewStyle().
+		Width(im.width - 2).
+		Padding(0, 1)
+
+	var display string
+	if im.value == "" && im.placeholder != "" && !im.focused {
+		// Show placeholder
+		placeholderStyle := inputStyle.Copy().Foreground(lipgloss.Color("241"))
+		display = placeholderStyle.Render(im.placeholder)
+	} else {
+		// Show value with cursor
+		if im.focused && im.enabled {
+			// Add cursor
+			before := im.value[:im.cursorPos]
+			after := ""
+			cursor := " "
+			
+			if im.cursorPos < len(im.value) {
+				cursor = string(im.value[im.cursorPos])
+				after = im.value[im.cursorPos+1:]
+			}
+			
+			cursorStyle := lipgloss.NewStyle().
+				Background(lipgloss.Color("205")).
+				Foreground(lipgloss.Color("0"))
+			
+			display = inputStyle.Render(before + cursorStyle.Render(cursor) + after)
+		} else {
+			display = inputStyle.Render(im.value)
+		}
+	}
+
+	return display
 }
 
 // Focus focuses the input component
 func (im *InputModel) Focus() tea.Cmd {
-	return im.textarea.Focus()
+	im.focused = true
+	return nil
 }
 
 // Blur removes focus from the input component
 func (im *InputModel) Blur() tea.Cmd {
-	im.textarea.Blur()
+	im.focused = false
 	return nil
 }
 
 // Focused returns whether the input component is focused
 func (im *InputModel) Focused() bool {
-	return im.textarea.Focused()
+	return im.focused
 }
 
 // Value returns the current input value
 func (im *InputModel) Value() string {
-	return im.textarea.Value()
+	return im.value
 }
 
 // SetValue sets the input value
 func (im *InputModel) SetValue(value string) {
-	im.textarea.SetValue(value)
+	im.value = value
+	im.cursorPos = len(value)
 }
 
 // Reset clears the input
 func (im *InputModel) Reset() {
-	im.textarea.Reset()
+	im.value = ""
+	im.cursorPos = 0
 }
 
 // CursorEnd moves the cursor to the end
 func (im *InputModel) CursorEnd() {
-	im.textarea.CursorEnd()
+	im.cursorPos = len(im.value)
 }
 
 // SetEnabled enables or disables the input
 func (im *InputModel) SetEnabled(enabled bool) {
-	im.isEnabled = enabled
+	im.enabled = enabled
 	if !enabled {
-		im.textarea.Blur()
+		im.focused = false
 	}
 }
 
 // IsEmpty returns true if the input is empty
 func (im *InputModel) IsEmpty() bool {
-	return strings.TrimSpace(im.textarea.Value()) == ""
+	return strings.TrimSpace(im.value) == ""
 }
 
 // IsSlashCommand returns true if the input starts with a slash
 func (im *InputModel) IsSlashCommand() bool {
-	return strings.HasPrefix(strings.TrimSpace(im.textarea.Value()), "/")
+	return strings.HasPrefix(strings.TrimSpace(im.value), "/")
 }
 
 // SetPlaceholder sets the placeholder text
 func (im *InputModel) SetPlaceholder(placeholder string) {
-	im.textarea.Placeholder = placeholder
+	im.placeholder = placeholder
 }

@@ -30,7 +30,7 @@ type Model struct {
 	layout         *core.SimpleLayout
 	sidebar        *chat.SidebarModel
 	messageList    *chat.MessageListModel
-	input          *chat.SimpleInputModel
+	input          *chat.InputModel
 	statusBar      *status.Component
 	dialogManager  *dialog.Manager
 
@@ -74,7 +74,7 @@ func NewModel(client llm.Client) *Model {
 	// Create components
 	sidebar := chat.NewSidebar()
 	messageList := chat.NewMessageList()
-	input := chat.NewSimpleInput()
+	input := chat.NewInput()
 	statusBar := status.New()
 	dialogManager := dialog.NewManager(eventBroker)
 
@@ -284,7 +284,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	var inputModel tea.Model
 	inputModel, cmd = m.input.Update(msg)
-	if im, ok := inputModel.(*chat.SimpleInputModel); ok {
+	if im, ok := inputModel.(*chat.InputModel); ok {
 		m.input = im
 	}
 	cmds = append(cmds, cmd)
