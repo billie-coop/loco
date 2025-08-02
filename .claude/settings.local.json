@@ -34,7 +34,8 @@
       "Bash(find:*)",
       "Bash(tree:*)",
       "Bash(touch:*)",
-      "Bash(go list:*)"
+      "Bash(go list:*)",
+      "WebFetch(domain:swimm.io)"
     ],
     "deny": []
   }

@@ -62,7 +62,23 @@ func (im *InputModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
-		switch msg.String() {
+		keyStr := msg.String()
+		
+		// Handle space explicitly - Bubble Tea v2 reports it as "space" not " "
+		if keyStr == "space" {
+			im.value = im.value[:im.cursorPos] + " " + im.value[im.cursorPos:]
+			im.cursorPos++
+			
+			// Close completions on space
+			if im.completionsOpen {
+				im.completionsOpen = false
+				im.completionQuery = ""
+				return im, im.closeCompletions()
+			}
+			return im, nil
+		}
+		
+		switch keyStr {
 		case "backspace":
 			if im.cursorPos > 0 {
 				im.value = im.value[:im.cursorPos-1] + im.value[im.cursorPos:]
@@ -95,32 +111,37 @@ func (im *InputModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// Kill to beginning of line
 			im.value = im.value[im.cursorPos:]
 			im.cursorPos = 0
-		case " ":
-			// Handle space explicitly
-			im.value = im.value[:im.cursorPos] + " " + im.value[im.cursorPos:]
-			im.cursorPos++
-			
-			// Close completions on space
-			if im.completionsOpen {
-				im.completionsOpen = false
-				im.completionQuery = ""
-				return im, im.closeCompletions()
-			}
 		default:
-			// Regular character input - accept printable ASCII excluding space
+			// Regular character input - accept printable ASCII EXCEPT space (handled above)
 			s := msg.String()
 			if len(s) == 1 {
 				char := s[0]
 				// Printable ASCII: exclamation (33) through tilde (126)
+				// Space (32) is handled explicitly above
 				if char >= 33 && char <= 126 {
 					im.value = im.value[:im.cursorPos] + s + im.value[im.cursorPos:]
 					im.cursorPos++
+					
+					// Handle special cases AFTER character insertion
+					var cmd tea.Cmd
 					
 					// Check if we just typed a slash at the beginning or after whitespace
 					if char == '/' && (im.cursorPos == 1 || (im.cursorPos > 1 && im.value[im.cursorPos-2] == ' ')) {
 						im.completionsOpen = true
 						im.completionQuery = ""
-						return im, im.triggerCompletions()
+						cmd = im.triggerCompletions()
+					}
+					
+					// Close completions on space
+					if char == ' ' && im.completionsOpen {
+						im.completionsOpen = false
+						im.completionQuery = ""
+						cmd = im.closeCompletions()
+					}
+					
+					// Return with any command that was generated
+					if cmd != nil {
+						return im, cmd
 					}
 				}
 			}

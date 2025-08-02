@@ -307,7 +307,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// If completions are open, let them handle certain keys
 		if m.completions.IsOpen() {
 			switch keyMsg.String() {
-			case "tab", "up", "down":
+			case "tab", "up", "down", "enter":
 				compModel, cmd := m.completions.Update(msg)
 				if cm, ok := compModel.(*completions.CompletionsModel); ok {
 					m.completions = cm
@@ -319,6 +319,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.completions = cm
 				}
 				return m, cmd
+			// Let space and other keys fall through to input handling
 			}
 		}
 		
