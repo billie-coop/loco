@@ -12,7 +12,9 @@ import (
 	"github.com/billie-coop/loco/internal/tui/components/dialog"
 	"github.com/billie-coop/loco/internal/tui/components/status"
 	"github.com/billie-coop/loco/internal/tui/events"
+	"github.com/billie-coop/loco/internal/tui/styles"
 	tea "github.com/charmbracelet/bubbletea/v2"
+	"github.com/charmbracelet/lipgloss/v2"
 )
 
 // Model represents the main TUI model that orchestrates all components
@@ -288,29 +290,50 @@ func (m *Model) View() string {
 		return m.dialogManager.View()
 	}
 
-	// Build the main layout
-	var content strings.Builder
+	// Use lipgloss to create bordered sections
+	theme := styles.CurrentTheme()
+	
+	// Create bordered sidebar
+	sidebarStyle := theme.S().Text.
+		Border(lipgloss.NormalBorder()).
+		BorderForeground(theme.FgMuted).
+		Width(m.calculateSidebarWidth()).
+		Height(m.height - 1) // Leave room for status bar
+	
+	// Create bordered message area
+	messageAreaStyle := theme.S().Text.
+		Border(lipgloss.NormalBorder()).
+		BorderForeground(theme.FgMuted).
+		Width(m.width - m.calculateSidebarWidth()).
+		Height(m.height - 4) // Leave room for input and status
+		
+	// Create bordered input area
+	inputStyle := theme.S().Text.
+		Border(lipgloss.NormalBorder()).
+		BorderForeground(theme.Primary).
+		Width(m.width - m.calculateSidebarWidth()).
+		Height(3)
 
-	// Create main content area (messages + input)
-	mainContent := m.messageList.View() + "\n" + m.input.View()
-
+	// Render components with borders
+	sidebar := sidebarStyle.Render(m.sidebar.View())
+	messages := messageAreaStyle.Render(m.messageList.View())
+	input := inputStyle.Render(m.input.View())
+	
+	// Stack messages and input vertically
+	mainContent := lipgloss.JoinVertical(lipgloss.Left, messages, input)
+	
 	// If completions are open, overlay them
 	if m.completions.IsOpen() {
 		mainContent = m.overlayCompletions(mainContent)
 	}
-
-	// Combine sidebar and main content horizontally
-	topSection := m.layoutHorizontal(
-		m.sidebar.View(),
-		mainContent,
-	)
-
+	
+	// Join sidebar and main content horizontally
+	topSection := lipgloss.JoinHorizontal(lipgloss.Top, sidebar, mainContent)
+	
 	// Add status bar at the bottom
-	content.WriteString(topSection)
-	content.WriteString("\n")
-	content.WriteString(m.statusBar.View())
-
-	return content.String()
+	fullView := lipgloss.JoinVertical(lipgloss.Left, topSection, m.statusBar.View())
+	
+	return fullView
 }
 
 // layoutHorizontal combines two views side by side
