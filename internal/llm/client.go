@@ -198,10 +198,12 @@ func (c *LMStudioClient) Stream(ctx context.Context, messages []Message, onChunk
 
 // Model represents an available model in LM Studio.
 type Model struct {
-	ID      string `json:"id"`
-	Object  string `json:"object"`
-	OwnedBy string `json:"owned_by"`
-	Created int64  `json:"created"`
+	ID      string    `json:"id"`
+	Object  string    `json:"object"`
+	OwnedBy string    `json:"owned_by"`
+	Created int64     `json:"created"`
+	Name    string    `json:"name"` // Human-friendly name
+	Size    ModelSize `json:"size"` // Model size category
 }
 
 // ModelsResponse represents the response from /v1/models.
@@ -241,10 +243,22 @@ func (c *LMStudioClient) GetModels() ([]Model, error) {
 		return nil, fmt.Errorf("failed to decode models response: %w", err)
 	}
 
+	// Enhance models with size detection
+	for i := range modelsResp.Data {
+		model := &modelsResp.Data[i]
+		model.Size = DetectModelSize(model.ID)
+		model.Name = model.ID // Default name to ID
+	}
+
 	return modelsResp.Data, nil
 }
 
 // SetModel sets the model to use for completions.
 func (c *LMStudioClient) SetModel(modelID string) {
 	c.model = modelID
+}
+
+// SetEndpoint sets the base URL for the LM Studio API.
+func (c *LMStudioClient) SetEndpoint(endpoint string) {
+	c.baseURL = endpoint
 }

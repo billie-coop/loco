@@ -15,6 +15,7 @@ import (
 
 // ModelTeam represents the S/M/L model configuration for a session.
 type ModelTeam struct {
+	Name   string `json:"name"`
 	Small  string `json:"small"`
 	Medium string `json:"medium"`
 	Large  string `json:"large"`
@@ -248,4 +249,34 @@ func (m *Manager) generateTitle(firstMessage string) string {
 	title = strings.ReplaceAll(title, "\n", " ")
 
 	return title
+}
+
+// GetPredefinedTeams returns a list of predefined model teams
+func GetPredefinedTeams() []*ModelTeam {
+	return []*ModelTeam{
+		{
+			Name:   "Qwen Team",
+			Small:  "qwen2.5-coder:1.5b",
+			Medium: "qwen2.5-coder:7b",
+			Large:  "qwen2.5-coder:32b",
+		},
+		{
+			Name:   "DeepSeek Team",
+			Small:  "deepseek-coder-v2:16b",
+			Medium: "deepseek-coder-v2:16b",
+			Large:  "deepseek-coder-v2:236b",
+		},
+		{
+			Name:   "Llama Team",
+			Small:  "llama3.2:3b",
+			Medium: "llama3.1:8b",
+			Large:  "llama3.1:70b",
+		},
+		{
+			Name:   "Mistral Team",
+			Small:  "mistral:7b",
+			Medium: "mixtral:8x7b",
+			Large:  "mixtral:8x22b",
+		},
+	}
 }
