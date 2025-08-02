@@ -84,6 +84,11 @@ func (m *messageCmp) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 // View implements tea.ViewModel
 func (m *messageCmp) View() string {
+	// Early return if no width
+	if m.width <= 0 {
+		return ""
+	}
+	
 	var sb strings.Builder
 	
 	// Style based on role
@@ -273,6 +278,16 @@ func (ml *MessageListModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (ml *MessageListModel) SetSize(width, height int) tea.Cmd {
 	ml.width = width
 	ml.height = height
+	
+	// Update all existing items with new width
+	itemWidth := width - 2
+	items := ml.list.Items()
+	for _, item := range items {
+		if mc, ok := item.(*messageCmp); ok {
+			mc.width = itemWidth
+		}
+	}
+	
 	// Subtract padding like Crush does
 	return ml.list.SetSize(width-2, height-1)
 }
@@ -374,11 +389,17 @@ func (ml *MessageListModel) refreshContent() {
 	// Convert messages to items
 	items := make([]MessageItem, 0, len(ml.messages))
 	
+	// Calculate item width (accounting for list padding)
+	itemWidth := ml.width - 2
+	if itemWidth <= 0 {
+		itemWidth = 80 // fallback
+	}
+	
 	for i, msg := range ml.messages {
 		item := NewMessageCmp(msg, ml.messagesMeta[i], ml.showDebug, ml.toolRegistry)
 		if mc, ok := item.(*messageCmp); ok {
 			mc.SetIndex(i)
-			mc.width = ml.width
+			mc.width = itemWidth
 		}
 		items = append(items, item)
 	}
@@ -397,7 +418,7 @@ func (ml *MessageListModel) refreshContent() {
 		if mc, ok := streamingItem.(*messageCmp); ok {
 			mc.SetIndex(len(items))
 			mc.SetStreaming(true, ml.streamingMsg)
-			mc.width = ml.width
+			mc.width = itemWidth
 			mc.spinner = ml.spinner
 		}
 		items = append(items, streamingItem)

@@ -238,16 +238,24 @@ func (l *list[T]) renderIterator() string {
 
 func (l *list[T]) renderItem(item T) renderedItem {
 	// Ensure item has correct size
-	if w, _ := item.GetSize(); w != l.width {
+	if w, _ := item.GetSize(); w != l.width || w == 0 {
 		item.SetSize(l.width, 0)
 	}
 	
 	// Get the view (item implements ViewModel)
 	view := item.View()
+	
+	// If view is empty, there might be a width issue
+	if view == "" && l.width > 0 {
+		// Try setting size again
+		item.SetSize(l.width, 0)
+		view = item.View()
+	}
+	
 	return renderedItem{
 		id:     item.ID(),
 		view:   view,
-		height: lipgloss.Height(view),
+		height: max(1, lipgloss.Height(view)), // Ensure minimum height of 1
 	}
 }
 
@@ -330,12 +338,13 @@ func (l *list[T]) SetItems(items []T) tea.Cmd {
 	l.rendered = ""
 	l.offset = 0
 	
-	// Initialize all items
+	// Initialize all items and set their size
 	var cmds []tea.Cmd
 	for _, item := range items {
 		cmds = append(cmds, item.Init())
-		if l.width > 0 && l.height > 0 {
-			cmds = append(cmds, item.SetSize(l.width, l.height))
+		// Always set size if we have a width, even if height is 0
+		if l.width > 0 {
+			cmds = append(cmds, item.SetSize(l.width, 0))
 		}
 	}
 	cmds = append(cmds, l.render())
@@ -349,8 +358,9 @@ func (l *list[T]) AppendItem(item T) tea.Cmd {
 	
 	l.items.Append(item)
 	
-	if l.width > 0 && l.height > 0 {
-		cmds = append(cmds, item.SetSize(l.width, l.height))
+	// Always set size if we have a width
+	if l.width > 0 {
+		cmds = append(cmds, item.SetSize(l.width, 0))
 	}
 	
 	cmds = append(cmds, l.render())
