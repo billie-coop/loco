@@ -55,6 +55,7 @@ const (
 	// Command events
 	SlashCommandEvent       EventType = "command.slash"
 	TabCompletionEvent      EventType = "command.tab"
+	CommandSelectedEvent    EventType = "command.selected"
 )
 
 // Event represents an event in the system
@@ -108,4 +109,8 @@ type ToolExecutionPayload struct {
 type DialogPayload struct {
 	DialogID string
 	Data     interface{}
+}
+
+type CommandSelectedPayload struct {
+	Command string
 }

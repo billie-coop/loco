@@ -94,42 +94,33 @@ func (d *BaseDialog) RenderDialog(content string) string {
 		return ""
 	}
 
-	// Calculate dialog dimensions (centered, 2/3 of terminal size)
-	dialogWidth := d.Width * 2 / 3
-	dialogHeight := d.Height * 2 / 3
+	// Render title if present
+	var dialogContent string
+	if d.title != "" {
+		title := d.titleStyle.Render(d.title)
+		dialogContent = lipgloss.JoinVertical(lipgloss.Left, title, content)
+	} else {
+		dialogContent = content
+	}
 
-	// Render title
-	title := d.titleStyle.Render(d.title)
+	// Apply border and padding - let it size to content
+	dialog := d.borderStyle.Render(dialogContent)
 
-	// Apply content styling
-	styledContent := d.contentStyle.
-		Width(dialogWidth - 4). // Account for padding and borders
-		Height(dialogHeight - 6). // Account for title, padding, borders
-		Render(content)
+	// Create overlay background
+	overlay := d.overlayStyle.
+		Width(d.Width).
+		Height(d.Height)
 
-	// Combine title and content
-	dialogContent := lipgloss.JoinVertical(lipgloss.Left, title, styledContent)
-
-	// Apply border and padding
-	dialog := d.borderStyle.
-		Width(dialogWidth).
-		Height(dialogHeight).
-		Render(dialogContent)
-
-	// Center the dialog
-	centered := lipgloss.Place(
+	// Center the dialog on the overlay
+	overlayView := overlay.Render(lipgloss.Place(
 		d.Width,
 		d.Height,
 		lipgloss.Center,
 		lipgloss.Center,
 		dialog,
-	)
+	))
 
-	// Apply overlay background
-	return d.overlayStyle.
-		Width(d.Width).
-		Height(d.Height).
-		Render(centered)
+	return overlayView
 }
 
 // HandleEscape handles the escape key

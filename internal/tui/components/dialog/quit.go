@@ -58,6 +58,9 @@ func (d *QuitDialog) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		switch msg.String() {
+		case "ctrl+c":
+			// Ctrl+C while dialog is open = confirm quit (double Ctrl+C pattern)
+			return d, tea.Quit
 		case "esc", "n", "N":
 			// Close dialog without quitting
 			return d, d.Close()
@@ -85,13 +88,6 @@ func (d *QuitDialog) View() string {
 	if !d.isOpen {
 		return ""
 	}
-
-	// Render the title
-	titleStyle := lipgloss.NewStyle().
-		Bold(true).
-		Foreground(lipgloss.Color("86")).
-		MarginBottom(1)
-	title := titleStyle.Render("Quit Loco?")
 
 	question := d.questionStyle.Render("Are you sure you want to quit?")
 
@@ -121,37 +117,22 @@ func (d *QuitDialog) View() string {
 		Align(lipgloss.Right).
 		Render(buttons)
 
+	// Add help text
+	helpStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("241")).
+		Italic(true)
+	helpText := helpStyle.Render("Ctrl+C again to quit • Esc to cancel")
+
 	// Join all elements vertically
 	content := lipgloss.JoinVertical(
 		lipgloss.Center,
-		title,
 		question,
 		"",
 		buttonsContainer,
+		"",
+		helpText,
 	)
 
-	// Create a smaller custom dialog - much smaller than base dialog default
-	dialogStyle := lipgloss.NewStyle().
-		Padding(1, 3).
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color("205"))
-
-	dialog := dialogStyle.Render(content)
-
-	// Create overlay with semi-transparent background
-	overlay := lipgloss.NewStyle().
-		Width(d.Width).
-		Height(d.Height).
-		Background(lipgloss.Color("0"))
-
-	// Place the dialog centered on the overlay
-	overlayView := overlay.Render(lipgloss.Place(
-		d.Width,
-		d.Height,
-		lipgloss.Center,
-		lipgloss.Center,
-		dialog,
-	))
-
-	return overlayView
+	// Use the base dialog renderer which now auto-sizes
+	return d.RenderDialog(content)
 }

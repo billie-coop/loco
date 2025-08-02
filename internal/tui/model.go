@@ -244,6 +244,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "ctrl+l":
 			m.clearMessages()
 			return m, nil
+		case "ctrl+p":
+			// Open command palette
+			return m, m.dialogManager.OpenDialog(dialog.CommandPaletteDialogType)
 		case "enter":
 			if !m.input.IsEmpty() && !m.isStreaming {
 				if m.input.IsSlashCommand() {
@@ -883,6 +886,19 @@ func (m *Model) handleEvent(event events.Event) (tea.Model, tea.Cmd) {
 			// Show permissions dialog
 			m.dialogManager.SetToolRequest(payload.ToolName, payload.Args, payload.ID)
 			cmds = append(cmds, m.dialogManager.OpenDialog(dialog.PermissionsDialogType))
+		}
+	
+	case events.CommandSelectedEvent:
+		if payload, ok := event.Payload.(events.CommandSelectedPayload); ok {
+			// Handle command from command palette
+			if strings.HasPrefix(payload.Command, "/") {
+				// It's a slash command
+				return m.handleSlashCommand(payload.Command)
+			} else if payload.Command == "ctrl+l" {
+				// Clear messages
+				m.clearMessages()
+			}
+			// Other keyboard shortcuts would be handled by the normal key handling
 		}
 	}
 

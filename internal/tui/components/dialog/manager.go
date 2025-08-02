@@ -11,11 +11,12 @@ import (
 type DialogType string
 
 const (
-	ModelSelectDialogType DialogType = "model_select"
-	TeamSelectDialogType  DialogType = "team_select"
-	SettingsDialogType    DialogType = "settings"
-	PermissionsDialogType DialogType = "permissions"
-	QuitDialogType        DialogType = "quit"
+	ModelSelectDialogType   DialogType = "model_select"
+	TeamSelectDialogType    DialogType = "team_select"
+	SettingsDialogType      DialogType = "settings"
+	PermissionsDialogType   DialogType = "permissions"
+	QuitDialogType          DialogType = "quit"
+	CommandPaletteDialogType DialogType = "command_palette"
 )
 
 // Manager manages all dialogs in the application
@@ -40,6 +41,7 @@ func NewManager(eventBroker *events.Broker) *Manager {
 	m.dialogs[SettingsDialogType] = NewSettingsDialog(eventBroker)
 	m.dialogs[PermissionsDialogType] = NewPermissionsDialog(eventBroker)
 	m.dialogs[QuitDialogType] = NewQuitDialog(eventBroker)
+	m.dialogs[CommandPaletteDialogType] = NewCommandPaletteDialog(eventBroker)
 
 	return m
 }
