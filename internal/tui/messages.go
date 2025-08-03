@@ -36,14 +36,30 @@ func (m *Model) clearMessages() {
 	m.messages.Clear()
 	m.messagesMeta = csync.NewMap[int, *chat.MessageMetadata]()
 	m.syncMessagesToComponents()
-	m.showStatus("Messages cleared")
+	
+	// Clear session messages too
+	if m.app.Sessions != nil {
+		if err := m.app.Sessions.ClearMessages(); err != nil {
+			m.showStatus("⚠️ Failed to clear session: " + err.Error())
+		} else {
+			m.showStatus("Messages cleared")
+		}
+	} else {
+		m.showStatus("Messages cleared")
+	}
 	
 	// Add welcome message
-	m.messages.Append(llm.Message{
+	welcomeMsg := llm.Message{
 		Role:    "system",
 		Content: "💬 Chat cleared. Ready for a new conversation!",
-	})
+	}
+	m.messages.Append(welcomeMsg)
 	m.syncMessagesToComponents()
+	
+	// Save welcome message to session
+	if m.app.Sessions != nil {
+		m.app.Sessions.AddMessage(welcomeMsg)
+	}
 }
 
 // addSystemMessage adds a system message

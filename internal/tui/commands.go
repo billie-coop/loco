@@ -21,21 +21,28 @@ func (m *Model) handleSendMessage(content string) tea.Cmd {
 		return m.handleCommand(content)
 	}
 
-	// Add user message
-	m.messages.Append(llm.Message{
+	// Create user message
+	userMsg := llm.Message{
 		Role:    "user",
 		Content: content,
-	})
+	}
+	
+	// Add to TUI state
+	m.messages.Append(userMsg)
 	m.syncMessagesToComponents()
+	
+	// Add to session (this auto-saves to JSON!)
+	if m.app.Sessions != nil {
+		if err := m.app.Sessions.AddMessage(userMsg); err != nil {
+			m.showStatus("⚠️ Failed to save message: " + err.Error())
+		}
+	}
 
 	// Publish user message event
 	m.eventBroker.PublishAsync(events.Event{
 		Type: events.UserMessageEvent,
 		Payload: events.MessagePayload{
-			Message: llm.Message{
-				Role:    "user",
-				Content: content,
-			},
+			Message: userMsg,
 		},
 	})
 

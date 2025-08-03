@@ -158,6 +158,19 @@ func (m *Manager) GetMessages() ([]llm.Message, error) {
 	return session.Messages.ToSlice(), nil
 }
 
+// ClearMessages clears all messages from the current session.
+func (m *Manager) ClearMessages() error {
+	session, err := m.GetCurrent()
+	if err != nil {
+		return err
+	}
+	
+	session.Messages.Clear()
+	session.LastUpdated = time.Now()
+	
+	return m.saveSession(session)
+}
+
 // UpdateCurrentMessages replaces all messages in the current session.
 func (m *Manager) UpdateCurrentMessages(messages []llm.Message) error {
 	session, err := m.GetCurrent()
@@ -243,7 +256,15 @@ func (m *Manager) saveSession(session *Session) error {
 		return err
 	}
 
-	return os.WriteFile(sessionPath, data, 0o644)
+	// Atomic write: write to temp file then rename
+	// This prevents corruption if the app crashes mid-write
+	tempPath := sessionPath + ".tmp"
+	if err := os.WriteFile(tempPath, data, 0o644); err != nil {
+		return err
+	}
+
+	// Rename is atomic on most filesystems
+	return os.Rename(tempPath, sessionPath)
 }
 
 func (m *Manager) generateID() string {

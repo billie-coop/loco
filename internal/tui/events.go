@@ -102,6 +102,13 @@ func (m *Model) handleEvent(event events.Event) (tea.Model, tea.Cmd) {
 		if payload, ok := event.Payload.(events.MessagePayload); ok {
 			m.messages.Append(payload.Message)
 			m.syncMessagesToComponents()
+			
+			// Save to session
+			if m.app.Sessions != nil {
+				if err := m.app.Sessions.AddMessage(payload.Message); err != nil {
+					m.showStatus("⚠️ Failed to save system message: " + err.Error())
+				}
+			}
 		}
 	
 	case events.AssistantMessageEvent:
@@ -117,6 +124,14 @@ func (m *Model) handleEvent(event events.Event) (tea.Model, tea.Cmd) {
 			// Add the assistant message
 			m.messages.Append(payload.Message)
 			m.syncMessagesToComponents()
+			
+			// Save to session
+			if m.app.Sessions != nil {
+				if err := m.app.Sessions.AddMessage(payload.Message); err != nil {
+					m.showStatus("⚠️ Failed to save assistant message: " + err.Error())
+				}
+			}
+			
 			m.showStatus("Ready")
 		}
 
