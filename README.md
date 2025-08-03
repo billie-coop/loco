@@ -61,6 +61,8 @@ $ loco
 - Session management for multiple conversations
 - File tools (read, write, list) with safety confirmations
 - 3-tier progressive analysis: Quick (2s) → Detailed (30s) → Knowledge (2-5min)
+- Unified tool architecture where everything (commands, agent actions) is a tool
+- Commands: `/copy`, `/clear`, `/help`, `/analyze`, and more
 
 **🚧 DDAID Features (In Development):**
 - Git hash-based incremental file analysis

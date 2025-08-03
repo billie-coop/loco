@@ -36,6 +36,7 @@ We just started! This is a fresh Go rewrite of the [Deno version](https://github
 - **Test-as-Roadmap** - Skip-driven development
 - **Interface-based** - Easy to mock for testing
 - **No frameworks** - Just stdlib + minimal deps
+- **Unified Tool Architecture** - Everything is a tool (commands, agent actions, etc.)
 
 ## Project Structure
 
@@ -92,6 +93,34 @@ Good luck! The compiler is your friend! 🚂
 
 - **Don't run commands automatically** - I prefer to run things myself (like `make run`, `make test`, etc.) unless I specifically ask you to run them
 - Just tell me what command to run and I'll do it!
+
+## Unified Tool Architecture
+
+As of recent refactoring, Loco uses a **unified tool architecture** where everything is a tool:
+
+### The Flow:
+```
+User Input (/copy 3) → UserInputRouter → ToolCall{name:"copy", params:{count:3}} → ToolExecutor → CopyTool → Events → UI Update
+Agent Call → ToolCall → ToolExecutor → Tool → Result
+```
+
+### Key Components:
+- **UserInputRouter** (`internal/app/input_router.go`) - Parses user input into tool calls
+- **ToolExecutor** (`internal/app/tool_executor.go`) - Executes any tool from any source
+- **Tools** (`internal/tools/`) - All operations are tools (copy, clear, help, chat, analyze, etc.)
+
+### Benefits:
+- Single execution path for all operations
+- Commands are just syntactic sugar for tool calls
+- Easy to add new features (just add a tool)
+- Consistent permissions and error handling
+- Agent and user commands use same infrastructure
+
+### Adding a New Command:
+1. Create a new tool in `internal/tools/`
+2. Register it in `app.go`
+3. Add routing in `input_router.go`
+4. That's it! The tool will work from both user commands and agent calls
 
 ## UI Display Rules - CRITICAL!
 
