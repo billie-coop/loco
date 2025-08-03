@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"fmt"
 	"time"
 	
 	"github.com/billie-coop/loco/internal/llm"
@@ -49,6 +50,7 @@ func (m *Model) handleEvent(event events.Event) (tea.Model, tea.Cmd) {
 		m.isStreaming = true
 		m.streamingMessage = ""
 		m.messageList.SetStreamingState(true, "")
+		m.sidebar.SetStreamingState(true)
 		m.showStatus("Loco is thinking...")
 
 	case events.StreamChunkEvent:
@@ -67,7 +69,8 @@ func (m *Model) handleEvent(event events.Event) (tea.Model, tea.Cmd) {
 		m.isStreaming = false
 		m.streamingMessage = ""
 		m.messageList.SetStreamingState(false, "")
-		m.syncMessagesToComponents()
+		m.sidebar.SetStreamingState(false)
+		m.syncStateToComponents()
 		m.showStatus("Ready")
 
 	case events.ErrorMessageEvent:
@@ -78,17 +81,25 @@ func (m *Model) handleEvent(event events.Event) (tea.Model, tea.Cmd) {
 				m.isStreaming = false
 				m.streamingMessage = ""
 				m.messageList.SetStreamingState(false, "")
+				m.sidebar.SetStreamingState(false)
 			}
 
 			// Show error in status
 			m.showStatus("❌ " + payload.Message)
+			m.sidebar.SetError(fmt.Errorf(payload.Message))
 
 			// Optionally add error as system message
-			m.messages.Append(llm.Message{
+			errorMsg := llm.Message{
 				Role:    "system",
 				Content: "❌ Error: " + payload.Message,
-			})
-			m.syncMessagesToComponents()
+			}
+			m.messages.Append(errorMsg)
+			m.syncStateToComponents()
+			
+			// Save to session
+			if m.app.Sessions != nil {
+				m.app.Sessions.AddMessage(errorMsg)
+			}
 		}
 
 	case events.StatusMessageEvent:
@@ -101,7 +112,7 @@ func (m *Model) handleEvent(event events.Event) (tea.Model, tea.Cmd) {
 		// Handle system messages
 		if payload, ok := event.Payload.(events.MessagePayload); ok {
 			m.messages.Append(payload.Message)
-			m.syncMessagesToComponents()
+			m.syncStateToComponents()
 			
 			// Save to session
 			if m.app.Sessions != nil {
@@ -123,7 +134,7 @@ func (m *Model) handleEvent(event events.Event) (tea.Model, tea.Cmd) {
 			
 			// Add the assistant message
 			m.messages.Append(payload.Message)
-			m.syncMessagesToComponents()
+			m.syncStateToComponents()
 			
 			// Save to session
 			if m.app.Sessions != nil {

@@ -21,14 +21,23 @@ func (m *Model) syncMessagesToComponents() {
 	})
 	m.messageList.SetMessageMeta(meta)
 	
-	// TODO: Sync to sidebar when methods are available
+	// Sync to sidebar for message counts
+	m.sidebar.SetMessages(messages)
 }
 
 // syncStateToComponents syncs all state to components
 func (m *Model) syncStateToComponents() {
 	m.syncMessagesToComponents()
 	
-	// TODO: Sync other state when methods are available
+	// Sync session manager to sidebar
+	if m.app.Sessions != nil {
+		m.sidebar.SetSessionManager(m.app.Sessions)
+	}
+	
+	// Sync streaming state
+	m.sidebar.SetStreamingState(m.isStreaming)
+	
+	// TODO: Sync model info when available from LLM service
 }
 
 // clearMessages clears all messages

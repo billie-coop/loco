@@ -104,20 +104,22 @@ func (m *Model) Init() tea.Cmd {
 	// ALWAYS set component sizes during init to ensure proper layout
 	cmds = append(cmds, m.resizeComponents())
 	
-	// Sync messages to components after setting sizes
-	m.syncMessagesToComponents()
-
 	// Load session messages from app
 	if m.app.Sessions != nil {
+		// Set the session manager in sidebar
+		m.sidebar.SetSessionManager(m.app.Sessions)
+		
 		currentSession, err := m.app.Sessions.GetCurrent()
 		if err == nil && currentSession != nil {
 			// Load existing messages from session
 			if messages, err := m.app.Sessions.GetMessages(); err == nil {
 				m.messages.Replace(messages)
-				m.syncMessagesToComponents()
 			}
 		}
 	}
+	
+	// Sync all state to components after loading
+	m.syncStateToComponents()
 
 	// Show welcome message in status bar only
 	m.eventBroker.PublishAsync(events.Event{

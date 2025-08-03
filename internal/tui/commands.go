@@ -29,7 +29,7 @@ func (m *Model) handleSendMessage(content string) tea.Cmd {
 	
 	// Add to TUI state
 	m.messages.Append(userMsg)
-	m.syncMessagesToComponents()
+	m.syncStateToComponents()
 	
 	// Add to session (this auto-saves to JSON!)
 	if m.app.Sessions != nil {
