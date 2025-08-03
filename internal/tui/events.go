@@ -60,13 +60,9 @@ func (m *Model) handleEvent(event events.Event) (tea.Model, tea.Cmd) {
 
 	case events.StreamEndEvent:
 		// Handle stream end
-		if m.streamingMessage != "" {
-			m.messages.Append(llm.Message{
-				Role:    "assistant",
-				Content: m.streamingMessage,
-			})
-		}
-
+		// Note: The assistant message is now added via AssistantMessageEvent
+		// from the LLM service, so we just clear the streaming state here
+		
 		// Clear streaming state
 		m.isStreaming = false
 		m.streamingMessage = ""
@@ -106,6 +102,22 @@ func (m *Model) handleEvent(event events.Event) (tea.Model, tea.Cmd) {
 		if payload, ok := event.Payload.(events.MessagePayload); ok {
 			m.messages.Append(payload.Message)
 			m.syncMessagesToComponents()
+		}
+	
+	case events.AssistantMessageEvent:
+		// Handle assistant messages (separate from streaming)
+		if payload, ok := event.Payload.(events.MessagePayload); ok {
+			// Clear any streaming state first
+			if m.isStreaming {
+				m.isStreaming = false
+				m.streamingMessage = ""
+				m.messageList.SetStreamingState(false, "")
+			}
+			
+			// Add the assistant message
+			m.messages.Append(payload.Message)
+			m.syncMessagesToComponents()
+			m.showStatus("Ready")
 		}
 
 	case events.AnalysisStartedEvent:

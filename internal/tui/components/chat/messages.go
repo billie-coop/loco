@@ -112,9 +112,9 @@ func (m *messageCmp) View() string {
 		contentStyle = getSystemStyle()
 	}
 
-	// Add role prefix
+	// Add role prefix with proper spacing
 	sb.WriteString(rolePrefix)
-	sb.WriteString("\n")
+	sb.WriteString("\n\n")
 
 	// Render content
 	content := m.message.Content

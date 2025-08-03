@@ -25,6 +25,8 @@ type InputModel struct {
 	cursorPos   int
 	width       int
 	height      int
+	x           int  // Position on screen
+	y           int  // Position on screen
 	focused     bool
 	enabled     bool
 	
@@ -63,6 +65,19 @@ func (im *InputModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		keyStr := msg.String()
+		
+		// Handle tab for triggering completions
+		if keyStr == "tab" {
+			// Check if we should trigger completions
+			word := im.GetCurrentWord()
+			if strings.HasPrefix(word, "/") && !im.completionsOpen {
+				im.completionsOpen = true
+				im.completionQuery = word
+				return im, im.triggerCompletions()
+			}
+			// Otherwise let tab be handled by completions component if open
+			return im, nil
+		}
 		
 		// Handle space explicitly - Bubble Tea v2 reports it as "space" not " "
 		if keyStr == "space" {
@@ -276,12 +291,16 @@ func (im *InputModel) triggerCompletions() tea.Cmd {
 			{Name: "/quit", Description: "Exit the application"},
 		}
 		
-		// Calculate position for popup (just above input)
-		// TODO: Get actual cursor position from parent
+		// Calculate position for popup
+		// X: position of the cursor in the input field
+		// Y: position of the input field on screen
+		x := im.x + im.cursorPos + 2 // +2 for padding
+		y := im.y
+		
 		return OpenCompletionsMsg{
 			Commands: commands,
-			X:        2, // Approximate position
-			Y:        -3, // Above the input
+			X:        x,
+			Y:        y,
 		}
 	}
 }
@@ -337,4 +356,10 @@ func (im *InputModel) SetCompletionsOpen(open bool) {
 	if !open {
 		im.completionQuery = ""
 	}
+}
+
+// SetPosition sets the screen position of the input component
+func (im *InputModel) SetPosition(x, y int) {
+	im.x = x
+	im.y = y
 }

@@ -119,7 +119,7 @@ func (m *Model) Init() tea.Cmd {
 		}
 	}
 
-	// Show welcome message
+	// Show welcome message in status bar only
 	m.eventBroker.PublishAsync(events.Event{
 		Type: events.StatusMessageEvent,
 		Payload: events.StatusMessagePayload{
@@ -133,14 +133,12 @@ func (m *Model) Init() tea.Cmd {
 		// Small delay to let UI initialize
 		time.Sleep(500 * time.Millisecond)
 		
-		// Add startup message
+		// Just show status, no system message
 		m.eventBroker.PublishAsync(events.Event{
-			Type: events.SystemMessageEvent,
-			Payload: events.MessagePayload{
-				Message: llm.Message{
-					Role:    "system",
-					Content: "⚡ Starting instant project analysis...",
-				},
+			Type: events.StatusMessageEvent,
+			Payload: events.StatusMessagePayload{
+				Message: "⚡ Starting project analysis...",
+				Type:    "info",
 			},
 		})
 		
@@ -247,6 +245,22 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	}
 
+	// Check if completions are open and need to handle special keys
+	if m.completions.IsOpen() {
+		if keyMsg, ok := msg.(tea.KeyMsg); ok {
+			switch keyMsg.String() {
+			case "tab", "up", "down", "enter", "esc":
+				// Route these keys to completions when they're open
+				compModel, cmd := m.completions.Update(msg)
+				if cm, ok := compModel.(*completions.CompletionsModel); ok {
+					m.completions = cm
+				}
+				cmds = append(cmds, cmd)
+				return m, tea.Batch(cmds...)
+			}
+		}
+	}
+	
 	// Update components
 	// Always update message list for scrolling
 	listModel, cmd := m.messageList.Update(msg)
@@ -282,6 +296,13 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	statusModel, cmd := m.statusBar.Update(msg)
 	if sb, ok := statusModel.(*status.Component); ok {
 		m.statusBar = sb
+	}
+	cmds = append(cmds, cmd)
+	
+	// Update completions (for window size changes, etc)
+	compModel, cmd := m.completions.Update(msg)
+	if cm, ok := compModel.(*completions.CompletionsModel); ok {
+		m.completions = cm
 	}
 	cmds = append(cmds, cmd)
 
@@ -331,6 +352,13 @@ func (m *Model) View() string {
 		Width(mainWidth - 2). // Account for border
 		Height(inputHeight - 2) // Account for border
 
+	// Calculate input position for completions
+	// The input is inside a bordered box at the bottom
+	// We need the absolute Y position on the screen
+	inputY := messageHeight + 2 // +2 for message border and spacing
+	inputX := sidebarWidth + 2 // +2 for the border and padding
+	m.input.SetPosition(inputX, inputY)
+	
 	// Render components with borders
 	sidebar := sidebarStyle.Render(m.sidebar.View())
 	messages := messageAreaStyle.Render(m.messageList.View())
@@ -339,18 +367,30 @@ func (m *Model) View() string {
 	// Stack messages and input vertically
 	mainContent := lipgloss.JoinVertical(lipgloss.Left, messages, input)
 	
-	// If completions are open, overlay them
-	if m.completions.IsOpen() {
-		mainContent = m.overlayCompletions(mainContent)
-	}
-	
 	// Join sidebar and main content horizontally
 	topSection := lipgloss.JoinHorizontal(lipgloss.Top, sidebar, mainContent)
 	
 	// Add status bar at the bottom
-	fullView := lipgloss.JoinVertical(lipgloss.Left, topSection, m.statusBar.View())
+	baseView := lipgloss.JoinVertical(lipgloss.Left, topSection, m.statusBar.View())
 	
-	return fullView
+	// Use lipgloss layers for completions overlay
+	layers := []*lipgloss.Layer{
+		lipgloss.NewLayer(baseView),
+	}
+	
+	// Add completions layer if open
+	if m.completions.IsOpen() {
+		x, y := m.completions.Position()
+		completionsView := m.completions.View()
+		if completionsView != "" {
+			layers = append(layers,
+				lipgloss.NewLayer(completionsView).X(x).Y(y))
+		}
+	}
+	
+	// Create canvas with layers
+	canvas := lipgloss.NewCanvas(layers...)
+	return canvas.Render()
 }
 
 // layoutHorizontal combines two views side by side
@@ -381,7 +421,6 @@ func (m *Model) layoutHorizontal(left, right string) string {
 
 // overlayCompletions overlays the completions popup on the main content
 func (m *Model) overlayCompletions(content string) string {
-	// For now, just append completions below
-	// TODO: Implement proper overlay positioning
-	return content + "\n" + m.completions.View()
+	// This method is no longer needed - we'll use lipgloss layers instead
+	return content
 }

@@ -156,41 +156,10 @@ func (s *LLMService) IsStreaming() bool {
 	return s.isStreaming
 }
 
-// handleDebugEcho creates a debug echo response with metadata
+// handleDebugEcho creates a simple debug echo response
 func (s *LLMService) handleDebugEcho(userMessage string) {
-	// Create timestamp
-	timestamp := time.Now()
-	
-	// Create debug response with metadata
-	debugResponse := fmt.Sprintf(`🤖 DEBUG ECHO RESPONSE
-━━━━━━━━━━━━━━━━━━━━━
-📥 Input: "%s"
-📏 Length: %d characters
-🔤 Words: %d
-⏰ Time: %s
-🆔 Message ID: %d
-━━━━━━━━━━━━━━━━━━━━━
-
-📋 METADATA:
-• Spaces detected: %d
-• Has slash command: %v
-• Starts with capital: %v
-• Contains numbers: %v
-
-🔄 ECHO: %s
-
-🎯 This is a debug echo response showing message metadata!`,
-		userMessage,
-		len(userMessage),
-		len(strings.Fields(userMessage)),
-		timestamp.Format("15:04:05.000"),
-		timestamp.UnixNano(),
-		strings.Count(userMessage, " "),
-		strings.HasPrefix(userMessage, "/"),
-		len(userMessage) > 0 && userMessage[0] >= 'A' && userMessage[0] <= 'Z',
-		strings.ContainsAny(userMessage, "0123456789"),
-		userMessage,
-	)
+	// Simple, clean response
+	debugResponse := fmt.Sprintf("Echo: %s", userMessage)
 	
 	// Simulate streaming by sending it in chunks
 	go func() {

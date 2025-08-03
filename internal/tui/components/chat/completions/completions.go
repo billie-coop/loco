@@ -226,8 +226,13 @@ func (c *CompletionsModel) IsOpen() bool {
 }
 
 func (c *CompletionsModel) Position() (int, int) {
-	// Return position adjusted for popup height
-	return c.x, c.y - c.height
+	// Return position adjusted for popup height to appear above input
+	// The y position should be above the input area
+	adjustedY := c.y - c.height - 1
+	if adjustedY < 0 {
+		adjustedY = 0
+	}
+	return c.x, adjustedY
 }
 
 func (c *CompletionsModel) Dimensions() (int, int) {

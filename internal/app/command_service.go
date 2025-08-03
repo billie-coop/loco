@@ -285,13 +285,14 @@ func (s *CommandService) handleAnalyze(args []string) {
 		if analyser, ok := result.(interface{ FormatForPrompt() string }); ok {
 			content := analyser.FormatForPrompt()
 			
-			// Create system message with results
+			// For now, send as a clean system message
+			// TODO: Later we can make this a proper tool call when we have tool rendering working
 			s.eventBroker.Publish(events.Event{
 				Type: events.SystemMessageEvent,
 				Payload: events.MessagePayload{
 					Message: llm.Message{
 						Role:    "system",
-						Content: "## " + strings.Title(tier) + " Analysis Results\n\n" + content,
+						Content: fmt.Sprintf("📊 %s Analysis Complete\n\n%s", strings.Title(tier), content),
 					},
 				},
 			})

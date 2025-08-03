@@ -3,6 +3,7 @@ package analysis
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -153,23 +154,109 @@ func (a *FullAnalysis) GetProjectPath() string { return a.ProjectPath }
 func (a *FullAnalysis) GetKnowledgeFiles() map[string]string { return a.KnowledgeFiles }
 func (a *FullAnalysis) GetDuration() time.Duration { return a.Duration }
 
-// FormatForPrompt implementations
+// FormatForPrompt implementations - return formatted markdown content
 func (a *QuickAnalysis) FormatForPrompt() string {
-	return fmt.Sprintf("Quick Analysis: %s (%s, %s) - %s", 
-		a.ProjectType, a.MainLanguage, a.Framework, a.Description)
+	var sb strings.Builder
+	
+	// Summary section
+	sb.WriteString(fmt.Sprintf("## Summary\n%s\n\n", a.Description))
+	
+	// Key info
+	sb.WriteString("## Project Info\n")
+	sb.WriteString(fmt.Sprintf("- **Type**: %s\n", a.ProjectType))
+	sb.WriteString(fmt.Sprintf("- **Language**: %s\n", a.MainLanguage))
+	if a.Framework != "" {
+		sb.WriteString(fmt.Sprintf("- **Framework**: %s\n", a.Framework))
+	}
+	sb.WriteString(fmt.Sprintf("- **Files**: %d total (%d code)\n\n", a.TotalFiles, a.CodeFiles))
+	
+	// Knowledge files generated
+	if len(a.KnowledgeFiles) > 0 {
+		sb.WriteString("## Knowledge Files Generated\n")
+		for file := range a.KnowledgeFiles {
+			sb.WriteString(fmt.Sprintf("- `%s`\n", file))
+		}
+	}
+	
+	return sb.String()
 }
 
 func (a *DetailedAnalysis) FormatForPrompt() string {
-	return fmt.Sprintf("Detailed Analysis: %s\nArchitecture: %s\nTech Stack: %v", 
-		a.Description, a.Architecture, a.TechStack)
+	var sb strings.Builder
+	
+	sb.WriteString(fmt.Sprintf("## Summary\n%s\n\n", a.Description))
+	
+	sb.WriteString("## Architecture\n")
+	sb.WriteString(fmt.Sprintf("%s\n\n", a.Architecture))
+	
+	if len(a.TechStack) > 0 {
+		sb.WriteString("## Tech Stack\n")
+		for _, tech := range a.TechStack {
+			sb.WriteString(fmt.Sprintf("- %s\n", tech))
+		}
+		sb.WriteString("\n")
+	}
+	
+	if len(a.KnowledgeFiles) > 0 {
+		sb.WriteString("## Knowledge Files Updated\n")
+		for file := range a.KnowledgeFiles {
+			sb.WriteString(fmt.Sprintf("- `%s`\n", file))
+		}
+	}
+	
+	return sb.String()
 }
 
 func (a *DeepAnalysis) FormatForPrompt() string {
-	return fmt.Sprintf("Deep Analysis: %s\nArchitecture: %s\nInsights: %v", 
-		a.Description, a.Architecture, a.ArchitecturalInsights)
+	var sb strings.Builder
+	
+	sb.WriteString(fmt.Sprintf("## Summary\n%s\n\n", a.Description))
+	
+	sb.WriteString("## Architecture\n")
+	sb.WriteString(fmt.Sprintf("%s\n\n", a.Architecture))
+	
+	if len(a.ArchitecturalInsights) > 0 {
+		sb.WriteString("## Architectural Insights\n")
+		for _, insight := range a.ArchitecturalInsights {
+			sb.WriteString(fmt.Sprintf("- %s\n", insight))
+		}
+		sb.WriteString("\n")
+	}
+	
+	if len(a.KnowledgeFiles) > 0 {
+		sb.WriteString("## Knowledge Files Updated\n")
+		for file := range a.KnowledgeFiles {
+			sb.WriteString(fmt.Sprintf("- `%s`\n", file))
+		}
+	}
+	
+	return sb.String()
 }
 
 func (a *FullAnalysis) FormatForPrompt() string {
-	return fmt.Sprintf("Full Analysis: %s\nBusiness Value: %s\nRecommendations: %v", 
-		a.Description, a.BusinessValue, a.Recommendations)
+	var sb strings.Builder
+	
+	sb.WriteString(fmt.Sprintf("## Summary\n%s\n\n", a.Description))
+	
+	if a.BusinessValue != "" {
+		sb.WriteString("## Business Value\n")
+		sb.WriteString(fmt.Sprintf("%s\n\n", a.BusinessValue))
+	}
+	
+	if len(a.Recommendations) > 0 {
+		sb.WriteString("## Recommendations\n")
+		for _, rec := range a.Recommendations {
+			sb.WriteString(fmt.Sprintf("- %s\n", rec))
+		}
+		sb.WriteString("\n")
+	}
+	
+	if len(a.KnowledgeFiles) > 0 {
+		sb.WriteString("## Knowledge Files Updated\n")
+		for file := range a.KnowledgeFiles {
+			sb.WriteString(fmt.Sprintf("- `%s`\n", file))
+		}
+	}
+	
+	return sb.String()
 }
