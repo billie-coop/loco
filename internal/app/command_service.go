@@ -39,6 +39,9 @@ func (s *CommandService) HandleCommand(command string) {
 	var commandResult string
 	
 	switch cmd {
+	case "/help":
+		s.handleHelp()
+		commandResult = "📚 Available commands"
 	case "/clear":
 		s.handleClear()
 		commandResult = "✅ Cleared all messages"
@@ -96,6 +99,42 @@ func (s *CommandService) HandleCommand(command string) {
 			Message: llm.Message{
 				Role:    "system",
 				Content: fmt.Sprintf("🔧 Command: `%s`\n%s", command, commandResult),
+			},
+		},
+	})
+}
+
+// handleHelp shows available commands
+func (s *CommandService) handleHelp() {
+	helpText := `📚 **Available Commands**
+
+**Chat Commands:**
+• /clear - Clear all messages
+• /copy [N] - Copy last N messages to clipboard (default: 1)
+• /help - Show this help message
+
+**Analysis:**
+• /analyze [tier] - Analyze project (quick/detailed/deep/full)
+
+**Settings:**
+• /model [select] - Show current model or open selection dialog
+• /team [select] - Show current team or open selection dialog
+• /debug - Toggle debug mode
+
+**System:**
+• /quit or /exit - Exit the application
+
+**Examples:**
+• /copy 5 - Copy last 5 messages
+• /analyze deep - Run deep analysis
+• /model select - Choose a different model`
+
+	s.eventBroker.Publish(events.Event{
+		Type: events.SystemMessageEvent,
+		Payload: events.MessagePayload{
+			Message: llm.Message{
+				Role:    "system",
+				Content: helpText,
 			},
 		},
 	})
@@ -409,18 +448,41 @@ func (s *CommandService) handleCopy(args []string) {
 
 // copyToClipboard copies text to the system clipboard
 func copyToClipboard(text string) error {
-	var cmd *exec.Cmd
-	
 	// Detect platform and use appropriate command
 	// macOS
-	cmd = exec.Command("pbcopy")
+	cmd := exec.Command("pbcopy")
 	
 	// You could add Linux/Windows support later:
 	// Linux: xclip -selection clipboard
 	// Windows: clip
 	
-	cmd.Stdin = strings.NewReader(text)
-	return cmd.Run()
+	// Set up stdin
+	stdin, err := cmd.StdinPipe()
+	if err != nil {
+		return fmt.Errorf("failed to get stdin pipe: %w", err)
+	}
+	
+	// Start the command
+	if err := cmd.Start(); err != nil {
+		return fmt.Errorf("failed to start pbcopy: %w", err)
+	}
+	
+	// Write the text to stdin
+	if _, err := stdin.Write([]byte(text)); err != nil {
+		return fmt.Errorf("failed to write to pbcopy: %w", err)
+	}
+	
+	// Close stdin
+	if err := stdin.Close(); err != nil {
+		return fmt.Errorf("failed to close stdin: %w", err)
+	}
+	
+	// Wait for the command to finish
+	if err := cmd.Wait(); err != nil {
+		return fmt.Errorf("pbcopy command failed: %w", err)
+	}
+	
+	return nil
 }
 
 // handleQuit quits the application

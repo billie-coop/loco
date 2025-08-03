@@ -98,6 +98,20 @@ func (im *InputModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if im.cursorPos > 0 {
 				im.value = im.value[:im.cursorPos-1] + im.value[im.cursorPos:]
 				im.cursorPos--
+				
+				// Update filter if completions are open
+				if im.completionsOpen {
+					word := im.GetCurrentWord()
+					if strings.HasPrefix(word, "/") {
+						im.completionQuery = word
+						return im, im.filterCompletions()
+					} else {
+						// Close if we've deleted the slash
+						im.completionsOpen = false
+						im.completionQuery = ""
+						return im, im.closeCompletions()
+					}
+				}
 			}
 		case "delete":
 			if im.cursorPos < len(im.value) {
@@ -143,8 +157,20 @@ func (im *InputModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					// Check if we just typed a slash at the beginning or after whitespace
 					if char == '/' && (im.cursorPos == 1 || (im.cursorPos > 1 && im.value[im.cursorPos-2] == ' ')) {
 						im.completionsOpen = true
-						im.completionQuery = ""
+						im.completionQuery = "/"
 						cmd = im.triggerCompletions()
+					} else if im.completionsOpen {
+						// Update filter if completions are open and we're typing
+						word := im.GetCurrentWord()
+						if strings.HasPrefix(word, "/") {
+							im.completionQuery = word
+							cmd = im.filterCompletions()
+						} else {
+							// Close if we're no longer typing a command
+							im.completionsOpen = false
+							im.completionQuery = ""
+							cmd = im.closeCompletions()
+						}
 					}
 					
 					// Close completions on space
@@ -282,12 +308,13 @@ func (im *InputModel) triggerCompletions() tea.Cmd {
 	return func() tea.Msg {
 		// Get available commands
 		commands := []Command{
+			{Name: "/help", Description: "Show available commands"},
 			{Name: "/analyze", Description: "Analyze the current project"},
 			{Name: "/copy", Description: "Copy the last N messages"},
-			{Name: "/help", Description: "Show available commands"},
 			{Name: "/clear", Description: "Clear the message history"},
 			{Name: "/model", Description: "Switch to a different model"},
-			{Name: "/session", Description: "Manage chat sessions"},
+			{Name: "/team", Description: "Show or select team"},
+			{Name: "/debug", Description: "Toggle debug mode"},
 			{Name: "/quit", Description: "Exit the application"},
 		}
 		
@@ -308,7 +335,7 @@ func (im *InputModel) triggerCompletions() tea.Cmd {
 func (im *InputModel) filterCompletions() tea.Cmd {
 	return func() tea.Msg {
 		return FilterCompletionsMsg{
-			Query: im.value,
+			Query: im.completionQuery,
 		}
 	}
 }
