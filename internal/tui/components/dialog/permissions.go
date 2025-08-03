@@ -14,11 +14,12 @@ import (
 type PermissionsDialog struct {
 	*BaseDialog
 
-	toolName    string
-	toolArgs    map[string]interface{}
-	requestID   string
-	decision    string // "approve", "deny", "always", "never"
-	eventBroker *events.Broker
+	toolName       string
+	toolArgs       map[string]interface{}
+	requestID      string
+	decision       string // "approve", "deny", "always", "never"
+	selectedOption int    // 0=Approve, 1=Deny, 2=Always, 3=Never
+	eventBroker    *events.Broker
 
 	// Styling
 	toolStyle     lipgloss.Style
@@ -80,24 +81,46 @@ func (d *PermissionsDialog) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		switch msg.String() {
+		case "left", "h":
+			d.selectedOption = (d.selectedOption + 3) % 4
+			return d, nil
+		case "right", "l":
+			d.selectedOption = (d.selectedOption + 1) % 4
+			return d, nil
+		case "tab":
+			d.selectedOption = (d.selectedOption + 1) % 4
+			return d, nil
 		case "esc":
 			d.decision = "deny"
 			return d, d.publishDecision()
 		case "y", "Y":
+			d.selectedOption = 0
 			d.decision = "approve"
 			return d, d.publishDecision()
 		case "n", "N":
+			d.selectedOption = 1
 			d.decision = "deny"
 			return d, d.publishDecision()
 		case "a", "A":
+			d.selectedOption = 2
 			d.decision = "always"
 			return d, d.publishDecision()
 		case "d", "D":
+			d.selectedOption = 3
 			d.decision = "never"
 			return d, d.publishDecision()
-		case "enter":
-			// Default to approve on enter
-			d.decision = "approve"
+		case "enter", " ":
+			// Select based on current selection
+			switch d.selectedOption {
+			case 0:
+				d.decision = "approve"
+			case 1:
+				d.decision = "deny"
+			case 2:
+				d.decision = "always"
+			case 3:
+				d.decision = "never"
+			}
 			return d, d.publishDecision()
 		}
 	}
@@ -111,21 +134,27 @@ func (d *PermissionsDialog) View() string {
 		return ""
 	}
 
+	theme := styles.CurrentTheme()
 	var content strings.Builder
 
-	// Warning header
-	content.WriteString(d.warningStyle.Render("⚠️  Tool Execution Request") + "\n\n")
+	// Tool name (no duplicate header since BaseDialog has title)
+	content.WriteString("Tool requesting permission:\n")
+	content.WriteString(d.toolStyle.Render(fmt.Sprintf("  🔧 %s", d.toolName)) + "\n\n")
 
-	// Tool name
-	content.WriteString("The AI wants to execute:\n")
-	content.WriteString(d.toolStyle.Render(fmt.Sprintf("  %s", d.toolName)) + "\n\n")
-
-	// Arguments
+	// Arguments - display in a consistent order
 	if len(d.toolArgs) > 0 {
-		content.WriteString("With arguments:\n")
-		for key, value := range d.toolArgs {
-			argLine := fmt.Sprintf("%s: %v", key, value)
-			content.WriteString(d.argsStyle.Render(argLine) + "\n")
+		// Extract specific fields we know about
+		if action, ok := d.toolArgs["action"].(string); ok && action != "" {
+			content.WriteString("Action: ")
+			content.WriteString(theme.S().Info.Render(action) + "\n")
+		}
+		if path, ok := d.toolArgs["path"].(string); ok && path != "" {
+			content.WriteString("Path: ")
+			content.WriteString(theme.S().Muted.Render(path) + "\n")
+		}
+		if desc, ok := d.toolArgs["description"].(string); ok && desc != "" {
+			content.WriteString("Description: ")
+			content.WriteString(theme.S().Text.Render(desc) + "\n")
 		}
 		content.WriteString("\n")
 	}
@@ -135,14 +164,30 @@ func (d *PermissionsDialog) View() string {
 		content.WriteString(d.warningStyle.Render("⚠️  This tool can modify files on your system!") + "\n\n")
 	}
 
-	// Options
-	content.WriteString("Choose an action:\n")
-	content.WriteString(d.optionStyle.Render(d.selectedStyle.Render("[Y]") + " Approve this time\n"))
-	content.WriteString(d.optionStyle.Render(d.selectedStyle.Render("[N]") + " Deny this time\n"))
-	content.WriteString(d.optionStyle.Render(d.selectedStyle.Render("[A]") + " Always allow " + d.toolName + "\n"))
-	content.WriteString(d.optionStyle.Render(d.selectedStyle.Render("[D]") + " Never allow " + d.toolName + "\n"))
-	content.WriteString("\n")
-	content.WriteString(d.argsStyle.Render("Press Enter to approve, Esc to deny"))
+	// Options - properly formatted as buttons
+	content.WriteString("Choose an action:\n\n")
+	
+	// Create button-like appearance for options
+	buttons := []string{
+		fmt.Sprintf(" [Y] Approve once "),
+		fmt.Sprintf(" [N] Deny "),
+		fmt.Sprintf(" [A] Always allow "),
+		fmt.Sprintf(" [D] Never allow "),
+	}
+	
+	for i, button := range buttons {
+		if i == d.selectedOption {
+			content.WriteString(d.selectedStyle.Render(button))
+		} else {
+			content.WriteString(d.optionStyle.Render(button))
+		}
+		if i < len(buttons)-1 {
+			content.WriteString("  ")
+		}
+	}
+	
+	content.WriteString("\n\n")
+	content.WriteString(theme.S().Subtle.Render("↵ Enter to select • Esc to cancel"))
 
 	return d.RenderDialog(content.String())
 }
