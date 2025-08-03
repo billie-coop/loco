@@ -7,8 +7,6 @@ import (
 
 	"github.com/billie-coop/loco/internal/llm"
 	"github.com/billie-coop/loco/internal/session"
-
-	// "github.com/billie-coop/loco/internal/tui/components/anim" // Disabled
 	"github.com/billie-coop/loco/internal/tui/components/core"
 	"github.com/billie-coop/loco/internal/tui/styles"
 	tea "github.com/charmbracelet/bubbletea/v2"
@@ -53,6 +51,9 @@ type SidebarModel struct {
 	projectContext *Context
 	analysisState  *AnalysisState
 	messages       []llm.Message
+	
+	// Timer for analysis tracking
+	analysisTimer  *core.Timer
 
 	// Animation components (disabled)
 	// thinkingSpinner  *anim.Spinner
@@ -69,6 +70,7 @@ var _ core.Sizeable = (*SidebarModel)(nil)
 func NewSidebar() *SidebarModel {
 	return &SidebarModel{
 		modelUsage: make(map[string]int),
+		analysisTimer: core.NewTimer("analysis", 100*time.Millisecond),
 		// thinkingSpinner: anim.NewSpinner(anim.SpinnerGradient).WithLabel("Processing"),
 		// gradientText:    styles.NewAnimatedGradientText("LOCO"),
 		// gradientBar:     anim.NewGradientBar(20),
@@ -89,25 +91,13 @@ func (s *SidebarModel) Init() tea.Cmd {
 
 // Update handles messages for the sidebar
 func (s *SidebarModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	// Handle tick for timer updates
-	switch msg.(type) {
-	case tickMsg:
-		if s.analysisState != nil && s.analysisState.IsRunning {
-			// Return another tick to keep updating
-			return s, s.tick()
+	// Handle timer updates
+	if s.analysisTimer != nil {
+		if cmd := s.analysisTimer.Update(msg); cmd != nil {
+			return s, cmd
 		}
 	}
 	return s, nil
-}
-
-// tickMsg is sent to update the timer
-type tickMsg time.Time
-
-// tick returns a command that sends a tick message after a delay
-func (s *SidebarModel) tick() tea.Cmd {
-	return tea.Tick(100*time.Millisecond, func(t time.Time) tea.Msg {
-		return tickMsg(t)
-	})
 }
 
 // SetSize sets the dimensions of the sidebar
@@ -210,9 +200,13 @@ func (s *SidebarModel) SetProjectContext(ctx *Context) {
 func (s *SidebarModel) SetAnalysisState(state *AnalysisState) tea.Cmd {
 	s.analysisState = state
 
-	// Start timer updates if analysis is running
+	// Start or stop timer based on analysis state
 	if state != nil && state.IsRunning {
-		return s.tick()
+		// Start the timer
+		return s.analysisTimer.Start()
+	} else {
+		// Stop the timer
+		s.analysisTimer.Stop()
 	}
 	return nil
 }
@@ -503,13 +497,11 @@ func (s *SidebarModel) renderAnalysisTiers(content *strings.Builder) {
 		}
 		content.WriteString(dimStyle.Render(phaseText))
 
-		// Show timing for running phase
-		if s.analysisState.CurrentPhase != "complete" && !s.analysisState.StartTime.IsZero() {
-			duration := time.Since(s.analysisState.StartTime)
-			// Format as seconds with one decimal place
-			seconds := duration.Seconds()
+		// Show timing for running phase using the timer
+		if s.analysisState.CurrentPhase != "complete" && s.analysisTimer != nil && s.analysisTimer.IsRunning() {
+			elapsed := s.analysisTimer.Elapsed()
 			content.WriteString("\n")
-			content.WriteString(dimStyle.Render(fmt.Sprintf("⏱️  %.1fs", seconds)))
+			content.WriteString(dimStyle.Render(fmt.Sprintf("⏱️  %s", core.FormatSeconds(elapsed))))
 		}
 	}
 
