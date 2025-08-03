@@ -299,11 +299,6 @@ func (m *Model) View() string {
 		return "Initializing Loco..."
 	}
 
-	// If a dialog is open, render it on top
-	if m.dialogManager.IsDialogOpen() {
-		return m.dialogManager.View()
-	}
-
 	// Use lipgloss to create bordered sections
 	theme := styles.CurrentTheme()
 	
@@ -356,7 +351,7 @@ func (m *Model) View() string {
 	// Add status bar at the bottom
 	baseView := lipgloss.JoinVertical(lipgloss.Left, topSection, m.statusBar.View())
 	
-	// Use lipgloss layers for completions overlay
+	// Use lipgloss layers for overlays
 	layers := []*lipgloss.Layer{
 		lipgloss.NewLayer(baseView),
 	}
@@ -368,6 +363,43 @@ func (m *Model) View() string {
 		if completionsView != "" {
 			layers = append(layers,
 				lipgloss.NewLayer(completionsView).X(x).Y(y))
+		}
+	}
+	
+	// Add dialog layer if open
+	if m.dialogManager.IsDialogOpen() {
+		dialogView := m.dialogManager.View()
+		if dialogView != "" {
+			// Center the dialog on screen
+			dialogWidth := lipgloss.Width(dialogView)
+			dialogHeight := lipgloss.Height(dialogView)
+			x := (m.width - dialogWidth) / 2
+			y := (m.height - dialogHeight) / 2
+			
+			// Add semi-transparent overlay first (dim the background)
+			// Create a dimming overlay with dots or spaces
+			var overlayBuilder strings.Builder
+			for row := 0; row < m.height; row++ {
+				for col := 0; col < m.width; col++ {
+					// Use a pattern to create a dimming effect
+					if (row+col)%2 == 0 {
+						overlayBuilder.WriteString("·") // Middle dot for dimming
+					} else {
+						overlayBuilder.WriteString(" ")
+					}
+				}
+				if row < m.height-1 {
+					overlayBuilder.WriteString("\n")
+				}
+			}
+			
+			overlayStyle := lipgloss.NewStyle().
+				Foreground(lipgloss.Color("238")) // Dark gray for the dots
+			overlay := overlayStyle.Render(overlayBuilder.String())
+			layers = append(layers, lipgloss.NewLayer(overlay))
+			
+			// Then add the dialog on top
+			layers = append(layers, lipgloss.NewLayer(dialogView).X(x).Y(y))
 		}
 	}
 	

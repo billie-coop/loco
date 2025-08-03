@@ -21,7 +21,6 @@ type BaseDialog struct {
 	borderStyle     lipgloss.Style
 	titleStyle      lipgloss.Style
 	contentStyle    lipgloss.Style
-	overlayStyle    lipgloss.Style
 }
 
 // NewBaseDialog creates a new base dialog
@@ -44,10 +43,6 @@ func NewBaseDialog(title string) *BaseDialog {
 			MarginBottom(1),
 
 		contentStyle: lipgloss.NewStyle(),
-
-		overlayStyle: lipgloss.NewStyle().
-			Background(theme.BgSubtle).
-			Foreground(theme.FgBase),
 	}
 }
 
@@ -91,7 +86,7 @@ func (d *BaseDialog) SetResult(result interface{}) {
 	d.result = result
 }
 
-// RenderDialog renders the dialog with overlay
+// RenderDialog renders the dialog content with border
 func (d *BaseDialog) RenderDialog(content string) string {
 	if !d.isOpen {
 		return ""
@@ -107,23 +102,10 @@ func (d *BaseDialog) RenderDialog(content string) string {
 	}
 
 	// Apply border and padding - let it size to content
+	// The main view will handle positioning and overlay
 	dialog := d.borderStyle.Render(dialogContent)
 
-	// Create overlay background
-	overlay := d.overlayStyle.
-		Width(d.Width).
-		Height(d.Height)
-
-	// Center the dialog on the overlay
-	overlayView := overlay.Render(lipgloss.Place(
-		d.Width,
-		d.Height,
-		lipgloss.Center,
-		lipgloss.Center,
-		dialog,
-	))
-
-	return overlayView
+	return dialog
 }
 
 // HandleEscape handles the escape key
