@@ -167,8 +167,11 @@ func (m *Model) handleEvent(event events.Event) (tea.Model, tea.Cmd) {
 				m.analysisState.KnowledgeRunning = true
 			}
 			
-			m.sidebar.SetAnalysisState(m.analysisState)
+			cmd := m.sidebar.SetAnalysisState(m.analysisState)
 			m.showStatus("🔍 Analysis in progress...")
+			if cmd != nil {
+				cmds = append(cmds, cmd)
+			}
 		}
 
 	case events.AnalysisProgressEvent:

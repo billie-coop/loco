@@ -89,8 +89,25 @@ func (s *SidebarModel) Init() tea.Cmd {
 
 // Update handles messages for the sidebar
 func (s *SidebarModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	// All animations disabled
+	// Handle tick for timer updates
+	switch msg.(type) {
+	case tickMsg:
+		if s.analysisState != nil && s.analysisState.IsRunning {
+			// Return another tick to keep updating
+			return s, s.tick()
+		}
+	}
 	return s, nil
+}
+
+// tickMsg is sent to update the timer
+type tickMsg time.Time
+
+// tick returns a command that sends a tick message after a delay
+func (s *SidebarModel) tick() tea.Cmd {
+	return tea.Tick(100*time.Millisecond, func(t time.Time) tea.Msg {
+		return tickMsg(t)
+	})
 }
 
 // SetSize sets the dimensions of the sidebar
@@ -190,15 +207,14 @@ func (s *SidebarModel) SetProjectContext(ctx *Context) {
 }
 
 // SetAnalysisState updates the analysis state
-func (s *SidebarModel) SetAnalysisState(state *AnalysisState) {
+func (s *SidebarModel) SetAnalysisState(state *AnalysisState) tea.Cmd {
 	s.analysisState = state
 
-	// Control gradient bar animation
+	// Start timer updates if analysis is running
 	if state != nil && state.IsRunning {
-		// s.gradientBar.Start()
-	} else {
-		// s.gradientBar.Stop()
+		return s.tick()
 	}
+	return nil
 }
 
 // SetMessages updates the messages for count calculation
@@ -488,10 +504,12 @@ func (s *SidebarModel) renderAnalysisTiers(content *strings.Builder) {
 		content.WriteString(dimStyle.Render(phaseText))
 
 		// Show timing for running phase
-		if s.analysisState.CurrentPhase != "complete" {
+		if s.analysisState.CurrentPhase != "complete" && !s.analysisState.StartTime.IsZero() {
 			duration := time.Since(s.analysisState.StartTime)
+			// Format as seconds with one decimal place
+			seconds := duration.Seconds()
 			content.WriteString("\n")
-			content.WriteString(dimStyle.Render(fmt.Sprintf("⏱️  %s", duration.Round(time.Second))))
+			content.WriteString(dimStyle.Render(fmt.Sprintf("⏱️  %.1fs", seconds)))
 		}
 	}
 
