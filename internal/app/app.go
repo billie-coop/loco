@@ -135,3 +135,16 @@ func (a *App) InitLLMFromConfig() error {
 	
 	return nil
 }
+
+// RunStartupAnalysis triggers a quick analysis on startup (system-initiated).
+func (a *App) RunStartupAnalysis() {
+	if a.ToolExecutor == nil {
+		return
+	}
+	
+	// System-initiated analysis
+	a.ToolExecutor.ExecuteSystem(tools.ToolCall{
+		Name:  "analyze",
+		Input: `{"tier": "quick"}`,
+	})
+}

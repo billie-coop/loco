@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"time"
 
 	"github.com/billie-coop/loco/internal/app"
 	"github.com/billie-coop/loco/internal/tui"
@@ -32,6 +33,14 @@ func main() {
 
 	// Create TUI model
 	tuiModel := tui.New(appInstance, eventBroker)
+
+	// Trigger startup analysis after a small delay
+	// This is system-initiated and will show permission dialog on first run
+	go func() {
+		// Small delay to let UI initialize
+		time.Sleep(500 * time.Millisecond)
+		appInstance.RunStartupAnalysis()
+	}()
 
 	// Create and run Bubble Tea program
 	program := tea.NewProgram(tuiModel, tea.WithAltScreen())

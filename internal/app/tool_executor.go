@@ -35,8 +35,23 @@ func NewToolExecutor(
 	}
 }
 
-// Execute runs a tool and handles the result.
+// Execute runs a tool and handles the result (user-initiated).
 func (e *ToolExecutor) Execute(call tools.ToolCall) {
+	e.executeWithContext(call, "user")
+}
+
+// ExecuteSystem runs a tool from system context (system-initiated).
+func (e *ToolExecutor) ExecuteSystem(call tools.ToolCall) {
+	e.executeWithContext(call, "system")
+}
+
+// ExecuteAgent runs a tool from agent context (agent-initiated).
+func (e *ToolExecutor) ExecuteAgent(call tools.ToolCall) {
+	e.executeWithContext(call, "agent")
+}
+
+// executeWithContext runs a tool with the given initiation context.
+func (e *ToolExecutor) executeWithContext(call tools.ToolCall, initiator string) {
 	// Get the tool
 	tool, exists := e.registry.Get(call.Name)
 	if !exists {
@@ -53,6 +68,9 @@ func (e *ToolExecutor) Execute(call tools.ToolCall) {
 	// Create context with session and message IDs for tools that need them
 	ctx := context.Background()
 	
+	// Add initiator context
+	ctx = context.WithValue(ctx, tools.InitiatorKey, initiator)
+	
 	// Add session ID if available
 	if e.sessions != nil {
 		if currentSession, err := e.sessions.GetCurrent(); err == nil && currentSession != nil {
@@ -62,7 +80,14 @@ func (e *ToolExecutor) Execute(call tools.ToolCall) {
 		}
 	}
 
-	// Run the tool
+	// Handle special tools that need async execution
+	if call.Name == "analyze" {
+		// Handle analysis tool specially - run it asynchronously
+		e.handleAnalyzeAsync(call, ctx, initiator)
+		return
+	}
+	
+	// Run the tool synchronously for all other tools
 	result, err := tool.Run(ctx, call)
 	if err != nil {
 		e.eventBroker.Publish(events.Event{
@@ -139,86 +164,6 @@ func (e *ToolExecutor) Execute(call tools.ToolCall) {
 			})
 		}
 		
-	case "analyze":
-		// Handle analysis tool specially - run it asynchronously
-		// Parse the tier from the input
-		var params struct {
-			Tier string `json:"tier"`
-		}
-		if err := json.Unmarshal([]byte(call.Input), &params); err == nil && params.Tier != "" {
-			// Run analysis in background since it can take time
-			go func() {
-				// Emit analysis started event
-				e.eventBroker.Publish(events.Event{
-					Type: events.AnalysisStartedEvent,
-					Payload: events.AnalysisProgressPayload{
-						Phase:       params.Tier,
-						TotalFiles:  0,
-						CurrentFile: "Starting analysis...",
-					},
-				})
-				
-				// Actually run the tool
-				tool, exists := e.registry.Get("analyze")
-				if !exists {
-					e.eventBroker.Publish(events.Event{
-						Type: events.ErrorMessageEvent,
-						Payload: events.StatusMessagePayload{
-							Message: "Analysis tool not available",
-							Type:    "error",
-						},
-					})
-					return
-				}
-				
-				// Create context with session info
-				ctx := context.Background()
-				if e.sessions != nil {
-					if currentSession, err := e.sessions.GetCurrent(); err == nil && currentSession != nil {
-						ctx = context.WithValue(ctx, tools.SessionIDKey, currentSession.ID)
-						ctx = context.WithValue(ctx, tools.MessageIDKey, fmt.Sprintf("msg_%d", time.Now().Unix()))
-					}
-				}
-				
-				// Run the analysis
-				result, err := tool.Run(ctx, call)
-				if err != nil {
-					e.eventBroker.Publish(events.Event{
-						Type: events.AnalysisErrorEvent,
-						Payload: events.StatusMessagePayload{
-							Message: fmt.Sprintf("Analysis failed: %v", err),
-							Type:    "error",
-						},
-					})
-					return
-				}
-				
-				// Show the result
-				if result.Content != "" {
-					e.eventBroker.Publish(events.Event{
-						Type: events.SystemMessageEvent,
-						Payload: events.MessagePayload{
-							Message: llm.Message{
-								Role:    "system",
-								Content: result.Content,
-							},
-						},
-					})
-				}
-				
-				// Emit analysis completed event
-				e.eventBroker.Publish(events.Event{
-					Type: events.AnalysisCompletedEvent,
-					Payload: events.AnalysisProgressPayload{
-						Phase:       params.Tier,
-						CurrentFile: "Analysis complete",
-					},
-				})
-			}()
-			
-			// Return immediately since analysis runs async
-			return
-		}
 		
 	default:
 		// For other tools, show result as system message if not empty
@@ -245,6 +190,85 @@ func (e *ToolExecutor) Execute(call tools.ToolCall) {
 			}
 		}
 	}
+}
+
+// handleAnalyzeAsync runs the analyze tool asynchronously
+func (e *ToolExecutor) handleAnalyzeAsync(call tools.ToolCall, ctx context.Context, initiator string) {
+	// Parse the tier from the input
+	var params struct {
+		Tier string `json:"tier"`
+	}
+	if err := json.Unmarshal([]byte(call.Input), &params); err != nil {
+		e.eventBroker.Publish(events.Event{
+			Type: events.ErrorMessageEvent,
+			Payload: events.StatusMessagePayload{
+				Message: fmt.Sprintf("Invalid analyze parameters: %v", err),
+				Type:    "error",
+			},
+		})
+		return
+	}
+	
+	// Run analysis in background since it can take time
+	go func() {
+		// Emit analysis started event
+		e.eventBroker.Publish(events.Event{
+			Type: events.AnalysisStartedEvent,
+			Payload: events.AnalysisProgressPayload{
+				Phase:       params.Tier,
+				TotalFiles:  0,
+				CurrentFile: "Starting analysis...",
+			},
+		})
+		
+		// Get the tool
+		tool, exists := e.registry.Get("analyze")
+		if !exists {
+			e.eventBroker.Publish(events.Event{
+				Type: events.ErrorMessageEvent,
+				Payload: events.StatusMessagePayload{
+					Message: "Analysis tool not available",
+					Type:    "error",
+				},
+			})
+			return
+		}
+		
+		// Run the analysis with the context that has initiator info
+		result, err := tool.Run(ctx, call)
+		if err != nil {
+			e.eventBroker.Publish(events.Event{
+				Type: events.AnalysisErrorEvent,
+				Payload: events.StatusMessagePayload{
+					Message: fmt.Sprintf("Analysis failed: %v", err),
+					Type:    "error",
+				},
+			})
+			return
+		}
+		
+		// Show the result
+		if result.Content != "" {
+			e.eventBroker.Publish(events.Event{
+				Type: events.SystemMessageEvent,
+				Payload: events.MessagePayload{
+					Message: llm.Message{
+						Role:    "system",
+						Content: result.Content,
+					},
+				},
+			})
+		}
+		
+		// Emit analysis completed event
+		e.eventBroker.Publish(events.Event{
+			Type: events.AnalysisCompletedEvent,
+			Payload: events.AnalysisProgressPayload{
+				Phase:       params.Tier,
+				CurrentFile: "Analysis complete",
+			},
+		})
+	}()
 }
 
 // ExecuteFromAgent handles tool calls from LLM agents.

@@ -2,7 +2,6 @@ package tui
 
 import (
 	"strings"
-	"time"
 
 	"github.com/billie-coop/loco/internal/app"
 	"github.com/billie-coop/loco/internal/csync"
@@ -131,25 +130,6 @@ func (m *Model) Init() tea.Cmd {
 		},
 	})
 
-	// Trigger instant analysis on startup (non-blocking)
-	go func() {
-		// Small delay to let UI initialize
-		time.Sleep(500 * time.Millisecond)
-		
-		// Just show status, no system message
-		m.eventBroker.PublishAsync(events.Event{
-			Type: events.StatusMessageEvent,
-			Payload: events.StatusMessagePayload{
-				Message: "⚡ Starting project analysis...",
-				Type:    "info",
-			},
-		})
-		
-		// Trigger quick analysis
-		if m.app.InputRouter != nil {
-			m.app.InputRouter.Route("/analyze quick")
-		}
-	}()
 
 	// Mark as ready
 	m.ready = true

@@ -83,6 +83,8 @@ const (
 	SessionIDKey ContextKey = "session_id"
 	// MessageIDKey is the context key for message ID
 	MessageIDKey ContextKey = "message_id"
+	// InitiatorKey is the context key for who initiated the tool call (user/system/agent)
+	InitiatorKey ContextKey = "initiator"
 )
 
 // GetContextValues extracts session and message IDs from context.
