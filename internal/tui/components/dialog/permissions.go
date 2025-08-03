@@ -81,13 +81,10 @@ func (d *PermissionsDialog) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		switch msg.String() {
-		case "left", "h":
+		case "up", "k":
 			d.selectedOption = (d.selectedOption + 3) % 4
 			return d, nil
-		case "right", "l":
-			d.selectedOption = (d.selectedOption + 1) % 4
-			return d, nil
-		case "tab":
+		case "down", "j", "tab":
 			d.selectedOption = (d.selectedOption + 1) % 4
 			return d, nil
 		case "esc":
@@ -164,7 +161,7 @@ func (d *PermissionsDialog) View() string {
 		content.WriteString(d.warningStyle.Render("⚠️  This tool can modify files on your system!") + "\n\n")
 	}
 
-	// Options - properly formatted as buttons
+	// Options - properly formatted as buttons (vertical layout)
 	content.WriteString("Choose an action:\n\n")
 	
 	// Create button-like appearance for options
@@ -177,16 +174,14 @@ func (d *PermissionsDialog) View() string {
 	
 	for i, button := range buttons {
 		if i == d.selectedOption {
-			content.WriteString(d.selectedStyle.Render(button))
+			content.WriteString(d.selectedStyle.Render("▶ " + button))
 		} else {
-			content.WriteString(d.optionStyle.Render(button))
+			content.WriteString(d.optionStyle.Render("  " + button))
 		}
-		if i < len(buttons)-1 {
-			content.WriteString("  ")
-		}
+		content.WriteString("\n")
 	}
 	
-	content.WriteString("\n\n")
+	content.WriteString("\n")
 	content.WriteString(theme.S().Subtle.Render("↵ Enter to select • Esc to cancel"))
 
 	return d.RenderDialog(content.String())
