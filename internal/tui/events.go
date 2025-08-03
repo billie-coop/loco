@@ -5,6 +5,7 @@ import (
 	"time"
 	
 	"github.com/billie-coop/loco/internal/llm"
+	"github.com/billie-coop/loco/internal/permission"
 	"github.com/billie-coop/loco/internal/tui/components/chat"
 	"github.com/billie-coop/loco/internal/tui/components/dialog"
 	"github.com/billie-coop/loco/internal/tui/events"
@@ -245,6 +246,21 @@ func (m *Model) handleEvent(event events.Event) (tea.Model, tea.Cmd) {
 	case events.ToolExecutionApprovedEvent, events.ToolExecutionDeniedEvent:
 		// These events are handled by the enhanced service's listener
 		// No need to handle them here
+	
+	case "permission.request":
+		// Handle permission request from enhanced permission service
+		// Try to handle as struct first (direct from service)
+		if reqEvent, ok := event.Payload.(permission.PermissionRequestEvent); ok {
+			// Set the request in the dialog
+			m.dialogManager.SetToolRequest(reqEvent.Request.ToolName, map[string]interface{}{
+				"action": reqEvent.Request.Action,
+				"path": reqEvent.Request.Path,
+				"description": reqEvent.Request.Description,
+			}, reqEvent.ID)
+			
+			// Open the permissions dialog
+			cmds = append(cmds, m.dialogManager.OpenDialog(dialog.PermissionsDialogType))
+		}
 	}
 
 	return m, tea.Batch(cmds...)

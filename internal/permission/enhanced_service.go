@@ -191,14 +191,18 @@ func (s *EnhancedService) listenForResponses() {
 	
 	for event := range eventSub {
 		switch event.Type {
-		case "tool.execution.approved":
-			// Handle approval
-			if payload, ok := event.Payload.(map[string]interface{}); ok {
-				requestID, _ := payload["ID"].(string)
-				// toolName, _ := payload["ToolName"].(string) // Reserved for "always" logic
-				
-				// Check if this is an "always" approval
-				// For now, just approve once
+		case "tool.approved":
+			// Handle approval - try struct first, then map
+			var requestID string
+			
+			// Try as ToolExecutionPayload struct
+			if payload, ok := event.Payload.(events.ToolExecutionPayload); ok {
+				requestID = payload.ID
+			} else if payload, ok := event.Payload.(map[string]interface{}); ok {
+				requestID, _ = payload["ID"].(string)
+			}
+			
+			if requestID != "" {
 				s.mu.RLock()
 				if respCh, ok := s.pendingRequests[requestID]; ok {
 					s.mu.RUnlock()
@@ -208,11 +212,18 @@ func (s *EnhancedService) listenForResponses() {
 				}
 			}
 			
-		case "tool.execution.denied":
-			// Handle denial
-			if payload, ok := event.Payload.(map[string]interface{}); ok {
-				requestID, _ := payload["ID"].(string)
-				
+		case "tool.denied":
+			// Handle denial - try struct first, then map
+			var requestID string
+			
+			// Try as ToolExecutionPayload struct
+			if payload, ok := event.Payload.(events.ToolExecutionPayload); ok {
+				requestID = payload.ID
+			} else if payload, ok := event.Payload.(map[string]interface{}); ok {
+				requestID, _ = payload["ID"].(string)
+			}
+			
+			if requestID != "" {
 				s.mu.RLock()
 				if respCh, ok := s.pendingRequests[requestID]; ok {
 					s.mu.RUnlock()
