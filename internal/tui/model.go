@@ -38,6 +38,7 @@ type Model struct {
 	currentSessionID string
 	messages         *csync.Slice[llm.Message]
 	messagesMeta     *csync.Map[int, *chat.MessageMetadata]
+	analysisState    *chat.AnalysisState
 	
 	// UI state
 	isStreaming      bool

@@ -25,8 +25,10 @@ type Context struct {
 // AnalysisState represents the state of project analysis
 type AnalysisState struct {
 	IsRunning          bool
+	QuickCompleted     bool
 	DetailedRunning    bool
 	DetailedCompleted  bool
+	DeepCompleted      bool
 	KnowledgeRunning   bool
 	KnowledgeCompleted bool
 	CurrentPhase       string
@@ -394,18 +396,16 @@ func (s *SidebarModel) renderAnalysisTiers(content *strings.Builder) {
 	completeStyle := theme.S().Success
 	runningStyle := theme.S().Warning
 	pendingStyle := theme.S().Subtle
-	strikethroughStyle := theme.S().Subtle.Strikethrough(true)
-
-	// Check if we have quick analysis cache
-	hasQuickCache := false
-	// TODO: Check for new analysis cache when available
-	// For now, assume no cache
 
 	// Tier 1: Quick Analysis
-	if hasQuickCache {
+	if s.analysisState != nil && s.analysisState.QuickCompleted {
 		content.WriteString(completeStyle.Render(fmt.Sprintf("%s Quick", quickIcon)))
 		content.WriteString(" ")
 		content.WriteString(dimStyle.Render("✓"))
+	} else if s.analysisState != nil && s.analysisState.IsRunning && s.analysisState.CurrentPhase == "quick" {
+		content.WriteString(runningStyle.Render(fmt.Sprintf("%s Quick", quickIcon)))
+		content.WriteString(" ")
+		content.WriteString(dimStyle.Render("◐"))
 	} else {
 		content.WriteString(pendingStyle.Render(fmt.Sprintf("%s Quick", quickIcon)))
 		content.WriteString(" ")
@@ -444,20 +444,14 @@ func (s *SidebarModel) renderAnalysisTiers(content *strings.Builder) {
 	content.WriteString("\n")
 
 	// Tier 3: Deep Knowledge
-	if s.analysisState != nil {
-		if s.analysisState.KnowledgeCompleted {
-			content.WriteString(completeStyle.Render(fmt.Sprintf("%s Deep", deepIcon)))
-			content.WriteString(" ")
-			content.WriteString(dimStyle.Render("✓"))
-		} else if s.analysisState.KnowledgeRunning {
-			content.WriteString(runningStyle.Render(fmt.Sprintf("%s Deep", deepIcon)))
-			content.WriteString(" ")
-			content.WriteString(dimStyle.Render("⏳"))
-		} else {
-			content.WriteString(pendingStyle.Render(fmt.Sprintf("%s Deep", deepIcon)))
-			content.WriteString(" ")
-			content.WriteString(dimStyle.Render("○"))
-		}
+	if s.analysisState != nil && s.analysisState.DeepCompleted {
+		content.WriteString(completeStyle.Render(fmt.Sprintf("%s Deep", deepIcon)))
+		content.WriteString(" ")
+		content.WriteString(dimStyle.Render("✓"))
+	} else if s.analysisState != nil && s.analysisState.IsRunning && (s.analysisState.CurrentPhase == "deep" || s.analysisState.CurrentPhase == "full") {
+		content.WriteString(runningStyle.Render(fmt.Sprintf("%s Deep", deepIcon)))
+		content.WriteString(" ")
+		content.WriteString(dimStyle.Render("⏳"))
 	} else {
 		content.WriteString(pendingStyle.Render(fmt.Sprintf("%s Deep", deepIcon)))
 		content.WriteString(" ")
@@ -465,10 +459,16 @@ func (s *SidebarModel) renderAnalysisTiers(content *strings.Builder) {
 	}
 	content.WriteString("\n")
 
-	// Tier 4: Full Analysis (Future)
-	content.WriteString(strikethroughStyle.Render(fmt.Sprintf("%s Full", fullIcon)))
-	content.WriteString(" ")
-	content.WriteString(dimStyle.Render("─"))
+	// Tier 4: Full Analysis (shows same as deep for now)
+	if s.analysisState != nil && s.analysisState.DeepCompleted {
+		content.WriteString(completeStyle.Render(fmt.Sprintf("%s Full", fullIcon)))
+		content.WriteString(" ")
+		content.WriteString(dimStyle.Render("✓"))
+	} else {
+		content.WriteString(pendingStyle.Render(fmt.Sprintf("%s Full", fullIcon)))
+		content.WriteString(" ")
+		content.WriteString(dimStyle.Render("○"))
+	}
 	content.WriteString("\n")
 
 	// Show current phase if analysis is running

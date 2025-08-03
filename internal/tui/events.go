@@ -149,68 +149,81 @@ func (m *Model) handleEvent(event events.Event) (tea.Model, tea.Cmd) {
 	case events.AnalysisStartedEvent:
 		// Handle analysis started
 		if payload, ok := event.Payload.(events.AnalysisProgressPayload); ok {
-			// Update sidebar with analysis state
-			analysisState := &chat.AnalysisState{
-				IsRunning:    true,
-				CurrentPhase: payload.Phase,
-				StartTime:    time.Now(),
-				TotalFiles:   payload.TotalFiles,
+			// Create or update analysis state
+			if m.analysisState == nil {
+				m.analysisState = &chat.AnalysisState{}
 			}
+			
+			m.analysisState.IsRunning = true
+			m.analysisState.CurrentPhase = payload.Phase
+			m.analysisState.StartTime = time.Now()
+			m.analysisState.TotalFiles = payload.TotalFiles
 			
 			// Set analysis state based on phase
 			switch payload.Phase {
 			case "detailed":
-				analysisState.DetailedRunning = true
-			case "deep", "knowledge":
-				analysisState.KnowledgeRunning = true
+				m.analysisState.DetailedRunning = true
+			case "deep", "full":
+				m.analysisState.KnowledgeRunning = true
 			}
 			
-			m.sidebar.SetAnalysisState(analysisState)
+			m.sidebar.SetAnalysisState(m.analysisState)
 			m.showStatus("🔍 Analysis in progress...")
 		}
 
 	case events.AnalysisProgressEvent:
 		// Handle analysis progress updates
 		if payload, ok := event.Payload.(events.AnalysisProgressPayload); ok {
-			// Get current analysis state from sidebar
-			analysisState := &chat.AnalysisState{
-				IsRunning:      true,
-				CurrentPhase:   payload.Phase,
-				TotalFiles:     payload.TotalFiles,
-				CompletedFiles: payload.CompletedFiles,
+			// Update existing state
+			if m.analysisState == nil {
+				m.analysisState = &chat.AnalysisState{}
 			}
 			
-			m.sidebar.SetAnalysisState(analysisState)
+			m.analysisState.IsRunning = true
+			m.analysisState.CurrentPhase = payload.Phase
+			m.analysisState.TotalFiles = payload.TotalFiles
+			m.analysisState.CompletedFiles = payload.CompletedFiles
+			
+			m.sidebar.SetAnalysisState(m.analysisState)
 		}
 
 	case events.AnalysisCompletedEvent:
 		// Handle analysis completed
 		if payload, ok := event.Payload.(events.AnalysisProgressPayload); ok {
-			// Update sidebar to show completion
-			analysisState := &chat.AnalysisState{
-				IsRunning:    false,
-				CurrentPhase: "complete",
+			// Update existing state
+			if m.analysisState == nil {
+				m.analysisState = &chat.AnalysisState{}
 			}
 			
-			// Mark appropriate tier as complete
+			m.analysisState.IsRunning = false
+			m.analysisState.CurrentPhase = "complete"
+			
+			// Mark appropriate tier as complete (keep previous completions)
 			switch payload.Phase {
+			case "quick":
+				m.analysisState.QuickCompleted = true
 			case "detailed":
-				analysisState.DetailedCompleted = true
-			case "deep", "knowledge":
-				analysisState.KnowledgeCompleted = true
+				m.analysisState.DetailedCompleted = true
+				m.analysisState.DetailedRunning = false
+			case "deep", "full":
+				m.analysisState.DeepCompleted = true
+				m.analysisState.KnowledgeRunning = false
 			}
 			
-			m.sidebar.SetAnalysisState(analysisState)
+			m.sidebar.SetAnalysisState(m.analysisState)
 			m.showStatus("✨ Analysis complete!")
 		}
 
 	case events.AnalysisErrorEvent:
 		// Handle analysis errors
 		if payload, ok := event.Payload.(events.StatusMessagePayload); ok {
-			// Clear analysis state
-			m.sidebar.SetAnalysisState(&chat.AnalysisState{
-				IsRunning: false,
-			})
+			// Update existing state to stop running
+			if m.analysisState != nil {
+				m.analysisState.IsRunning = false
+				m.analysisState.DetailedRunning = false
+				m.analysisState.KnowledgeRunning = false
+				m.sidebar.SetAnalysisState(m.analysisState)
+			}
 			
 			// Show error
 			m.showStatus("❌ Analysis failed: " + payload.Message)
