@@ -235,8 +235,8 @@ func (m *Model) handleEvent(event events.Event) (tea.Model, tea.Cmd) {
 
 	case events.DialogOpenEvent:
 		// Handle dialog open requests
-		// For now, just open quit dialog as a default
-		cmds = append(cmds, m.dialogManager.OpenDialog(dialog.QuitDialogType))
+		// The dialog manager already handles opening dialogs internally
+		// This event is just for notification purposes
 
 	case events.MessagesClearEvent:
 		// Handle clear messages event
