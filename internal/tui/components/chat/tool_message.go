@@ -32,6 +32,7 @@ func NewToolRegistry() *ToolRegistry {
 	registry.Register("bash", &BashRenderer{})
 	registry.Register("list_files", &ListFilesRenderer{})
 	registry.Register("search", &SearchRenderer{})
+	registry.Register("analyze", &AnalyzeRenderer{})
 	
 	return registry
 }
@@ -442,4 +443,219 @@ func (s *SearchRenderer) Render(call llm.ToolCall, result *llm.ToolResult, width
 	
 	content := s.RenderContent(result.Output, width, 20)
 	return header + "\n\n" + content
+}
+
+// AnalyzeRenderer handles project analysis rendering with beautiful formatting
+type AnalyzeRenderer struct {
+	BaseRenderer
+}
+
+func (a *AnalyzeRenderer) Render(call llm.ToolCall, result *llm.ToolResult, width int) string {
+	status := ToolPending
+	if result != nil {
+		if result.Error != nil {
+			status = ToolError
+		} else {
+			status = ToolSuccess
+		}
+	}
+	
+	// Parse parameters
+	var params struct {
+		Tier    string `json:"tier"`
+		Project string `json:"project,omitempty"`
+		Force   bool   `json:"force,omitempty"`
+	}
+	json.Unmarshal([]byte(call.Parameters), &params)
+	
+	// Default tier if not specified
+	if params.Tier == "" {
+		params.Tier = "quick"
+	}
+	
+	// Build display parameters
+	displayParams := []string{params.Tier}
+	if params.Project != "" {
+		displayParams = append(displayParams, fmt.Sprintf("project=%s", params.Project))
+	}
+	if params.Force {
+		displayParams = append(displayParams, "force=true")
+	}
+	
+	// Create beautiful header with tier-specific icon
+	tierIcons := map[string]string{
+		"quick":    "⚡",
+		"detailed": "📊",
+		"deep":     "💎",
+		"full":     "🚀",
+	}
+	
+	icon := tierIcons[params.Tier]
+	if icon == "" {
+		icon = "🔍"
+	}
+	
+	// Build custom header with tier icon
+	theme := styles.CurrentTheme()
+	var statusIcon string
+	var iconStyle lipgloss.Style
+	
+	switch status {
+	case ToolPending, ToolRunning:
+		statusIcon = icon // Use tier icon while running
+		iconStyle = theme.S().Warning.Blink(true)
+	case ToolSuccess:
+		statusIcon = "✓"
+		iconStyle = theme.S().Success
+	case ToolError:
+		statusIcon = "✗"
+		iconStyle = theme.S().Error
+	}
+	
+	// Tool name with gradient
+	toolNameStyled := styles.RenderThemeGradient("analyze", true)
+	
+	// Parameters with tier
+	paramStr := theme.S().Info.Bold(true).Render(" " + params.Tier)
+	if params.Project != "" {
+		paramStr += theme.S().Subtle.Render(fmt.Sprintf(" • %s", params.Project))
+	}
+	
+	header := fmt.Sprintf("%s %s%s", iconStyle.Render(statusIcon), toolNameStyled, paramStr)
+	
+	if result == nil {
+		// Show pending/running state with animated dots
+		runningMsg := theme.S().Subtle.Italic(true).Render("Running ensemble analysis...")
+		return header + "\n" + runningMsg
+	}
+	
+	if result.Error != nil {
+		errorContent := a.RenderContent(result.Error.Error(), width, 5)
+		return header + "\n\n" + errorContent
+	}
+	
+	// Parse the analysis result to extract key information
+	output := result.Output
+	if output == "" {
+		return header
+	}
+	
+	// For now, we don't have metadata in ToolResult
+	// This would need to be extended in the future
+	var metadata map[string]interface{}
+	
+	// Build beautiful output
+	var content strings.Builder
+	
+	// Add summary section with nice formatting
+	summaryStyle := theme.S().Text.
+		Background(theme.BgBaseLighter).
+		Padding(1).
+		Width(width - 2)
+	
+	// Check for cache hit
+	if metadata != nil {
+		if cacheHit, ok := metadata["cache_hit"].(bool); ok && cacheHit {
+			cacheIndicator := theme.S().Info.
+				Background(theme.Info).
+				Foreground(theme.FgInverted).
+				Padding(0, 1).
+				Render("CACHED")
+			content.WriteString(cacheIndicator + " ")
+		}
+		
+		// Show duration if available
+		if duration, ok := metadata["duration"].(string); ok {
+			durationStr := theme.S().Subtle.Render(fmt.Sprintf("⏱️  %s", duration))
+			content.WriteString(durationStr + "\n")
+		}
+		
+		// Show file count if available
+		if fileCount, ok := metadata["file_count"].(float64); ok {
+			filesStr := theme.S().Info.Render(fmt.Sprintf("📁 %d files analyzed", int(fileCount)))
+			content.WriteString(filesStr + "\n")
+		}
+	}
+	
+	// Add separator
+	separator := theme.S().Subtle.Render(strings.Repeat("─", width-2))
+	content.WriteString("\n" + separator + "\n\n")
+	
+	// Extract and format knowledge files section
+	if strings.Contains(output, "## Knowledge Files Generated") {
+		// Split output into sections
+		sections := strings.Split(output, "## ")
+		
+		for _, section := range sections {
+			if section == "" {
+				continue
+			}
+			
+			lines := strings.Split(section, "\n")
+			if len(lines) == 0 {
+				continue
+			}
+			
+			sectionTitle := lines[0]
+			
+			// Style section headers
+			if strings.HasPrefix(sectionTitle, "Knowledge Files") {
+				// Special handling for knowledge files
+				titleStyle := theme.S().Success.Bold(true)
+				content.WriteString(titleStyle.Render("📚 Knowledge Files") + "\n")
+				
+				// Look for markdown code blocks
+				inCodeBlock := false
+				for i := 1; i < len(lines); i++ {
+					line := lines[i]
+					
+					if strings.HasPrefix(line, "### ") {
+						// File name
+						fileName := strings.TrimPrefix(line, "### ")
+						fileStyle := theme.S().Info.Underline(true)
+						content.WriteString("\n" + fileStyle.Render("▸ "+fileName) + "\n")
+					} else if strings.HasPrefix(line, "```") {
+						inCodeBlock = !inCodeBlock
+						if !inCodeBlock && strings.Contains(line, "truncated") {
+							truncStyle := theme.S().Subtle.Italic(true)
+							content.WriteString(truncStyle.Render("  ... preview truncated") + "\n")
+						}
+					} else if inCodeBlock {
+						// Code content
+						codeStyle := theme.S().Muted.
+							Background(theme.BgBase).
+							PaddingLeft(2)
+						content.WriteString(codeStyle.Render(line) + "\n")
+					}
+				}
+			} else if strings.HasPrefix(sectionTitle, "Summary") {
+				// Summary section
+				titleStyle := theme.S().Title
+				content.WriteString(titleStyle.Render("📝 Summary") + "\n")
+				
+				for i := 1; i < len(lines) && i < 6; i++ {
+					if lines[i] != "" {
+						content.WriteString(summaryStyle.Render(lines[i]) + "\n")
+					}
+				}
+			} else if strings.HasPrefix(sectionTitle, "Next Steps") {
+				// Next steps section
+				titleStyle := theme.S().Subtitle
+				content.WriteString("\n" + titleStyle.Render("🎯 Next Steps") + "\n")
+				
+				for i := 1; i < len(lines); i++ {
+					if strings.HasPrefix(lines[i], "- ") {
+						step := strings.TrimPrefix(lines[i], "- ")
+						stepStyle := theme.S().Subtle.PaddingLeft(2)
+						content.WriteString(stepStyle.Render("• " + step) + "\n")
+					}
+				}
+			}
+		}
+	} else {
+		// Fallback to showing raw output nicely formatted
+		content.WriteString(a.RenderContent(output, width, 30))
+	}
+	
+	return header + "\n" + content.String()
 }

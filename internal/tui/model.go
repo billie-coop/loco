@@ -1,8 +1,8 @@
 package tui
 
 import (
-	"fmt"
 	"strings"
+	"time"
 
 	"github.com/billie-coop/loco/internal/app"
 	"github.com/billie-coop/loco/internal/csync"
@@ -101,12 +101,6 @@ func (m *Model) Init() tea.Cmd {
 		m.height = 24
 	}
 	
-	// Add debug message about initial dimensions
-	m.messages.Append(llm.Message{
-		Role:    "system",
-		Content: fmt.Sprintf("📐 Initial window dimensions: %dx%d", m.width, m.height),
-	})
-	
 	// ALWAYS set component sizes during init to ensure proper layout
 	cmds = append(cmds, m.resizeComponents())
 	
@@ -133,6 +127,28 @@ func (m *Model) Init() tea.Cmd {
 			Type:    "info",
 		},
 	})
+
+	// Trigger instant analysis on startup (non-blocking)
+	go func() {
+		// Small delay to let UI initialize
+		time.Sleep(500 * time.Millisecond)
+		
+		// Add startup message
+		m.eventBroker.PublishAsync(events.Event{
+			Type: events.SystemMessageEvent,
+			Payload: events.MessagePayload{
+				Message: llm.Message{
+					Role:    "system",
+					Content: "⚡ Starting instant project analysis...",
+				},
+			},
+		})
+		
+		// Trigger quick analysis
+		if m.app.CommandService != nil {
+			m.app.CommandService.HandleCommand("/analyze quick")
+		}
+	}()
 
 	// Mark as ready
 	m.ready = true
@@ -208,12 +224,6 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
-		
-		// Add debug message about resize
-		m.messages.Append(llm.Message{
-			Role:    "system",
-			Content: fmt.Sprintf("📐 Window resized to: %dx%d", m.width, m.height),
-		})
 		
 		cmds = append(cmds, m.resizeComponents())
 

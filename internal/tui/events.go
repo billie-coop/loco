@@ -1,7 +1,10 @@
 package tui
 
 import (
+	"time"
+	
 	"github.com/billie-coop/loco/internal/llm"
+	"github.com/billie-coop/loco/internal/tui/components/chat"
 	"github.com/billie-coop/loco/internal/tui/components/dialog"
 	"github.com/billie-coop/loco/internal/tui/events"
 	tea "github.com/charmbracelet/bubbletea/v2"
@@ -96,6 +99,83 @@ func (m *Model) handleEvent(event events.Event) (tea.Model, tea.Cmd) {
 		// Handle status messages
 		if payload, ok := event.Payload.(events.StatusMessagePayload); ok {
 			m.showStatus(payload.Message)
+		}
+
+	case events.SystemMessageEvent:
+		// Handle system messages
+		if payload, ok := event.Payload.(events.MessagePayload); ok {
+			m.messages.Append(payload.Message)
+			m.syncMessagesToComponents()
+		}
+
+	case events.AnalysisStartedEvent:
+		// Handle analysis started
+		if payload, ok := event.Payload.(events.AnalysisProgressPayload); ok {
+			// Update sidebar with analysis state
+			analysisState := &chat.AnalysisState{
+				IsRunning:    true,
+				CurrentPhase: payload.Phase,
+				StartTime:    time.Now(),
+				TotalFiles:   payload.TotalFiles,
+			}
+			
+			// Set analysis state based on phase
+			switch payload.Phase {
+			case "detailed":
+				analysisState.DetailedRunning = true
+			case "deep", "knowledge":
+				analysisState.KnowledgeRunning = true
+			}
+			
+			m.sidebar.SetAnalysisState(analysisState)
+			m.showStatus("🔍 Analysis in progress...")
+		}
+
+	case events.AnalysisProgressEvent:
+		// Handle analysis progress updates
+		if payload, ok := event.Payload.(events.AnalysisProgressPayload); ok {
+			// Get current analysis state from sidebar
+			analysisState := &chat.AnalysisState{
+				IsRunning:      true,
+				CurrentPhase:   payload.Phase,
+				TotalFiles:     payload.TotalFiles,
+				CompletedFiles: payload.CompletedFiles,
+			}
+			
+			m.sidebar.SetAnalysisState(analysisState)
+		}
+
+	case events.AnalysisCompletedEvent:
+		// Handle analysis completed
+		if payload, ok := event.Payload.(events.AnalysisProgressPayload); ok {
+			// Update sidebar to show completion
+			analysisState := &chat.AnalysisState{
+				IsRunning:    false,
+				CurrentPhase: "complete",
+			}
+			
+			// Mark appropriate tier as complete
+			switch payload.Phase {
+			case "detailed":
+				analysisState.DetailedCompleted = true
+			case "deep", "knowledge":
+				analysisState.KnowledgeCompleted = true
+			}
+			
+			m.sidebar.SetAnalysisState(analysisState)
+			m.showStatus("✨ Analysis complete!")
+		}
+
+	case events.AnalysisErrorEvent:
+		// Handle analysis errors
+		if payload, ok := event.Payload.(events.StatusMessagePayload); ok {
+			// Clear analysis state
+			m.sidebar.SetAnalysisState(&chat.AnalysisState{
+				IsRunning: false,
+			})
+			
+			// Show error
+			m.showStatus("❌ Analysis failed: " + payload.Message)
 		}
 
 	case events.DialogOpenEvent:
