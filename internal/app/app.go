@@ -64,8 +64,15 @@ func New(workingDir string, eventBroker *events.Broker) *App {
 		_ = err
 	}
 	
-	// Create permission service first
-	permissionService := permission.NewService()
+	// Get allowed tools from config
+	cfg := app.Config.Get()
+	allowedTools := []string{}
+	if cfg != nil && cfg.AllowedTools != nil {
+		allowedTools = cfg.AllowedTools
+	}
+	
+	// Create enhanced permission service with event broker and allowed tools
+	permissionService := permission.NewEnhancedService(eventBroker, allowedTools)
 	app.permissionServiceInternal = permissionService
 	
 	// Create analysis service (will be set up properly when LLM client is available)

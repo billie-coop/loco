@@ -20,7 +20,8 @@ type Config struct {
 	Debug bool   `json:"debug"`
 	
 	// Tool settings
-	ToolsEnabled bool `json:"tools_enabled"`
+	ToolsEnabled bool     `json:"tools_enabled"`
+	AllowedTools []string `json:"allowed_tools"`
 }
 
 // DefaultConfig returns a config with sensible defaults
@@ -31,6 +32,7 @@ func DefaultConfig() *Config {
 		Theme:          "fire",
 		Debug:          false,
 		ToolsEnabled:   true,
+		AllowedTools:   []string{"copy", "clear", "help", "chat"}, // Safe tools allowed by default
 	}
 }
 

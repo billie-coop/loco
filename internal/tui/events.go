@@ -241,6 +241,10 @@ func (m *Model) handleEvent(event events.Event) (tea.Model, tea.Cmd) {
 		// Handle clear messages event
 		m.clearMessages()
 		m.showStatus("✅ Messages cleared")
+	
+	case events.ToolExecutionApprovedEvent, events.ToolExecutionDeniedEvent:
+		// These events are handled by the enhanced service's listener
+		// No need to handle them here
 	}
 
 	return m, tea.Batch(cmds...)
