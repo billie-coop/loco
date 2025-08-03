@@ -211,6 +211,9 @@ func (e *ToolExecutor) handleAnalyzeAsync(call tools.ToolCall, ctx context.Conte
 	
 	// Run analysis in background since it can take time
 	go func() {
+		// Small delay to ensure dialog has closed and UI is ready
+		time.Sleep(100 * time.Millisecond)
+		
 		// Emit analysis started event
 		e.eventBroker.Publish(events.Event{
 			Type: events.AnalysisStartedEvent,

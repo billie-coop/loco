@@ -168,9 +168,11 @@ func (m *Model) handleEvent(event events.Event) (tea.Model, tea.Cmd) {
 				m.analysisState.KnowledgeRunning = true
 			}
 			
+			// IMPORTANT: Start the timer for analysis feedback
 			cmd := m.sidebar.SetAnalysisState(m.analysisState)
 			m.showStatus("🔍 Analysis in progress...")
 			if cmd != nil {
+				// This command starts the timer - ensure it's added to commands
 				cmds = append(cmds, cmd)
 			}
 		}
