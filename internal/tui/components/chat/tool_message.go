@@ -53,7 +53,7 @@ func (r *ToolRegistry) Get(toolName string) ToolRenderer {
 // BaseRenderer provides common functionality
 type BaseRenderer struct{}
 
-// RenderHeader creates a beautiful header for the tool
+// RenderHeader creates a clean, compact header for the tool
 func (b *BaseRenderer) RenderHeader(toolName string, params []string, status ToolStatus, width int) string {
 	theme := styles.CurrentTheme()
 	
@@ -61,10 +61,7 @@ func (b *BaseRenderer) RenderHeader(toolName string, params []string, status Too
 	var icon string
 	var iconStyle lipgloss.Style
 	switch status {
-	case ToolPending:
-		icon = "⚡"
-		iconStyle = theme.S().Warning
-	case ToolRunning:
+	case ToolPending, ToolRunning:
 		icon = "⚡"
 		iconStyle = theme.S().Warning
 	case ToolSuccess:
@@ -75,13 +72,22 @@ func (b *BaseRenderer) RenderHeader(toolName string, params []string, status Too
 		iconStyle = theme.S().Error
 	}
 	
-	// Tool name with gradient
-	toolNameStyled := styles.RenderThemeGradient(toolName, true)
+	// Simple tool name (no gradient)
+	toolNameStyled := theme.S().Info.Render(toolName)
 	
-	// Parameters
+	// Parameters in parentheses if present
 	paramStr := ""
-	if len(params) > 0 {
-		paramStr = theme.S().Subtle.Render(" " + strings.Join(params, " "))
+	if len(params) > 0 && params[0] != "" {
+		// Main param is first, rest in parentheses
+		if len(params) == 1 {
+			paramStr = " " + theme.S().Text.Render(params[0])
+		} else {
+			mainParam := params[0]
+			optionalParams := strings.Join(params[1:], ", ")
+			paramStr = fmt.Sprintf(" %s (%s)", 
+				theme.S().Text.Render(mainParam),
+				theme.S().Subtle.Render(optionalParams))
+		}
 	}
 	
 	// Combine
@@ -90,39 +96,51 @@ func (b *BaseRenderer) RenderHeader(toolName string, params []string, status Too
 	return header
 }
 
-// RenderContent renders content with optional syntax highlighting
+// RenderContent renders content with clean formatting and smart truncation
 func (b *BaseRenderer) RenderContent(content string, width int, maxLines int) string {
 	theme := styles.CurrentTheme()
+	
+	// Normalize content
+	content = strings.ReplaceAll(content, "\r\n", "\n")
+	content = strings.ReplaceAll(content, "\t", "    ")
+	content = strings.TrimSpace(content)
 	
 	lines := strings.Split(content, "\n")
 	truncated := false
 	
-	if maxLines > 0 && len(lines) > maxLines {
+	// Default to 10 lines if not specified (matching Crush)
+	if maxLines <= 0 {
+		maxLines = 10
+	}
+	
+	if len(lines) > maxLines {
 		lines = lines[:maxLines]
 		truncated = true
 	}
 	
-	// Style each line
+	// Style each line with left padding
 	styledLines := make([]string, len(lines))
-	contentStyle := theme.S().Muted.
-		Background(theme.BgBaseLighter).
-		PaddingLeft(1).
-		Width(width - 2)
+	lineWidth := width - 4 // Account for "  " padding
 	
 	for i, line := range lines {
-		// Escape any special characters
-		line = strings.ReplaceAll(line, "\t", "    ")
-		styledLines[i] = contentStyle.Render(line)
+		// Truncate long lines
+		if len(line) > lineWidth {
+			line = line[:lineWidth-1] + "…"
+		}
+		// Add 2-space left padding to match Crush
+		styledLines[i] = "  " + theme.S().Muted.
+			Background(theme.BgBaseLighter).
+			Width(lineWidth).
+			Render(line)
 	}
 	
 	result := strings.Join(styledLines, "\n")
 	
 	if truncated {
-		truncateMsg := theme.S().Subtle.
+		truncateMsg := "  " + theme.S().Subtle.
 			Background(theme.BgBaseLighter).
-			PaddingLeft(2).
-			Width(width - 2).
-			Render(fmt.Sprintf("... (%d more lines)", len(strings.Split(content, "\n"))-maxLines))
+			Width(lineWidth).
+			Render(fmt.Sprintf("… (%d more lines)", len(strings.Split(content, "\n"))-maxLines))
 		result = result + "\n" + truncateMsg
 	}
 	
@@ -205,15 +223,18 @@ func (b *BashRenderer) Render(call llm.ToolCall, result *llm.ToolResult, width i
 	command := strings.ReplaceAll(params.Command, "\n", " && ")
 	command = strings.TrimSpace(command)
 	
-	// Create header with command
-	header := b.RenderHeader("Bash", []string{command}, status, width)
+	// Truncate long commands
+	if len(command) > 60 {
+		command = command[:57] + "..."
+	}
+	
+	// Create compact header
+	header := b.RenderHeader("bash", []string{command}, status, width)
 	
 	if result == nil {
 		return header
 	}
 	
-	// Render output
-	content := ""
 	if result.Error != nil {
 		theme := styles.CurrentTheme()
 		errorTag := theme.S().Error.
@@ -221,21 +242,20 @@ func (b *BashRenderer) Render(call llm.ToolCall, result *llm.ToolResult, width i
 			Foreground(theme.FgInverted).
 			Padding(0, 1).
 			Render("ERROR")
-		errorMsg := theme.S().Error.Render(result.Error.Error())
-		content = errorTag + " " + errorMsg
-	} else if result.Output != "" {
-		// Show command output with nice formatting
-		content = b.RenderContent(result.Output, width, 15)
+		errorMsg := theme.S().Muted.Render(result.Error.Error())
+		return header + "\n" + fmt.Sprintf("  %s %s", errorTag, errorMsg)
 	}
 	
-	if content != "" {
-		return header + "\n\n" + content
+	if result.Output != "" {
+		// Show command output with clean formatting
+		content := b.RenderContent(result.Output, width, 10)
+		return header + "\n" + content
 	}
 	
 	return header
 }
 
-// ReadFileRenderer handles file reading with syntax highlighting
+// ReadFileRenderer handles file reading
 type ReadFileRenderer struct {
 	BaseRenderer
 }
@@ -258,33 +278,57 @@ func (r *ReadFileRenderer) Render(call llm.ToolCall, result *llm.ToolResult, wid
 	}
 	json.Unmarshal([]byte(call.Parameters), &params)
 	
-	// Build parameter display
-	displayParams := []string{params.Path}
+	// Build compact parameter display
+	var extraParams []string
 	if params.Limit > 0 {
-		displayParams = append(displayParams, fmt.Sprintf("limit=%d", params.Limit))
+		extraParams = append(extraParams, fmt.Sprintf("limit=%d", params.Limit))
 	}
 	if params.Offset > 0 {
-		displayParams = append(displayParams, fmt.Sprintf("offset=%d", params.Offset))
+		extraParams = append(extraParams, fmt.Sprintf("offset=%d", params.Offset))
 	}
 	
-	header := r.RenderHeader("Read", displayParams, status, width)
+	// Combine params for header
+	headerParams := []string{params.Path}
+	if len(extraParams) > 0 {
+		headerParams = append(headerParams, extraParams...)
+	}
 	
-	if result == nil || result.Output == "" {
+	header := r.RenderHeader("view", headerParams, status, width)
+	
+	if result == nil {
 		return header
 	}
 	
-	// TODO: Add syntax highlighting based on file extension
-	content := r.RenderCodeContent(result.Output, params.Path, width, params.Offset)
+	if result.Error != nil {
+		theme := styles.CurrentTheme()
+		errorTag := theme.S().Error.
+			Background(theme.Error).
+			Foreground(theme.FgInverted).
+			Padding(0, 1).
+			Render("ERROR")
+		errorMsg := theme.S().Muted.Render(result.Error.Error())
+		return header + "\n" + fmt.Sprintf("  %s %s", errorTag, errorMsg)
+	}
 	
-	return header + "\n\n" + content
+	if result.Output != "" {
+		// Show code with line numbers
+		content := r.RenderCodeContent(result.Output, params.Path, width, params.Offset)
+		return header + "\n" + content
+	}
+	
+	return header
 }
 
-// RenderCodeContent renders code with line numbers
+// RenderCodeContent renders code with line numbers in a compact format
 func (r *ReadFileRenderer) RenderCodeContent(code, filename string, width, offset int) string {
 	theme := styles.CurrentTheme()
 	
+	// Normalize and split
+	code = strings.ReplaceAll(code, "\r\n", "\n")
+	code = strings.ReplaceAll(code, "\t", "    ")
 	lines := strings.Split(code, "\n")
-	maxLines := 20
+	
+	maxLines := 10 // Match Crush's compact display
 	truncated := false
 	
 	if len(lines) > maxLines {
@@ -296,35 +340,40 @@ func (r *ReadFileRenderer) RenderCodeContent(code, filename string, width, offse
 	maxLineNum := offset + len(lines)
 	lineNumWidth := len(fmt.Sprintf("%d", maxLineNum))
 	
+	// Calculate available width for code
+	codeWidth := width - lineNumWidth - 5 // Account for padding and line number
+	
 	// Render each line with line numbers
 	renderedLines := make([]string, len(lines))
 	for i, line := range lines {
 		lineNum := offset + i + 1
 		
-		// Line number style
-		numStyle := theme.S().Subtle.
-			Background(theme.BgBase).
-			PaddingRight(1).
-			Width(lineNumWidth + 1)
+		// Truncate long lines
+		if len(line) > codeWidth {
+			line = line[:codeWidth-1] + "…"
+		}
 		
-		// Code line style
-		codeStyle := theme.S().Text.
-			Background(theme.BgBaseLighter).
-			PaddingLeft(2).
-			Width(width - lineNumWidth - 3)
-		
+		// Format line number
 		lineNumStr := fmt.Sprintf("%*d", lineNumWidth, lineNum)
-		renderedLines[i] = numStyle.Render(lineNumStr) + " " + codeStyle.Render(line)
+		numPart := theme.S().Subtle.Render(lineNumStr)
+		
+		// Format code line with background
+		codePart := theme.S().Text.
+			Background(theme.BgBaseLighter).
+			Width(codeWidth).
+			Render(" " + line) // Single space padding
+		
+		renderedLines[i] = fmt.Sprintf("  %s %s", numPart, codePart)
 	}
 	
 	result := strings.Join(renderedLines, "\n")
 	
 	if truncated {
-		truncateMsg := theme.S().Subtle.
-			Background(theme.BgBaseLighter).
-			PaddingLeft(2).
-			Width(width - 2).
-			Render(fmt.Sprintf("... (%d more lines)", len(strings.Split(code, "\n"))-maxLines))
+		truncateMsg := fmt.Sprintf("  %s", 
+			theme.S().Subtle.
+				Background(theme.BgBaseLighter).
+				Width(width - 4).
+				Render(fmt.Sprintf(" … (%d more lines)", len(strings.Split(code, "\n"))-maxLines)))
 		result = result + "\n" + truncateMsg
 	}
 	
@@ -353,23 +402,24 @@ func (w *WriteFileRenderer) Render(call llm.ToolCall, result *llm.ToolResult, wi
 	}
 	json.Unmarshal([]byte(call.Parameters), &params)
 	
-	header := w.RenderHeader("Write", []string{params.Path}, status, width)
+	header := w.RenderHeader("write", []string{params.Path}, status, width)
 	
 	if result == nil {
 		return header
 	}
 	
-	// Show preview of written content
-	if status == ToolSuccess && params.Content != "" {
-		preview := w.RenderContent(params.Content, width, 10)
-		return header + "\n\n" + preview
-	}
-	
 	if result.Error != nil {
-		errorContent := w.RenderContent(result.Error.Error(), width, 5)
-		return header + "\n\n" + errorContent
+		theme := styles.CurrentTheme()
+		errorTag := theme.S().Error.
+			Background(theme.Error).
+			Foreground(theme.FgInverted).
+			Padding(0, 1).
+			Render("ERROR")
+		errorMsg := theme.S().Muted.Render(result.Error.Error())
+		return header + "\n" + fmt.Sprintf("  %s %s", errorTag, errorMsg)
 	}
 	
+	// For success, just show the header - file was written
 	return header
 }
 
@@ -398,14 +448,29 @@ func (l *ListFilesRenderer) Render(call llm.ToolCall, result *llm.ToolResult, wi
 		params.Path = "."
 	}
 	
-	header := l.RenderHeader("List", []string{params.Path}, status, width)
+	header := l.RenderHeader("list", []string{params.Path}, status, width)
 	
-	if result == nil || result.Output == "" {
+	if result == nil {
 		return header
 	}
 	
-	content := l.RenderContent(result.Output, width, 15)
-	return header + "\n\n" + content
+	if result.Error != nil {
+		theme := styles.CurrentTheme()
+		errorTag := theme.S().Error.
+			Background(theme.Error).
+			Foreground(theme.FgInverted).
+			Padding(0, 1).
+			Render("ERROR")
+		errorMsg := theme.S().Muted.Render(result.Error.Error())
+		return header + "\n" + fmt.Sprintf("  %s %s", errorTag, errorMsg)
+	}
+	
+	if result.Output != "" {
+		content := l.RenderContent(result.Output, width, 10)
+		return header + "\n" + content
+	}
+	
+	return header
 }
 
 // SearchRenderer handles search results
@@ -430,22 +495,42 @@ func (s *SearchRenderer) Render(call llm.ToolCall, result *llm.ToolResult, width
 	}
 	json.Unmarshal([]byte(call.Parameters), &params)
 	
-	displayParams := []string{params.Pattern}
-	if params.Path != "" {
-		displayParams = append(displayParams, fmt.Sprintf("path=%s", params.Path))
+	var extraParams []string
+	if params.Path != "" && params.Path != "." {
+		extraParams = append(extraParams, fmt.Sprintf("path=%s", params.Path))
 	}
 	
-	header := s.RenderHeader("Search", displayParams, status, width)
+	headerParams := []string{params.Pattern}
+	if len(extraParams) > 0 {
+		headerParams = append(headerParams, extraParams...)
+	}
 	
-	if result == nil || result.Output == "" {
+	header := s.RenderHeader("search", headerParams, status, width)
+	
+	if result == nil {
 		return header
 	}
 	
-	content := s.RenderContent(result.Output, width, 20)
-	return header + "\n\n" + content
+	if result.Error != nil {
+		theme := styles.CurrentTheme()
+		errorTag := theme.S().Error.
+			Background(theme.Error).
+			Foreground(theme.FgInverted).
+			Padding(0, 1).
+			Render("ERROR")
+		errorMsg := theme.S().Muted.Render(result.Error.Error())
+		return header + "\n" + fmt.Sprintf("  %s %s", errorTag, errorMsg)
+	}
+	
+	if result.Output != "" {
+		content := s.RenderContent(result.Output, width, 10)
+		return header + "\n" + content
+	}
+	
+	return header
 }
 
-// AnalyzeRenderer handles project analysis rendering with beautiful formatting
+// AnalyzeRenderer handles project analysis rendering with clean, compact formatting
 type AnalyzeRenderer struct {
 	BaseRenderer
 }
@@ -473,16 +558,104 @@ func (a *AnalyzeRenderer) Render(call llm.ToolCall, result *llm.ToolResult, widt
 		params.Tier = "quick"
 	}
 	
-	// Build display parameters
-	displayParams := []string{params.Tier}
-	if params.Project != "" {
-		displayParams = append(displayParams, fmt.Sprintf("project=%s", params.Project))
+	// Build compact parameter list
+	var paramList []string
+	if params.Project != "" && params.Project != "." {
+		paramList = append(paramList, fmt.Sprintf("path=%s", params.Project))
 	}
 	if params.Force {
-		displayParams = append(displayParams, "force=true")
+		paramList = append(paramList, "force")
 	}
 	
-	// Create beautiful header with tier-specific icon
+	// Create clean, compact header
+	theme := styles.CurrentTheme()
+	var statusIcon string
+	var iconStyle lipgloss.Style
+	
+	switch status {
+	case ToolPending, ToolRunning:
+		statusIcon = "⚡" // Lightning for pending
+		iconStyle = theme.S().Warning
+	case ToolSuccess:
+		statusIcon = "✓"
+		iconStyle = theme.S().Success
+	case ToolError:
+		statusIcon = "✗"
+		iconStyle = theme.S().Error
+	}
+	
+	// Simple tool name with tier
+	toolName := fmt.Sprintf("analyze %s", params.Tier)
+	if len(paramList) > 0 {
+		toolName = fmt.Sprintf("%s (%s)", toolName, strings.Join(paramList, ", "))
+	}
+	
+	header := fmt.Sprintf("%s %s", 
+		iconStyle.Render(statusIcon),
+		theme.S().Info.Render(toolName))
+	
+	if result == nil {
+		// Show pending state
+		return header
+	}
+	
+	if result.Error != nil {
+		// Show error with ERROR badge
+		errorTag := theme.S().Error.
+			Background(theme.Error).
+			Foreground(theme.FgInverted).
+			Padding(0, 1).
+			Render("ERROR")
+		errorMsg := theme.S().Muted.Render(result.Error.Error())
+		errorContent := fmt.Sprintf("  %s %s", errorTag, errorMsg)
+		return header + "\n" + errorContent
+	}
+	
+	// Parse the analysis result
+	output := result.Output
+	if output == "" {
+		return header
+	}
+	
+	// Build compact output
+	var content strings.Builder
+	content.WriteString("\n")
+	
+	// Extract key information from output
+	lines := strings.Split(output, "\n")
+	var summary string
+	var knowledgeFiles []string
+	inSummary := false
+	inKnowledge := false
+	
+	for _, line := range lines {
+		if strings.HasPrefix(line, "## Summary") {
+			inSummary = true
+			inKnowledge = false
+			continue
+		}
+		if strings.HasPrefix(line, "## Knowledge Files") {
+			inSummary = false
+			inKnowledge = true
+			continue
+		}
+		if strings.HasPrefix(line, "## Next Steps") {
+			break // Stop at next steps
+		}
+		
+		if inSummary && line != "" && !strings.HasPrefix(line, "#") {
+			if summary == "" {
+				summary = line
+			}
+		}
+		
+		if inKnowledge && strings.HasPrefix(line, "### ") {
+			fileName := strings.TrimPrefix(line, "### ")
+			knowledgeFiles = append(knowledgeFiles, fileName)
+		}
+	}
+	
+	// Show tier icon and compact summary
 	tierIcons := map[string]string{
 		"quick":    "⚡",
 		"detailed": "📊",
@@ -495,167 +668,50 @@ func (a *AnalyzeRenderer) Render(call llm.ToolCall, result *llm.ToolResult, widt
 		icon = "🔍"
 	}
 	
-	// Build custom header with tier icon
-	theme := styles.CurrentTheme()
-	var statusIcon string
-	var iconStyle lipgloss.Style
-	
-	switch status {
-	case ToolPending, ToolRunning:
-		statusIcon = icon // Use tier icon while running
-		iconStyle = theme.S().Warning.Blink(true)
-	case ToolSuccess:
-		statusIcon = "✓"
-		iconStyle = theme.S().Success
-	case ToolError:
-		statusIcon = "✗"
-		iconStyle = theme.S().Error
+	// One-line summary with tier
+	if summary != "" {
+		summaryLine := fmt.Sprintf("  %s %s: %s", 
+			icon, 
+			strings.Title(params.Tier),
+			summary)
+		content.WriteString(theme.S().Text.Render(summaryLine))
+		content.WriteString("\n\n")
 	}
 	
-	// Tool name with gradient
-	toolNameStyled := styles.RenderThemeGradient("analyze", true)
-	
-	// Parameters with tier
-	paramStr := theme.S().Info.Bold(true).Render(" " + params.Tier)
-	if params.Project != "" {
-		paramStr += theme.S().Subtle.Render(fmt.Sprintf(" • %s", params.Project))
-	}
-	
-	header := fmt.Sprintf("%s %s%s", iconStyle.Render(statusIcon), toolNameStyled, paramStr)
-	
-	if result == nil {
-		// Show pending/running state with animated dots
-		runningMsg := theme.S().Subtle.Italic(true).Render("Running ensemble analysis...")
-		return header + "\n" + runningMsg
-	}
-	
-	if result.Error != nil {
-		errorContent := a.RenderContent(result.Error.Error(), width, 5)
-		return header + "\n\n" + errorContent
-	}
-	
-	// Parse the analysis result to extract key information
-	output := result.Output
-	if output == "" {
-		return header
-	}
-	
-	// For now, we don't have metadata in ToolResult
-	// This would need to be extended in the future
-	var metadata map[string]interface{}
-	
-	// Build beautiful output
-	var content strings.Builder
-	
-	// Add summary section with nice formatting
-	summaryStyle := theme.S().Text.
-		Background(theme.BgBaseLighter).
-		Padding(1).
-		Width(width - 2)
-	
-	// Check for cache hit
-	if metadata != nil {
-		if cacheHit, ok := metadata["cache_hit"].(bool); ok && cacheHit {
-			cacheIndicator := theme.S().Info.
-				Background(theme.Info).
-				Foreground(theme.FgInverted).
-				Padding(0, 1).
-				Render("CACHED")
-			content.WriteString(cacheIndicator + " ")
-		}
-		
-		// Show duration if available
-		if duration, ok := metadata["duration"].(string); ok {
-			durationStr := theme.S().Subtle.Render(fmt.Sprintf("⏱️  %s", duration))
-			content.WriteString(durationStr + "\n")
-		}
-		
-		// Show file count if available
-		if fileCount, ok := metadata["file_count"].(float64); ok {
-			filesStr := theme.S().Info.Render(fmt.Sprintf("📁 %d files analyzed", int(fileCount)))
-			content.WriteString(filesStr + "\n")
-		}
-	}
-	
-	// Add separator
-	separator := theme.S().Subtle.Render(strings.Repeat("─", width-2))
-	content.WriteString("\n" + separator + "\n\n")
-	
-	// Extract and format knowledge files section
-	if strings.Contains(output, "## Knowledge Files Generated") {
-		// Split output into sections
-		sections := strings.Split(output, "## ")
-		
-		for _, section := range sections {
-			if section == "" {
-				continue
+	// Compact knowledge files display using tree structure
+	if len(knowledgeFiles) > 0 {
+		for i, file := range knowledgeFiles {
+			prefix := "  ├─"
+			if i == len(knowledgeFiles)-1 {
+				prefix = "  └─"
 			}
 			
-			lines := strings.Split(section, "\n")
-			if len(lines) == 0 {
-				continue
+			// Get description for the file
+			description := ""
+			switch file {
+			case "structure.md":
+				description = "Code organization and architecture"
+			case "patterns.md":
+				description = "Development patterns and conventions"
+			case "context.md":
+				description = "Project purpose and business logic"
+			case "overview.md":
+				description = "High-level summary and quick start"
 			}
 			
-			sectionTitle := lines[0]
-			
-			// Style section headers
-			if strings.HasPrefix(sectionTitle, "Knowledge Files") {
-				// Special handling for knowledge files
-				titleStyle := theme.S().Success.Bold(true)
-				content.WriteString(titleStyle.Render("📚 Knowledge Files") + "\n")
-				
-				// Look for markdown code blocks
-				inCodeBlock := false
-				for i := 1; i < len(lines); i++ {
-					line := lines[i]
-					
-					if strings.HasPrefix(line, "### ") {
-						// File name
-						fileName := strings.TrimPrefix(line, "### ")
-						fileStyle := theme.S().Info.Underline(true)
-						content.WriteString("\n" + fileStyle.Render("▸ "+fileName) + "\n")
-					} else if strings.HasPrefix(line, "```") {
-						inCodeBlock = !inCodeBlock
-						if !inCodeBlock && strings.Contains(line, "truncated") {
-							truncStyle := theme.S().Subtle.Italic(true)
-							content.WriteString(truncStyle.Render("  ... preview truncated") + "\n")
-						}
-					} else if inCodeBlock {
-						// Code content
-						codeStyle := theme.S().Muted.
-							Background(theme.BgBase).
-							PaddingLeft(2)
-						content.WriteString(codeStyle.Render(line) + "\n")
-					}
+			fileLine := fmt.Sprintf("%s %s", prefix, theme.S().Info.Render(file))
+			if description != "" {
+				fileLine = fmt.Sprintf("%s\n  │  %s", fileLine, theme.S().Subtle.Render(description))
+				if i == len(knowledgeFiles)-1 {
+					fileLine = strings.Replace(fileLine, "  │  ", "     ", 1)
 				}
-			} else if strings.HasPrefix(sectionTitle, "Summary") {
-				// Summary section
-				titleStyle := theme.S().Title
-				content.WriteString(titleStyle.Render("📝 Summary") + "\n")
-				
-				for i := 1; i < len(lines) && i < 6; i++ {
-					if lines[i] != "" {
-						content.WriteString(summaryStyle.Render(lines[i]) + "\n")
-					}
-				}
-			} else if strings.HasPrefix(sectionTitle, "Next Steps") {
-				// Next steps section
-				titleStyle := theme.S().Subtitle
-				content.WriteString("\n" + titleStyle.Render("🎯 Next Steps") + "\n")
-				
-				for i := 1; i < len(lines); i++ {
-					if strings.HasPrefix(lines[i], "- ") {
-						step := strings.TrimPrefix(lines[i], "- ")
-						stepStyle := theme.S().Subtle.PaddingLeft(2)
-						content.WriteString(stepStyle.Render("• " + step) + "\n")
-					}
-				}
+			}
+			content.WriteString(fileLine)
+			if i < len(knowledgeFiles)-1 {
+				content.WriteString("\n")
 			}
 		}
-	} else {
-		// Fallback to showing raw output nicely formatted
-		content.WriteString(a.RenderContent(output, width, 30))
 	}
 	
-	return header + "\n" + content.String()
+	return header + content.String()
 }
