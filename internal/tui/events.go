@@ -236,6 +236,11 @@ func (m *Model) handleEvent(event events.Event) (tea.Model, tea.Cmd) {
 		// Handle dialog open requests
 		// For now, just open quit dialog as a default
 		cmds = append(cmds, m.dialogManager.OpenDialog(dialog.QuitDialogType))
+
+	case events.MessagesClearEvent:
+		// Handle clear messages event
+		m.clearMessages()
+		m.showStatus("✅ Messages cleared")
 	}
 
 	return m, tea.Batch(cmds...)

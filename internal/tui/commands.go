@@ -16,43 +16,59 @@ func (m *Model) handleSendMessage(content string) tea.Cmd {
 		return nil
 	}
 
-	// Check for commands
-	if strings.HasPrefix(content, "/") {
-		return m.handleCommand(content)
-	}
-
-	// Create user message
-	userMsg := llm.Message{
-		Role:    "user",
-		Content: content,
-	}
-	
-	// Add to TUI state
-	m.messages.Append(userMsg)
-	m.syncStateToComponents()
-	
-	// Add to session (this auto-saves to JSON!)
-	if m.app.Sessions != nil {
-		if err := m.app.Sessions.AddMessage(userMsg); err != nil {
-			m.showStatus("⚠️ Failed to save message: " + err.Error())
+	// Special case: /debug is UI-specific, handle locally
+	if content == "/debug" {
+		m.debugMode = !m.debugMode
+		m.messageList.SetDebugMode(m.debugMode)
+		if m.debugMode {
+			m.showStatus("🐛 Debug mode ON")
+		} else {
+			m.showStatus("Debug mode OFF")
 		}
+		return nil
 	}
 
-	// Publish user message event
-	m.eventBroker.PublishAsync(events.Event{
-		Type: events.UserMessageEvent,
-		Payload: events.MessagePayload{
-			Message: userMsg,
-		},
-	})
+	// Route all other input through the InputRouter
+	if m.app.InputRouter != nil {
+		m.app.InputRouter.Route(content)
+	} else {
+		// Fallback to old behavior if InputRouter not available
+		if strings.HasPrefix(content, "/") {
+			m.showStatus("Command service not available")
+		} else {
+			// Handle as regular message
+			userMsg := llm.Message{
+				Role:    "user",
+				Content: content,
+			}
+			
+			// Add to TUI state
+			m.messages.Append(userMsg)
+			m.syncStateToComponents()
+			
+			// Add to session
+			if m.app.Sessions != nil {
+				if err := m.app.Sessions.AddMessage(userMsg); err != nil {
+					m.showStatus("⚠️ Failed to save message: " + err.Error())
+				}
+			}
 
-	// Send to LLM service if available
-	if m.app.LLMService != nil {
-		go func() {
-			// This will trigger streaming events
-			messages := m.messages.All()
-			m.app.LLMService.HandleUserMessage(messages, content)
-		}()
+			// Publish user message event
+			m.eventBroker.PublishAsync(events.Event{
+				Type: events.UserMessageEvent,
+				Payload: events.MessagePayload{
+					Message: userMsg,
+				},
+			})
+
+			// Send to LLM service if available
+			if m.app.LLMService != nil {
+				go func() {
+					messages := m.messages.All()
+					m.app.LLMService.HandleUserMessage(messages, content)
+				}()
+			}
+		}
 	}
 
 	return nil

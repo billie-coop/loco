@@ -31,6 +31,10 @@ type App struct {
 	PermissionService *PermissionService
 	CommandService   *CommandService
 	
+	// Unified tool architecture
+	ToolExecutor     *ToolExecutor
+	InputRouter      *UserInputRouter
+	
 	// Event system
 	EventBroker      *events.Broker
 }
@@ -71,6 +75,16 @@ func New(workingDir string, eventBroker *events.Broker) *App {
 	app.LLMService = NewLLMService(eventBroker)
 	app.PermissionService = NewPermissionService(eventBroker)
 	app.CommandService = NewCommandService(app, eventBroker)
+	
+	// Register command tools
+	app.Tools.Register(tools.NewCopyTool(permissionService, app.Sessions))
+	app.Tools.Register(tools.NewClearTool(permissionService))
+	app.Tools.Register(tools.NewHelpTool(permissionService, app.Tools))
+	app.Tools.Register(tools.NewChatTool(permissionService))
+	
+	// Create unified tool architecture
+	app.ToolExecutor = NewToolExecutor(app.Tools, eventBroker, app.Sessions, app.LLMService)
+	app.InputRouter = NewUserInputRouter(app.ToolExecutor)
 	
 	return app
 }
