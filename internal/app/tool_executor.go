@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"time"
 
 	"github.com/billie-coop/loco/internal/llm"
 	"github.com/billie-coop/loco/internal/session"
@@ -49,8 +50,17 @@ func (e *ToolExecutor) Execute(call tools.ToolCall) {
 		return
 	}
 
-	// Create context (could add session/message IDs here)
+	// Create context with session and message IDs for tools that need them
 	ctx := context.Background()
+	
+	// Add session ID if available
+	if e.sessions != nil {
+		if currentSession, err := e.sessions.GetCurrent(); err == nil && currentSession != nil {
+			ctx = context.WithValue(ctx, tools.SessionIDKey, currentSession.ID)
+			// Generate a message ID (could be more sophisticated)
+			ctx = context.WithValue(ctx, tools.MessageIDKey, fmt.Sprintf("msg_%d", time.Now().Unix()))
+		}
+	}
 
 	// Run the tool
 	result, err := tool.Run(ctx, call)
@@ -127,6 +137,87 @@ func (e *ToolExecutor) Execute(call tools.ToolCall) {
 					Type:    "success",
 				},
 			})
+		}
+		
+	case "analyze":
+		// Handle analysis tool specially - run it asynchronously
+		// Parse the tier from the input
+		var params struct {
+			Tier string `json:"tier"`
+		}
+		if err := json.Unmarshal([]byte(call.Input), &params); err == nil && params.Tier != "" {
+			// Run analysis in background since it can take time
+			go func() {
+				// Emit analysis started event
+				e.eventBroker.Publish(events.Event{
+					Type: events.AnalysisStartedEvent,
+					Payload: events.AnalysisProgressPayload{
+						Phase:       params.Tier,
+						TotalFiles:  0,
+						CurrentFile: "Starting analysis...",
+					},
+				})
+				
+				// Actually run the tool
+				tool, exists := e.registry.Get("analyze")
+				if !exists {
+					e.eventBroker.Publish(events.Event{
+						Type: events.ErrorMessageEvent,
+						Payload: events.StatusMessagePayload{
+							Message: "Analysis tool not available",
+							Type:    "error",
+						},
+					})
+					return
+				}
+				
+				// Create context with session info
+				ctx := context.Background()
+				if e.sessions != nil {
+					if currentSession, err := e.sessions.GetCurrent(); err == nil && currentSession != nil {
+						ctx = context.WithValue(ctx, tools.SessionIDKey, currentSession.ID)
+						ctx = context.WithValue(ctx, tools.MessageIDKey, fmt.Sprintf("msg_%d", time.Now().Unix()))
+					}
+				}
+				
+				// Run the analysis
+				result, err := tool.Run(ctx, call)
+				if err != nil {
+					e.eventBroker.Publish(events.Event{
+						Type: events.AnalysisErrorEvent,
+						Payload: events.StatusMessagePayload{
+							Message: fmt.Sprintf("Analysis failed: %v", err),
+							Type:    "error",
+						},
+					})
+					return
+				}
+				
+				// Show the result
+				if result.Content != "" {
+					e.eventBroker.Publish(events.Event{
+						Type: events.SystemMessageEvent,
+						Payload: events.MessagePayload{
+							Message: llm.Message{
+								Role:    "system",
+								Content: result.Content,
+							},
+						},
+					})
+				}
+				
+				// Emit analysis completed event
+				e.eventBroker.Publish(events.Event{
+					Type: events.AnalysisCompletedEvent,
+					Payload: events.AnalysisProgressPayload{
+						Phase:       params.Tier,
+						CurrentFile: "Analysis complete",
+					},
+				})
+			}()
+			
+			// Return immediately since analysis runs async
+			return
 		}
 		
 	default:

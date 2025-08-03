@@ -146,8 +146,8 @@ func (m *Model) Init() tea.Cmd {
 		})
 		
 		// Trigger quick analysis
-		if m.app.CommandService != nil {
-			m.app.CommandService.HandleCommand("/analyze quick")
+		if m.app.InputRouter != nil {
+			m.app.InputRouter.Route("/analyze quick")
 		}
 	}()
 

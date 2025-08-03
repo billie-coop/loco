@@ -37,12 +37,17 @@ type App struct {
 	
 	// Event system
 	EventBroker      *events.Broker
+	
+	// Internal references for re-initialization
+	permissionServiceInternal permission.Service
+	workingDir               string
 }
 
 // New creates a new app with all services initialized
 func New(workingDir string, eventBroker *events.Broker) *App {
 	app := &App{
 		EventBroker: eventBroker,
+		workingDir:  workingDir,
 	}
 	
 	// Initialize configuration first
@@ -61,6 +66,7 @@ func New(workingDir string, eventBroker *events.Broker) *App {
 	
 	// Create permission service first
 	permissionService := permission.NewService()
+	app.permissionServiceInternal = permissionService
 	
 	// Create analysis service (will be set up properly when LLM client is available)
 	app.Analysis = analysis.NewService(nil)
@@ -96,6 +102,11 @@ func (a *App) SetLLMClient(client llm.Client) {
 	
 	// Recreate analysis service with LLM client
 	a.Analysis = analysis.NewService(client)
+	
+	// Register the analyze tool now that we have the service
+	if a.Tools != nil && a.Analysis != nil && a.permissionServiceInternal != nil {
+		a.Tools.Register(tools.NewAnalyzeTool(a.permissionServiceInternal, a.workingDir, a.Analysis))
+	}
 }
 
 // SetModelManager sets the model manager
