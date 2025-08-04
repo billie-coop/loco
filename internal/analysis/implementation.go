@@ -45,10 +45,34 @@ func (s *service) QuickAnalyze(ctx context.Context, projectPath string) (*QuickA
 
 	// Perform new analysis
 	start := time.Now()
-	// TODO: Implement quick analysis
+	
+	// Step 1: Get all project files
+	files, err := GetProjectFiles(projectPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get project files: %w", err)
+	}
+	
+	// Step 2: Generate file summaries (using small model)
+	fileSummaries, err := s.generateFileSummaries(ctx, projectPath, files)
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate file summaries: %w", err)
+	}
+	
+	// Step 3: Generate knowledge documents using cascading pipeline
+	knowledgeFiles, err := s.generateKnowledgeDocuments(ctx, projectPath, fileSummaries, TierQuick)
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate knowledge documents: %w", err)
+	}
+	
+	// Create result
 	result := &QuickAnalysis{
-		ProjectPath: projectPath,
-		Description: "Quick analysis not yet implemented",
+		ProjectPath:    projectPath,
+		Description:    "Quick structural analysis of project",
+		TotalFiles:     len(files),
+		MainLanguage:   detectMainLanguage(files),
+		Framework:      detectFramework(files),
+		ProjectType:    detectProjectType(files),
+		KnowledgeFiles: knowledgeFiles,
 	}
 
 	result.Duration = time.Since(start)
@@ -57,6 +81,12 @@ func (s *service) QuickAnalyze(ctx context.Context, projectPath string) (*QuickA
 
 	// Cache the result
 	if err := s.saveCachedAnalysis(projectPath, result); err != nil {
+		// Log but don't fail
+		_ = err
+	}
+	
+	// Save knowledge files to disk
+	if err := s.saveKnowledgeFiles(projectPath, TierQuick, knowledgeFiles); err != nil {
 		// Log but don't fail
 		_ = err
 	}
@@ -77,10 +107,58 @@ func (s *service) DetailedAnalyze(ctx context.Context, projectPath string) (*Det
 
 	// Perform new analysis
 	start := time.Now()
-	// TODO: Implement detailed analysis
+	
+	// Step 1: Get all project files
+	files, err := GetProjectFiles(projectPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get project files: %w", err)
+	}
+	
+	// Step 2: Read key file contents for deeper analysis
+	keyFiles := selectKeyFiles(files)
+	fileContents := make(map[string]string)
+	for _, file := range keyFiles {
+		content, err := readFileHead(filepath.Join(projectPath, file), 500) // Read more lines for detailed
+		if err == nil {
+			fileContents[file] = content
+		}
+	}
+	
+	// Step 3: Generate more thorough file summaries (including content analysis)
+	fileSummaries, err := s.generateDetailedFileSummaries(ctx, projectPath, files, fileContents)
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate detailed file summaries: %w", err)
+	}
+	
+	// Step 4: Get previous quick analysis for skeptical refinement
+	var quickAnalysis *QuickAnalysis
+	if cached, err := s.loadCachedAnalysis(projectPath, TierQuick); err == nil {
+		quickAnalysis, _ = cached.(*QuickAnalysis)
+	}
+	
+	// Step 5: Generate knowledge documents with skepticism
+	knowledgeFiles, err := s.generateKnowledgeDocumentsWithSkepticism(
+		ctx, projectPath, fileSummaries, TierDetailed, quickAnalysis,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate knowledge documents: %w", err)
+	}
+	
+	// Detect tech stack from actual file contents
+	techStack := detectTechStack(files, fileContents)
+	
+	// Create result
 	result := &DetailedAnalysis{
-		ProjectPath: projectPath,
-		Description: "Detailed analysis not yet implemented",
+		ProjectPath:    projectPath,
+		Description:    "Comprehensive analysis with file content inspection",
+		Architecture:   extractArchitecture(knowledgeFiles["structure.md"]),
+		Purpose:        extractPurpose(knowledgeFiles["context.md"]),
+		TechStack:      techStack,
+		KeyFiles:       keyFiles,
+		EntryPoints:    detectEntryPoints(files, fileContents),
+		FileCount:      len(files),
+		FileContents:   fileContents,
+		KnowledgeFiles: knowledgeFiles,
 	}
 
 	result.Duration = time.Since(start)
@@ -94,6 +172,12 @@ func (s *service) DetailedAnalyze(ctx context.Context, projectPath string) (*Det
 
 	// Cache the result
 	if err := s.saveCachedAnalysis(projectPath, result); err != nil {
+		// Log but don't fail
+		_ = err
+	}
+	
+	// Save knowledge files to disk
+	if err := s.saveKnowledgeFiles(projectPath, TierDetailed, knowledgeFiles); err != nil {
 		// Log but don't fail
 		_ = err
 	}
@@ -120,11 +204,53 @@ func (s *service) DeepAnalyze(ctx context.Context, projectPath string) (*DeepAna
 
 	// Perform new analysis
 	start := time.Now()
-	// TODO: Implement deep analysis
+	
+	// Step 1: Get all project files
+	files, err := GetProjectFiles(projectPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get project files: %w", err)
+	}
+	
+	// Step 2: Read MORE file contents for deep analysis (not just key files)
+	extendedFiles := selectExtendedFiles(files, 50) // Read up to 50 files
+	fileContents := make(map[string]string)
+	for _, file := range extendedFiles {
+		content, err := readFileHead(filepath.Join(projectPath, file), 1000) // Read even more lines
+		if err == nil {
+			fileContents[file] = content
+		}
+	}
+	
+	// Step 3: Generate very thorough file analysis
+	fileSummaries, err := s.generateDeepFileSummaries(ctx, projectPath, files, fileContents)
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate deep file summaries: %w", err)
+	}
+	
+	// Step 4: Generate knowledge documents with high skepticism of detailed tier
+	knowledgeFiles, refinementNotes, err := s.generateDeepKnowledgeDocuments(
+		ctx, projectPath, fileSummaries, detailed,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate deep knowledge documents: %w", err)
+	}
+	
+	// Step 5: Extract architectural insights
+	insights := extractArchitecturalInsights(knowledgeFiles, detailed.KnowledgeFiles)
+	
+	// Create result
 	result := &DeepAnalysis{
-		ProjectPath: projectPath,
-		Description: "Deep analysis not yet implemented",
-		Architecture: detailed.Architecture,
+		ProjectPath:           projectPath,
+		Description:           "Deep analysis with skeptical refinement and architectural insights",
+		Architecture:          extractArchitecture(knowledgeFiles["structure.md"]),
+		Purpose:               extractPurpose(knowledgeFiles["context.md"]),
+		TechStack:             detailed.TechStack, // Refined from detailed
+		KeyFiles:              extendedFiles[:min(20, len(extendedFiles))],
+		EntryPoints:           detailed.EntryPoints,
+		FileCount:             len(files),
+		KnowledgeFiles:        knowledgeFiles,
+		RefinementNotes:       refinementNotes,
+		ArchitecturalInsights: insights,
 	}
 
 	result.Duration = time.Since(start)
@@ -134,6 +260,12 @@ func (s *service) DeepAnalyze(ctx context.Context, projectPath string) (*DeepAna
 
 	// Cache the result
 	if err := s.saveCachedAnalysis(projectPath, result); err != nil {
+		// Log but don't fail
+		_ = err
+	}
+	
+	// Save knowledge files to disk
+	if err := s.saveKnowledgeFiles(projectPath, TierDeep, knowledgeFiles); err != nil {
 		// Log but don't fail
 		_ = err
 	}

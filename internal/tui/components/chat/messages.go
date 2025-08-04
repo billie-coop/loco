@@ -42,6 +42,7 @@ type messageCmp struct {
 	spinner      spinner.Model
 	showDebug    bool
 	toolRegistry *ToolRegistry
+	toolMessage  *ToolMessage // For tool execution messages
 }
 
 // Ensure messageCmp implements all required interfaces
@@ -50,13 +51,20 @@ var _ list.Item = (*messageCmp)(nil)
 
 // NewMessageCmp creates a new message component
 func NewMessageCmp(msg llm.Message, meta *MessageMetadata, showDebug bool, toolRegistry *ToolRegistry) MessageItem {
-	return &messageCmp{
+	mc := &messageCmp{
 		message:      msg,
 		meta:         meta,
 		showDebug:    showDebug,
 		toolRegistry: toolRegistry,
 		spinner:      spinner.New(spinner.WithSpinner(spinner.Dot)),
 	}
+	
+	// Create tool message component if this is a tool message
+	if msg.Role == "tool" && msg.ToolName != "" {
+		mc.toolMessage = NewToolMessage(msg)
+	}
+	
+	return mc
 }
 
 // ID implements list.Item
@@ -74,6 +82,15 @@ func (m *messageCmp) Init() tea.Cmd {
 
 // Update implements tea.Model
 func (m *messageCmp) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	// Handle tool message updates
+	if m.toolMessage != nil {
+		tm, cmd := m.toolMessage.Update(msg)
+		if toolMsg, ok := tm.(*ToolMessage); ok {
+			m.toolMessage = toolMsg
+		}
+		return m, cmd
+	}
+	
 	if m.isStreaming {
 		var cmd tea.Cmd
 		m.spinner, cmd = m.spinner.Update(msg)
@@ -87,6 +104,12 @@ func (m *messageCmp) View() string {
 	// Early return if no width
 	if m.width <= 0 {
 		return ""
+	}
+	
+	// If this is a tool message, use the tool message component
+	if m.toolMessage != nil {
+		m.toolMessage.SetWidth(m.width)
+		return m.toolMessage.View()
 	}
 	
 	var sb strings.Builder
@@ -110,6 +133,9 @@ func (m *messageCmp) View() string {
 			rolePrefix = "🔧 System:"
 		}
 		contentStyle = getSystemStyle()
+	case "tool":
+		// Tool messages are handled by toolMessage component above
+		return ""
 	}
 
 	// Add role prefix with proper spacing
@@ -190,6 +216,11 @@ func (m *messageCmp) GetMessage() llm.Message {
 // SetMessage implements MessageItem
 func (m *messageCmp) SetMessage(msg llm.Message) {
 	m.message = msg
+	
+	// Update tool message if present
+	if m.toolMessage != nil {
+		m.toolMessage.SetMessage(msg)
+	}
 }
 
 // SetIndex sets the index for ID generation

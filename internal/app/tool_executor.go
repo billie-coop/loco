@@ -97,18 +97,49 @@ func (e *ToolExecutor) executeWithContext(call tools.ToolCall, initiator string)
 		return
 	}
 	
+	// Emit tool message showing the tool is running
+	e.eventBroker.Publish(events.Event{
+		Type: events.SystemMessageEvent,
+		Payload: events.MessagePayload{
+			Message: llm.Message{
+				Role:       "tool",
+				ToolName:   call.Name,
+				ToolStatus: "running",
+				ToolProgress: fmt.Sprintf("Running %s...", call.Name),
+			},
+		},
+	})
+	
 	// Run the tool synchronously for all other tools
 	result, err := tool.Run(ctx, call)
 	if err != nil {
+		// Update tool message to show error
 		e.eventBroker.Publish(events.Event{
-			Type: events.ErrorMessageEvent,
-			Payload: events.StatusMessagePayload{
-				Message: fmt.Sprintf("Tool execution failed: %v", err),
-				Type:    "error",
+			Type: events.SystemMessageEvent,
+			Payload: events.MessagePayload{
+				Message: llm.Message{
+					Role:       "tool",
+					ToolName:   call.Name,
+					ToolStatus: "error",
+					Content:    fmt.Sprintf("Tool execution failed: %v", err),
+				},
 			},
 		})
 		return
 	}
+	
+	// Update tool message to show completion
+	e.eventBroker.Publish(events.Event{
+		Type: events.SystemMessageEvent,
+		Payload: events.MessagePayload{
+			Message: llm.Message{
+				Role:       "tool",
+				ToolName:   call.Name,
+				ToolStatus: "complete",
+				Content:    result.Content,
+			},
+		},
+	})
 
 	// Handle special tools with side effects
 	switch call.Name {
@@ -226,6 +257,19 @@ func (e *ToolExecutor) handleAnalyzeAsync(call tools.ToolCall, ctx context.Conte
 		// Small delay to ensure dialog has closed and UI is ready
 		time.Sleep(100 * time.Millisecond)
 		
+		// Add tool message to chat showing the analysis is starting
+		e.eventBroker.Publish(events.Event{
+			Type: events.SystemMessageEvent,
+			Payload: events.MessagePayload{
+				Message: llm.Message{
+					Role:       "tool",
+					ToolName:   "analyze",
+					ToolStatus: "pending",
+					ToolProgress: fmt.Sprintf("Starting %s analysis...", params.Tier),
+				},
+			},
+		})
+		
 		// Emit analysis started event
 		e.eventBroker.Publish(events.Event{
 			Type: events.AnalysisStartedEvent,
@@ -262,18 +306,19 @@ func (e *ToolExecutor) handleAnalyzeAsync(call tools.ToolCall, ctx context.Conte
 			return
 		}
 		
-		// Show the result
-		if result.Content != "" {
-			e.eventBroker.Publish(events.Event{
-				Type: events.SystemMessageEvent,
-				Payload: events.MessagePayload{
-					Message: llm.Message{
-						Role:    "system",
-						Content: result.Content,
-					},
+		// Update tool message to show completion
+		e.eventBroker.Publish(events.Event{
+			Type: events.SystemMessageEvent,
+			Payload: events.MessagePayload{
+				Message: llm.Message{
+					Role:       "tool",
+					ToolName:   "analyze",
+					ToolStatus: "complete",
+					ToolProgress: fmt.Sprintf("%s analysis complete", params.Tier),
+					Content:    result.Content,
 				},
-			})
-		}
+			},
+		})
 		
 		// Emit analysis completed event
 		e.eventBroker.Publish(events.Event{
@@ -294,6 +339,19 @@ func (e *ToolExecutor) handleAnalyzeAsync(call tools.ToolCall, ctx context.Conte
 // handleStartupScanAsync runs the startup scan tool asynchronously
 func (e *ToolExecutor) handleStartupScanAsync(call tools.ToolCall, ctx context.Context, initiator string) {
 	go func() {
+		// Add tool message to chat
+		e.eventBroker.Publish(events.Event{
+			Type: events.SystemMessageEvent,
+			Payload: events.MessagePayload{
+				Message: llm.Message{
+					Role:       "tool",
+					ToolName:   "startup_scan",
+					ToolStatus: "pending",
+					ToolProgress: "Scanning project structure...",
+				},
+			},
+		})
+		
 		// Emit startup scan started event
 		e.eventBroker.Publish(events.Event{
 			Type: events.StartupScanStartedEvent,
@@ -329,18 +387,19 @@ func (e *ToolExecutor) handleStartupScanAsync(call tools.ToolCall, ctx context.C
 			return
 		}
 		
-		// Show the result
-		if result.Content != "" {
-			e.eventBroker.Publish(events.Event{
-				Type: events.SystemMessageEvent,
-				Payload: events.MessagePayload{
-					Message: llm.Message{
-						Role:    "system",
-						Content: result.Content,
-					},
+		// Update tool message to show completion
+		e.eventBroker.Publish(events.Event{
+			Type: events.SystemMessageEvent,
+			Payload: events.MessagePayload{
+				Message: llm.Message{
+					Role:       "tool",
+					ToolName:   "startup_scan",
+					ToolStatus: "complete",
+					ToolProgress: "Scan complete",
+					Content:    result.Content,
 				},
-			})
-		}
+			},
+		})
 		
 		// Emit startup scan completed event
 		e.eventBroker.Publish(events.Event{

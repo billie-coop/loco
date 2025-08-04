@@ -2,7 +2,6 @@ package analysis
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/billie-coop/loco/internal/llm"
 )
@@ -33,6 +32,16 @@ func (s *ServiceWithTeam) SetTeamClients(clients *llm.TeamClients) {
 
 // QuickAnalyze performs quick analysis using small model with startup scan.
 func (s *ServiceWithTeam) QuickAnalyze(ctx context.Context, projectPath string) (*QuickAnalysis, error) {
+	// Use small client for quick analysis if available
+	if s.teamClients != nil && s.teamClients.Small != nil {
+		// Temporarily set the small client for this analysis
+		if impl, ok := s.Service.(*service); ok {
+			originalClient := impl.llmClient
+			impl.llmClient = s.teamClients.Small
+			defer func() { impl.llmClient = originalClient }()
+		}
+	}
+	
 	// Check if we have startup scan results to use as foundation
 	startupScan := s.GetStartupScan(projectPath)
 	
@@ -57,14 +66,37 @@ func (s *ServiceWithTeam) QuickAnalyze(ctx context.Context, projectPath string) 
 		if result.Description == "" && startupScan.Purpose != "" {
 			result.Description = startupScan.Purpose
 		}
-		
-		// Add a note that this was enhanced with startup scan
-		if result.Description != "" {
-			result.Description = fmt.Sprintf("%s (enhanced with startup scan)", result.Description)
-		}
 	}
 	
 	return result, nil
+}
+
+// DetailedAnalyze performs detailed analysis using medium model.
+func (s *ServiceWithTeam) DetailedAnalyze(ctx context.Context, projectPath string) (*DetailedAnalysis, error) {
+	// Use medium client for detailed analysis if available
+	if s.teamClients != nil && s.teamClients.Medium != nil {
+		if impl, ok := s.Service.(*service); ok {
+			originalClient := impl.llmClient
+			impl.llmClient = s.teamClients.Medium
+			defer func() { impl.llmClient = originalClient }()
+		}
+	}
+	
+	return s.Service.DetailedAnalyze(ctx, projectPath)
+}
+
+// DeepAnalyze performs deep analysis using large model.
+func (s *ServiceWithTeam) DeepAnalyze(ctx context.Context, projectPath string) (*DeepAnalysis, error) {
+	// Use large client for deep analysis if available
+	if s.teamClients != nil && s.teamClients.Large != nil {
+		if impl, ok := s.Service.(*service); ok {
+			originalClient := impl.llmClient
+			impl.llmClient = s.teamClients.Large
+			defer func() { impl.llmClient = originalClient }()
+		}
+	}
+	
+	return s.Service.DeepAnalyze(ctx, projectPath)
 }
 
 // GetClient returns the appropriate client for a tier.

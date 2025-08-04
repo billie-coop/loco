@@ -1,7 +1,13 @@
 # Loco Data Analysis Pipeline
 
 ## Overview
-This document describes the data flow for the `/analyze-files` command and knowledge generation.
+This document describes the data flow for the analysis command and knowledge generation.
+
+## Three Analysis Tiers
+All tiers follow the same pipeline but with different depth:
+- **Quick Analysis**: Small models, file structure only (3-5 seconds)
+- **Detailed Analysis**: Medium models, key file contents (30-60 seconds)  
+- **Deep Analysis**: Large models, extensive analysis with skepticism (2-5 minutes)
 
 ## Pipeline Architecture
 
@@ -32,21 +38,49 @@ This document describes the data flow for the `/analyze-files` command and knowl
 │                    PHASE 2: KNOWLEDGE GENERATION                    │
 ├─────────────────────────────────────────────────────────────────────┤
 │                                                                     │
-│                        4 Parallel Medium Models                     │
-│                              (Qwen 2.5 7B)                          │
+│                      Cascading Document Pipeline                    │
+│                         (Medium Models)                             │
 │                                                                     │
-│    ┌──────────────┐  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐
-│    │  STRUCTURE   │  │   PATTERNS   │  │   CONTEXT    │  │   OVERVIEW   │
-│    │              │  │              │  │              │  │              │
-│    │ • Directory  │  │ • Code Style │  │ • Recent     │  │ • What it    │
-│    │   Layout     │  │ • Data Flow  │  │   Changes    │  │   Does       │
-│    │ • Key Files  │  │ • Common     │  │ • Design     │  │ • Tech Stack │
-│    │ • Module     │  │   Operations │  │   Decisions  │  │ • Key        │
-│    │   Structure  │  │              │  │              │  │   Features   │
-│    └──────┬───────┘  └──────┬───────┘  └──────┬───────┘  └──────┬───────┘
-│           │                 │                 │                 │         │
-│           ▼                 ▼                 ▼                 ▼         │
-│     structure.md      patterns.md      context.md      overview.md      │
+│                        ┌──────────────┐                            │
+│                        │  STRUCTURE   │                            │
+│                        │              │                            │
+│                        │ • Directory  │                            │
+│                        │   Layout     │                            │
+│                        │ • Key Files  │                            │
+│                        │ • Module     │                            │
+│                        │   Structure  │                            │
+│                        └──────┬───────┘                            │
+│                               │                                     │
+│                               ▼                                     │
+│              ┌──────────────┐     ┌──────────────┐                │
+│              │   PATTERNS   │     │   CONTEXT    │                │
+│              │              │     │              │                │
+│              │ • Code Style │     │ • Project    │                │
+│              │ • Data Flow  │     │   Purpose    │                │
+│              │ • Common     │     │ • Business   │                │
+│              │   Operations │     │   Logic      │                │
+│              │ • Dev        │     │ • Design     │                │
+│              │   Patterns   │     │   Decisions  │                │
+│              └──────┬───────┘     └──────┬───────┘                │
+│                     │                     │                         │
+│                     └──────┬──────────────┘                         │
+│                            │                                        │
+│                            ▼                                        │
+│                   ┌──────────────┐                                │
+│                   │   OVERVIEW   │                                │
+│                   │              │                                │
+│                   │ • Summary    │                                │
+│                   │ • Tech Stack │                                │
+│                   │ • Key        │                                │
+│                   │   Features   │                                │
+│                   │ • Quick      │                                │
+│                   │   Start      │                                │
+│                   └──────────────┘                                │
+│                                                                     │
+│  Output Files:                                                     │
+│    1. structure.md (runs first)                                    │
+│    2. patterns.md + context.md (run in parallel)                   │
+│    3. overview.md (runs last, uses all previous)                   │
 │                                                                     │
 └─────────────────────────────────────────────────────────────────────┘
                                            │
@@ -72,10 +106,11 @@ This document describes the data flow for the `/analyze-files` command and knowl
 
 ### Phase 2: Knowledge Generation  
 - **Input**: `file_analysis.json`
-- **Processing**: 4 specialized medium models run in parallel
+- **Processing**: Cascading pipeline with medium models
 - **Order Dependencies**: 
-  - Structure & Patterns run first
-  - Their outputs feed into Context & Overview
+  - Structure runs first (alone)
+  - Patterns & Context run in parallel (both receive structure.md)
+  - Overview runs last (receives all three previous documents)
 - **Output**: 4 knowledge markdown files
 
 ### Phase 3: Summary Synthesis (Optional)
@@ -84,10 +119,23 @@ This document describes the data flow for the `/analyze-files` command and knowl
 - **Output**: Unified `codebase_summary.md`
 
 ## Timing Estimates
-- Phase 1: ~26-30 seconds (depends on file count)
-- Phase 2: ~14-20 seconds (4 models in parallel)
-- Phase 3: ~10-15 seconds (optional)
-- **Total**: ~40-65 seconds
+
+### Quick Analysis (Small models)
+- Phase 1: ~2-3 seconds (file summaries with small model)
+- Phase 2: ~1-2 seconds (cascading docs with small model)
+- **Total**: ~3-5 seconds
+
+### Detailed Analysis (Medium models)
+- Phase 1: ~20-30 seconds (deeper file analysis)
+- Phase 2: ~10-15 seconds (cascading: structure → patterns+context → overview)
+- Phase 3: ~10-15 seconds (optional summary)
+- **Total**: ~30-60 seconds
+
+### Deep Analysis (Large models)
+- Phase 1: ~60-90 seconds (extensive file reading)
+- Phase 2: ~30-60 seconds (professional-grade cascading docs)
+- Phase 3: ~15-20 seconds (optional summary)
+- **Total**: ~2-5 minutes
 
 ## Context Size Management
 - Small models: Default context (usually 2-4k)
