@@ -16,22 +16,16 @@ import (
 
 // service implements the Analysis Service interface.
 type service struct {
-	quickTier    *quickTier
-	detailedTier *detailedTier
-	deepTier     *deepTier
-	fullTier     *fullTier
-	cachePath    string
-	startupScan  *StartupScanResult // Cached startup scan result
+	llmClient   llm.Client
+	cachePath   string
+	startupScan *StartupScanResult // Cached startup scan result
 }
 
 // NewService creates a new analysis service.
 func NewService(llmClient llm.Client) Service {
 	baseService := &service{
-		quickTier:    newQuickTier(llmClient),
-		detailedTier: newDetailedTier(llmClient),
-		deepTier:     newDeepTier(llmClient),
-		fullTier:     newFullTier(llmClient),
-		cachePath:    ".loco",
+		llmClient: llmClient,
+		cachePath: ".loco",
 	}
 	
 	// Return wrapped service that supports team clients
@@ -51,9 +45,10 @@ func (s *service) QuickAnalyze(ctx context.Context, projectPath string) (*QuickA
 
 	// Perform new analysis
 	start := time.Now()
-	result, err := s.quickTier.analyze(ctx, projectPath)
-	if err != nil {
-		return nil, fmt.Errorf("quick analysis failed: %w", err)
+	// TODO: Implement quick analysis
+	result := &QuickAnalysis{
+		ProjectPath: projectPath,
+		Description: "Quick analysis not yet implemented",
 	}
 
 	result.Duration = time.Since(start)
@@ -82,9 +77,10 @@ func (s *service) DetailedAnalyze(ctx context.Context, projectPath string) (*Det
 
 	// Perform new analysis
 	start := time.Now()
-	result, err := s.detailedTier.analyze(ctx, projectPath)
-	if err != nil {
-		return nil, fmt.Errorf("detailed analysis failed: %w", err)
+	// TODO: Implement detailed analysis
+	result := &DetailedAnalysis{
+		ProjectPath: projectPath,
+		Description: "Detailed analysis not yet implemented",
 	}
 
 	result.Duration = time.Since(start)
@@ -124,9 +120,11 @@ func (s *service) DeepAnalyze(ctx context.Context, projectPath string) (*DeepAna
 
 	// Perform new analysis
 	start := time.Now()
-	result, err := s.deepTier.analyze(ctx, projectPath, detailed)
-	if err != nil {
-		return nil, fmt.Errorf("deep analysis failed: %w", err)
+	// TODO: Implement deep analysis
+	result := &DeepAnalysis{
+		ProjectPath: projectPath,
+		Description: "Deep analysis not yet implemented",
+		Architecture: detailed.Architecture,
 	}
 
 	result.Duration = time.Since(start)
@@ -162,9 +160,11 @@ func (s *service) FullAnalyze(ctx context.Context, projectPath string) (*FullAna
 
 	// Perform new analysis
 	start := time.Now()
-	result, err := s.fullTier.analyze(ctx, projectPath, deep)
-	if err != nil {
-		return nil, fmt.Errorf("full analysis failed: %w", err)
+	// TODO: Implement full analysis
+	result := &FullAnalysis{
+		ProjectPath: projectPath,
+		Description: "Full analysis not yet implemented",
+		Architecture: deep.Architecture,
 	}
 
 	result.Duration = time.Since(start)

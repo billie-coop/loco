@@ -197,6 +197,8 @@ func (m *Model) handleEvent(event events.Event) (tea.Model, tea.Cmd) {
 			
 			// Set analysis state based on phase
 			switch payload.Phase {
+			case "quick":
+				m.analysisState.QuickCompleted = false // Mark as running
 			case "detailed":
 				m.analysisState.DetailedRunning = true
 			case "deep", "full":
@@ -281,11 +283,11 @@ func (m *Model) handleEvent(event events.Event) (tea.Model, tea.Cmd) {
 		m.showStatus("✅ Messages cleared")
 	
 	case events.ToolExecutionApprovedEvent, events.ToolExecutionDeniedEvent:
-		// These events are handled by the enhanced service's listener
+		// These events are handled by the permission service's listener
 		// No need to handle them here
 	
 	case "permission.request":
-		// Handle permission request from enhanced permission service
+		// Handle permission request from permission service
 		// Try to handle as struct first (direct from service)
 		if reqEvent, ok := event.Payload.(permission.PermissionRequestEvent); ok {
 			// Set the request in the dialog

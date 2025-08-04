@@ -172,28 +172,38 @@ func (a *analyzeTool) Run(ctx context.Context, call ToolCall) (ToolResponse, err
 		projectPath = params.Project
 	}
 
-	// Request permission for analysis
-	sessionID, messageID := GetContextValues(ctx)
-	if sessionID == "" || messageID == "" {
-		return ToolResponse{}, fmt.Errorf("session ID and message ID are required for analysis")
+	// Check if this is a cascaded call (from a previous tier)
+	// Cascaded calls inherit permission from the initial request
+	isCascade := false
+	if initiator, ok := ctx.Value(InitiatorKey).(string); ok && initiator == "system" {
+		// System-initiated calls (including cascades) bypass permission
+		isCascade = true
 	}
+	
+	// Request permission for analysis (unless it's a cascade)
+	if !isCascade {
+		sessionID, messageID := GetContextValues(ctx)
+		if sessionID == "" || messageID == "" {
+			return ToolResponse{}, fmt.Errorf("session ID and message ID are required for analysis")
+		}
 
-	p := a.permissions.Request(
-		permission.CreatePermissionRequest{
-			SessionID:   sessionID,
-			Path:        projectPath,
-			ToolCallID:  call.ID,
-			ToolName:    AnalyzeToolName,
-			Action:      "analyze",
-			Description: fmt.Sprintf("Analyze project using %s tier: %s", params.Tier, projectPath),
-			Params: AnalyzePermissionsParams{
-				Tier:    params.Tier,
-				Project: params.Project,
+		p := a.permissions.Request(
+			permission.CreatePermissionRequest{
+				SessionID:   sessionID,
+				Path:        projectPath,
+				ToolCallID:  call.ID,
+				ToolName:    AnalyzeToolName,
+				Action:      "analyze",
+				Description: fmt.Sprintf("Analyze project using %s tier: %s", params.Tier, projectPath),
+				Params: AnalyzePermissionsParams{
+					Tier:    params.Tier,
+					Project: params.Project,
+				},
 			},
-		},
-	)
-	if !p {
-		return ToolResponse{}, permission.ErrorPermissionDenied
+		)
+		if !p {
+			return ToolResponse{}, permission.ErrorPermissionDenied
+		}
 	}
 
 	// Check cache unless forced

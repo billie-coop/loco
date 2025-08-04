@@ -24,21 +24,10 @@ func NewServiceWithTeam(baseService Service) *ServiceWithTeam {
 func (s *ServiceWithTeam) SetTeamClients(clients *llm.TeamClients) {
 	s.teamClients = clients
 	
-	// Update the underlying tiers if possible
+	// Update the underlying service client if possible
 	if impl, ok := s.Service.(*service); ok {
-		// Update each tier with appropriate client
-		if impl.quickTier != nil {
-			impl.quickTier.llmClient = clients.Small
-		}
-		if impl.detailedTier != nil {
-			impl.detailedTier.llmClient = clients.Medium
-		}
-		if impl.deepTier != nil {
-			impl.deepTier.llmClient = clients.Large
-		}
-		if impl.fullTier != nil {
-			impl.fullTier.llmClient = clients.Large // XL when available
-		}
+		// For now, use the medium client as default
+		impl.llmClient = clients.Medium
 	}
 }
 

@@ -1,6 +1,8 @@
 package app
 
 import (
+	"path/filepath"
+	
 	"github.com/billie-coop/loco/internal/analysis"
 	"github.com/billie-coop/loco/internal/config"
 	"github.com/billie-coop/loco/internal/knowledge"
@@ -72,8 +74,9 @@ func New(workingDir string, eventBroker *events.Broker) *App {
 		allowedTools = cfg.AllowedTools
 	}
 	
-	// Create enhanced permission service with event broker and allowed tools
-	permissionService := permission.NewEnhancedService(eventBroker, allowedTools)
+	// Create permission service with persistent state
+	statePath := filepath.Join(workingDir, ".loco")
+	permissionService := permission.NewService(eventBroker, allowedTools, statePath)
 	app.permissionServiceInternal = permissionService
 	
 	// Create analysis service (will be set up properly when LLM client is available)
@@ -127,8 +130,6 @@ func (a *App) SetModelManager(mm *llm.ModelManager) {
 
 // InitLLMFromConfig initializes the LLM client using configuration settings
 func (a *App) InitLLMFromConfig() error {
-	// TODO: Use cfg := a.Config.Get() to get LM Studio URL when needed
-	
 	// Create LLM client (main client for chat)
 	client := llm.NewLMStudioClient()
 	a.SetLLMClient(client)

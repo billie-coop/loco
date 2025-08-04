@@ -217,7 +217,11 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Handle special keys that should bypass normal input processing
 		switch keyMsg.String() {
 		case "ctrl+c":
-			// Open quit dialog instead of quitting immediately
+			// If quit dialog is already open, second Ctrl+C means quit immediately
+			if m.dialogManager.GetActiveDialog() == dialog.QuitDialogType {
+				return m, tea.Quit
+			}
+			// Otherwise open quit dialog
 			return m, m.dialogManager.OpenDialog(dialog.QuitDialogType)
 		case "ctrl+l":
 			m.clearMessages()
