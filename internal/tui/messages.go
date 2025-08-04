@@ -8,7 +8,7 @@ import (
 
 // syncMessagesToComponents syncs the current messages to all components that display them
 func (m *Model) syncMessagesToComponents() {
-	messages := m.messages.All()
+	messages := m.messages.AllAsLLM()
 	
 	// Sync to message list
 	m.messageList.SetMessages(messages)

@@ -4,8 +4,8 @@ import (
 	"strings"
 
 	"github.com/billie-coop/loco/internal/app"
+	chatpkg "github.com/billie-coop/loco/internal/chat"
 	"github.com/billie-coop/loco/internal/csync"
-	"github.com/billie-coop/loco/internal/llm"
 	"github.com/billie-coop/loco/internal/tui/components/chat"
 	"github.com/billie-coop/loco/internal/tui/components/chat/completions"
 	"github.com/billie-coop/loco/internal/tui/components/dialog"
@@ -35,7 +35,7 @@ type Model struct {
 	eventBroker      *events.Broker
 	eventSub         <-chan events.Event
 	currentSessionID string
-	messages         *csync.Slice[llm.Message]
+	messages         *chatpkg.MessageStore  // Using chatpkg to avoid name collision
 	messagesMeta     *csync.Map[int, *chat.MessageMetadata]
 	analysisState    *chat.AnalysisState
 	
@@ -65,7 +65,7 @@ func New(appInstance *app.App, eventBroker *events.Broker) *Model {
 		dialogManager: dialogManager,
 		completions:   completions,
 		messagesMeta:  csync.NewMap[int, *chat.MessageMetadata](),
-		messages:      csync.NewSlice[llm.Message](),
+		messages:      chatpkg.NewMessageStore(),
 		eventBroker:   eventBroker,
 		app:           appInstance,
 	}

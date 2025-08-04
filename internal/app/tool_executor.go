@@ -102,10 +102,12 @@ func (e *ToolExecutor) executeWithContext(call tools.ToolCall, initiator string)
 		Type: events.SystemMessageEvent,
 		Payload: events.MessagePayload{
 			Message: llm.Message{
-				Role:       "tool",
-				ToolName:   call.Name,
-				ToolStatus: "running",
-				ToolProgress: fmt.Sprintf("Running %s...", call.Name),
+				Role: "tool",
+				ToolExecution: &llm.ToolExecution{
+					Name:     call.Name,
+					Status:   "running",
+					Progress: fmt.Sprintf("Running %s...", call.Name),
+				},
 			},
 		},
 	})
@@ -118,10 +120,12 @@ func (e *ToolExecutor) executeWithContext(call tools.ToolCall, initiator string)
 			Type: events.SystemMessageEvent,
 			Payload: events.MessagePayload{
 				Message: llm.Message{
-					Role:       "tool",
-					ToolName:   call.Name,
-					ToolStatus: "error",
-					Content:    fmt.Sprintf("Tool execution failed: %v", err),
+					Role:    "tool",
+					Content: fmt.Sprintf("Tool execution failed: %v", err),
+					ToolExecution: &llm.ToolExecution{
+						Name:   call.Name,
+						Status: "error",
+					},
 				},
 			},
 		})
@@ -133,10 +137,12 @@ func (e *ToolExecutor) executeWithContext(call tools.ToolCall, initiator string)
 		Type: events.SystemMessageEvent,
 		Payload: events.MessagePayload{
 			Message: llm.Message{
-				Role:       "tool",
-				ToolName:   call.Name,
-				ToolStatus: "complete",
-				Content:    result.Content,
+				Role:    "tool",
+				Content: result.Content,
+				ToolExecution: &llm.ToolExecution{
+					Name:   call.Name,
+					Status: "complete",
+				},
 			},
 		},
 	})
@@ -262,10 +268,12 @@ func (e *ToolExecutor) handleAnalyzeAsync(call tools.ToolCall, ctx context.Conte
 			Type: events.SystemMessageEvent,
 			Payload: events.MessagePayload{
 				Message: llm.Message{
-					Role:       "tool",
-					ToolName:   "analyze",
-					ToolStatus: "pending",
-					ToolProgress: fmt.Sprintf("Starting %s analysis...", params.Tier),
+					Role: "tool",
+					ToolExecution: &llm.ToolExecution{
+						Name:     "analyze",
+						Status:   "pending",
+						Progress: fmt.Sprintf("Starting %s analysis...", params.Tier),
+					},
 				},
 			},
 		})
@@ -311,11 +319,13 @@ func (e *ToolExecutor) handleAnalyzeAsync(call tools.ToolCall, ctx context.Conte
 			Type: events.SystemMessageEvent,
 			Payload: events.MessagePayload{
 				Message: llm.Message{
-					Role:       "tool",
-					ToolName:   "analyze",
-					ToolStatus: "complete",
-					ToolProgress: fmt.Sprintf("%s analysis complete", params.Tier),
-					Content:    result.Content,
+					Role:    "tool",
+					Content: result.Content,
+					ToolExecution: &llm.ToolExecution{
+						Name:     "analyze",
+						Status:   "complete",
+						Progress: fmt.Sprintf("%s analysis complete", params.Tier),
+					},
 				},
 			},
 		})
@@ -344,10 +354,12 @@ func (e *ToolExecutor) handleStartupScanAsync(call tools.ToolCall, ctx context.C
 			Type: events.SystemMessageEvent,
 			Payload: events.MessagePayload{
 				Message: llm.Message{
-					Role:       "tool",
-					ToolName:   "startup_scan",
-					ToolStatus: "pending",
-					ToolProgress: "Scanning project structure...",
+					Role: "tool",
+					ToolExecution: &llm.ToolExecution{
+						Name:     "startup_scan",
+						Status:   "pending",
+						Progress: "Scanning project structure...",
+					},
 				},
 			},
 		})
@@ -392,11 +404,13 @@ func (e *ToolExecutor) handleStartupScanAsync(call tools.ToolCall, ctx context.C
 			Type: events.SystemMessageEvent,
 			Payload: events.MessagePayload{
 				Message: llm.Message{
-					Role:       "tool",
-					ToolName:   "startup_scan",
-					ToolStatus: "complete",
-					ToolProgress: "Scan complete",
-					Content:    result.Content,
+					Role:    "tool",
+					Content: result.Content,
+					ToolExecution: &llm.ToolExecution{
+						Name:     "startup_scan",
+						Status:   "complete",
+						Progress: "Scan complete",
+					},
 				},
 			},
 		})

@@ -60,7 +60,7 @@ func NewMessageCmp(msg llm.Message, meta *MessageMetadata, showDebug bool, toolR
 	}
 	
 	// Create tool message component if this is a tool message
-	if msg.Role == "tool" && msg.ToolName != "" {
+	if msg.Role == "tool" && msg.ToolExecution != nil {
 		mc.toolMessage = NewToolMessage(msg)
 	}
 	

@@ -64,7 +64,7 @@ func (m *Model) handleSendMessage(content string) tea.Cmd {
 			// Send to LLM service if available
 			if m.app.LLMService != nil {
 				go func() {
-					messages := m.messages.All()
+					messages := m.messages.AllAsLLM()
 					m.app.LLMService.HandleUserMessage(messages, content)
 				}()
 			}

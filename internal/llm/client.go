@@ -19,9 +19,15 @@ type Message struct {
 	ToolCalls []ToolCall `json:"tool_calls,omitempty"`
 	
 	// For tool execution messages (role="tool")
-	ToolName   string `json:"tool_name,omitempty"`
-	ToolStatus string `json:"tool_status,omitempty"` // pending, running, complete, error
-	ToolProgress string `json:"tool_progress,omitempty"`
+	// This is a temporary solution - should be moved to a separate type
+	ToolExecution *ToolExecution `json:"tool_execution,omitempty"`
+}
+
+// ToolExecution represents tool execution details
+type ToolExecution struct {
+	Name     string `json:"name"`
+	Status   string `json:"status"` // pending, running, complete, error
+	Progress string `json:"progress,omitempty"`
 }
 
 // ToolCall represents a tool invocation by the assistant

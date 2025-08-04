@@ -26,7 +26,7 @@ func NewToolMessage(msg llm.Message) *ToolMessage {
 	}
 	
 	// Create spinner for pending/running states
-	if msg.ToolStatus == "pending" || msg.ToolStatus == "running" {
+	if msg.ToolExecution != nil && (msg.ToolExecution.Status == "pending" || msg.ToolExecution.Status == "running") {
 		tm.spinner = anim.NewSpinner(anim.SpinnerDots)
 	}
 	
@@ -43,7 +43,8 @@ func (tm *ToolMessage) Init() tea.Cmd {
 
 // Update implements tea.Model
 func (tm *ToolMessage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	if tm.spinner != nil && (tm.message.ToolStatus == "pending" || tm.message.ToolStatus == "running") {
+	if tm.spinner != nil && tm.message.ToolExecution != nil && 
+	   (tm.message.ToolExecution.Status == "pending" || tm.message.ToolExecution.Status == "running") {
 		s, cmd := tm.spinner.Update(msg)
 		if sp, ok := s.(*anim.Spinner); ok {
 			tm.spinner = sp
@@ -64,35 +65,38 @@ func (tm *ToolMessage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 // View implements tea.Model
 func (tm *ToolMessage) View() string {
+	if tm.message.ToolExecution == nil {
+		return "" // No tool execution to display
+	}
 	
 	// Build header with icon and tool name
 	icon := tm.getStatusIcon()
-	toolName := tm.prettifyToolName(tm.message.ToolName)
+	toolName := tm.prettifyToolName(tm.message.ToolExecution.Name)
 	
 	header := fmt.Sprintf("%s %s", icon, toolName)
-	if tm.message.ToolStatus == "error" {
+	if tm.message.ToolExecution.Status == "error" {
 		header = styles.RenderThemeGradient(header, false) // Use gradient for errors
 	}
 	
 	// Add spinner if pending/running
-	if tm.spinner != nil && (tm.message.ToolStatus == "pending" || tm.message.ToolStatus == "running") {
+	if tm.spinner != nil && (tm.message.ToolExecution.Status == "pending" || tm.message.ToolExecution.Status == "running") {
 		header = fmt.Sprintf("%s %s", header, tm.spinner.View())
 	}
 	
 	// Add progress message if available
-	if tm.message.ToolProgress != "" {
+	if tm.message.ToolExecution.Progress != "" {
 		// Just use plain text for progress
-		header = fmt.Sprintf("%s\n  %s", header, tm.message.ToolProgress)
+		header = fmt.Sprintf("%s\n  %s", header, tm.message.ToolExecution.Progress)
 	}
 	
 	// Add content if expanded and complete
-	if tm.expanded && tm.message.ToolStatus == "complete" && tm.message.Content != "" {
+	if tm.expanded && tm.message.ToolExecution.Status == "complete" && tm.message.Content != "" {
 		content := tm.renderContent()
 		return fmt.Sprintf("%s\n%s", header, content)
 	}
 	
 	// Add error if status is error
-	if tm.message.ToolStatus == "error" && tm.message.Content != "" {
+	if tm.message.ToolExecution.Status == "error" && tm.message.Content != "" {
 		// Just show error content plainly
 		return fmt.Sprintf("%s\n  %s", header, tm.message.Content)
 	}
@@ -105,7 +109,7 @@ func (tm *ToolMessage) SetMessage(msg llm.Message) {
 	tm.message = msg
 	
 	// Stop spinner if completed
-	if msg.ToolStatus == "complete" || msg.ToolStatus == "error" {
+	if msg.ToolExecution != nil && (msg.ToolExecution.Status == "complete" || msg.ToolExecution.Status == "error") {
 		tm.spinner = nil
 	}
 }
@@ -116,7 +120,10 @@ func (tm *ToolMessage) SetWidth(width int) {
 }
 
 func (tm *ToolMessage) getStatusIcon() string {
-	switch tm.message.ToolStatus {
+	if tm.message.ToolExecution == nil {
+		return "🔧"
+	}
+	switch tm.message.ToolExecution.Status {
 	case "pending":
 		return "⏳"
 	case "running":
@@ -142,8 +149,11 @@ func (tm *ToolMessage) prettifyToolName(name string) string {
 }
 
 func (tm *ToolMessage) renderContent() string {
+	if tm.message.ToolExecution == nil {
+		return ""
+	}
 	// Special rendering based on tool type
-	switch tm.message.ToolName {
+	switch tm.message.ToolExecution.Name {
 	case "startup_scan":
 		return tm.renderStartupScan()
 	case "analyze":
