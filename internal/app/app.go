@@ -142,9 +142,9 @@ func (a *App) RunStartupAnalysis() {
 		return
 	}
 	
-	// System-initiated analysis
+	// System-initiated analysis with cascading to deep tier
 	a.ToolExecutor.ExecuteSystem(tools.ToolCall{
 		Name:  "analyze",
-		Input: `{"tier": "quick"}`,
+		Input: `{"tier": "quick", "continue_to": "deep"}`,
 	})
 }

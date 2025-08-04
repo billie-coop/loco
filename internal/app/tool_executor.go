@@ -194,9 +194,11 @@ func (e *ToolExecutor) executeWithContext(call tools.ToolCall, initiator string)
 
 // handleAnalyzeAsync runs the analyze tool asynchronously
 func (e *ToolExecutor) handleAnalyzeAsync(call tools.ToolCall, ctx context.Context, initiator string) {
-	// Parse the tier from the input
+	// Parse the parameters from the input
 	var params struct {
-		Tier string `json:"tier"`
+		Tier       string `json:"tier"`
+		Continue   bool   `json:"continue"`
+		ContinueTo string `json:"continue_to"`
 	}
 	if err := json.Unmarshal([]byte(call.Input), &params); err != nil {
 		e.eventBroker.Publish(events.Event{
@@ -271,7 +273,103 @@ func (e *ToolExecutor) handleAnalyzeAsync(call tools.ToolCall, ctx context.Conte
 				CurrentFile: "Analysis complete",
 			},
 		})
+		
+		// Handle cascading to next tier if requested
+		if params.Continue || params.ContinueTo != "" {
+			e.handleAnalysisCascade(params.Tier, params.ContinueTo, ctx, initiator)
+		}
 	}()
+}
+
+// handleAnalysisCascade continues analysis to the next tier
+func (e *ToolExecutor) handleAnalysisCascade(currentTier, continueTo string, ctx context.Context, initiator string) {
+	// Determine next tier
+	nextTier := ""
+	tierOrder := []string{"quick", "detailed", "deep", "full"}
+	
+	for i, tier := range tierOrder {
+		if tier == currentTier && i < len(tierOrder)-1 {
+			nextTier = tierOrder[i+1]
+			break
+		}
+	}
+	
+	// If no next tier or we've reached the target, stop
+	if nextTier == "" {
+		return
+	}
+	
+	// If continueTo is specified, check if we should stop
+	if continueTo != "" && currentTier == continueTo {
+		return
+	}
+	
+	// Check if we should stop at this tier
+	if continueTo != "" {
+		// Find if continueTo comes before nextTier
+		continueIdx := -1
+		nextIdx := -1
+		for i, tier := range tierOrder {
+			if tier == continueTo {
+				continueIdx = i
+			}
+			if tier == nextTier {
+				nextIdx = i
+			}
+		}
+		
+		// If continueTo comes before next tier, stop
+		if continueIdx != -1 && nextIdx != -1 && continueIdx < nextIdx {
+			return
+		}
+	}
+	
+	// Wait a bit before continuing
+	time.Sleep(2 * time.Second)
+	
+	// Create tool call for next tier
+	nextInput := fmt.Sprintf(`{"tier": "%s"`, nextTier)
+	if continueTo != "" && continueTo != nextTier {
+		nextInput += fmt.Sprintf(`, "continue_to": "%s"`, continueTo)
+	} else if continueTo == "" {
+		// If no specific target, keep cascading
+		nextInput += `, "continue": true`
+	}
+	nextInput += "}"
+	
+	nextCall := tools.ToolCall{
+		Name:  "analyze",
+		Input: nextInput,
+	}
+	
+	// Request permission for next tier
+	permissionReq := permission.CreatePermissionRequest{
+		ToolName:    "analyze",
+		Action:      fmt.Sprintf("Run %s analysis", nextTier),
+		Path:        e.sessions.ProjectPath,
+		Description: fmt.Sprintf("Continue to %s analysis tier", nextTier),
+		SessionID:   e.sessions.ID,
+	}
+	
+	// Check permission based on initiator
+	if initiator == "system" {
+		// System-initiated gets auto-approval for cascading
+		e.handleAnalyzeAsync(nextCall, ctx, initiator)
+	} else {
+		// User-initiated needs permission for each tier
+		permissionCtx := context.WithValue(ctx, "initiator", initiator)
+		if e.permissionService.Request(permissionReq) {
+			e.handleAnalyzeAsync(nextCall, permissionCtx, initiator)
+		} else {
+			e.eventBroker.Publish(events.Event{
+				Type: events.StatusMessageEvent,
+				Payload: events.StatusMessagePayload{
+					Message: fmt.Sprintf("Permission denied for %s analysis", nextTier),
+					Type:    "warning",
+				},
+			})
+		}
+	}
 }
 
 // ExecuteFromAgent handles tool calls from LLM agents.

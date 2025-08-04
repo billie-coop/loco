@@ -13,9 +13,11 @@ import (
 
 // AnalyzeParams represents parameters for project analysis.
 type AnalyzeParams struct {
-	Tier    string `json:"tier"`     // quick, detailed, deep, full
-	Project string `json:"project"`  // project path (optional, defaults to working dir)
-	Force   bool   `json:"force"`    // force reanalysis even if cached
+	Tier       string `json:"tier"`        // quick, detailed, deep, full
+	Project    string `json:"project"`     // project path (optional, defaults to working dir)
+	Force      bool   `json:"force"`       // force reanalysis even if cached
+	Continue   bool   `json:"continue"`    // continue to next tiers automatically
+	ContinueTo string `json:"continue_to"` // specific tier to continue to (optional)
 }
 
 // AnalyzePermissionsParams represents parameters for permission requests.
@@ -96,8 +98,15 @@ FEATURES:
 - Skeptical analysis (higher tiers question lower tiers)
 - Beautiful formatted output with metadata
 
+CASCADING OPTIONS:
+- continue: Automatically continue to next tiers
+- continue_to: Stop at a specific tier
+
 EXAMPLES:
 - Quick project overview: {"tier": "quick"}
+- Quick then cascade to all: {"tier": "quick", "continue": true}
+- Quick to detailed only: {"tier": "quick", "continue_to": "detailed"}
+- Full cascade to deep: {"tier": "quick", "continue_to": "deep"}
 - Comprehensive analysis: {"tier": "detailed"}
 - Architectural review: {"tier": "deep"}
 - Force refresh: {"tier": "quick", "force": true}
