@@ -96,20 +96,26 @@ func (s *startupScanTool) Run(ctx context.Context, call ToolCall) (ToolResponse,
 	if initiator != "system" {
 		// User-initiated needs permission
 		sessionID, messageID := GetContextValues(ctx)
-		if sessionID != "" && messageID != "" {
-			p := s.permissions.Request(
-				permission.CreatePermissionRequest{
-					SessionID:   sessionID,
-					Path:        s.workingDir,
-					ToolCallID:  call.ID,
-					ToolName:    StartupScanToolName,
-					Action:      "scan",
-					Description: fmt.Sprintf("Scan project structure: %s", s.workingDir),
-				},
-			)
-			if !p {
-				return ToolResponse{}, permission.ErrorPermissionDenied
-			}
+		// Always request permission, even without session (use "default" if needed)
+		if sessionID == "" {
+			sessionID = "default"
+		}
+		if messageID == "" {
+			messageID = "startup"
+		}
+		
+		p := s.permissions.Request(
+			permission.CreatePermissionRequest{
+				SessionID:   sessionID,
+				Path:        s.workingDir,
+				ToolCallID:  call.ID,
+				ToolName:    StartupScanToolName,
+				Action:      "scan",
+				Description: fmt.Sprintf("Loco needs to scan your project structure to understand your codebase. This helps provide better assistance. No file contents are read, only the structure."),
+			},
+		)
+		if !p {
+			return ToolResponse{}, permission.ErrorPermissionDenied
 		}
 	}
 

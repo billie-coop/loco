@@ -157,20 +157,22 @@ func (a *App) InitLLMFromConfig() error {
 	return nil
 }
 
-// RunStartupAnalysis triggers startup scan followed by analysis (system-initiated).
+// RunStartupAnalysis triggers startup scan followed by analysis.
 func (a *App) RunStartupAnalysis() {
 	if a.ToolExecutor == nil {
 		return
 	}
 	
-	// First run startup scan (instant detection)
-	a.ToolExecutor.ExecuteSystem(tools.ToolCall{
+	// First run startup scan (user-initiated so it asks permission on first run)
+	// This builds trust by explaining what we're doing
+	a.ToolExecutor.Execute(tools.ToolCall{
 		Name:  "startup_scan",
 		Input: `{}`,
 	})
 	
-	// Then start analysis with cascading to deep tier
-	a.ToolExecutor.ExecuteSystem(tools.ToolCall{
+	// Then start analysis with cascading to deep tier (also user-initiated)
+	// Once they allow, it should remember for this session
+	a.ToolExecutor.Execute(tools.ToolCall{
 		Name:  "analyze",
 		Input: `{"tier": "quick", "continue_to": "deep"}`,
 	})

@@ -183,8 +183,25 @@ func (a *analyzeTool) Run(ctx context.Context, call ToolCall) (ToolResponse, err
 	// Request permission for analysis (unless it's a cascade)
 	if !isCascade {
 		sessionID, messageID := GetContextValues(ctx)
-		if sessionID == "" || messageID == "" {
-			return ToolResponse{}, fmt.Errorf("session ID and message ID are required for analysis")
+		// Use defaults if not available (e.g., on startup)
+		if sessionID == "" {
+			sessionID = "default"
+		}
+		if messageID == "" {
+			messageID = "analyze-startup"
+		}
+
+		// Create helpful description based on tier
+		description := ""
+		switch params.Tier {
+		case "quick":
+			description = "Loco will perform a quick analysis of your project structure to understand the codebase layout. This takes 2-3 seconds."
+		case "detailed":
+			description = "Loco will read key files to understand your project's architecture and patterns. This takes 30-60 seconds."
+		case "deep":
+			description = "Loco will perform deep analysis to understand complex patterns and relationships. This takes 2-5 minutes."
+		default:
+			description = fmt.Sprintf("Analyze project using %s tier: %s", params.Tier, projectPath)
 		}
 
 		p := a.permissions.Request(
@@ -194,7 +211,7 @@ func (a *analyzeTool) Run(ctx context.Context, call ToolCall) (ToolResponse, err
 				ToolCallID:  call.ID,
 				ToolName:    AnalyzeToolName,
 				Action:      "analyze",
-				Description: fmt.Sprintf("Analyze project using %s tier: %s", params.Tier, projectPath),
+				Description: description,
 				Params: AnalyzePermissionsParams{
 					Tier:    params.Tier,
 					Project: params.Project,
