@@ -25,17 +25,9 @@ func NewTeamClients(team *ModelTeam) (*TeamClients, error) {
 	largeClient := NewLMStudioClient()
 
 	// Configure each with the appropriate model
-	if lmSmall, ok := smallClient.(*LMStudioClient); ok {
-		lmSmall.SetModel(team.Small)
-	}
-	
-	if lmMedium, ok := mediumClient.(*LMStudioClient); ok {
-		lmMedium.SetModel(team.Medium)
-	}
-	
-	if lmLarge, ok := largeClient.(*LMStudioClient); ok {
-		lmLarge.SetModel(team.Large)
-	}
+	smallClient.SetModel(team.Small)
+	mediumClient.SetModel(team.Medium)
+	largeClient.SetModel(team.Large)
 
 	return &TeamClients{
 		Small:  smallClient,

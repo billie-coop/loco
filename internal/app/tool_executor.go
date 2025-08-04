@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/billie-coop/loco/internal/llm"
+	"github.com/billie-coop/loco/internal/permission"
 	"github.com/billie-coop/loco/internal/session"
 	"github.com/billie-coop/loco/internal/tools"
 	"github.com/billie-coop/loco/internal/tui/events"
@@ -14,10 +15,11 @@ import (
 
 // ToolExecutor handles execution of tools from any source.
 type ToolExecutor struct {
-	registry    *tools.Registry
-	eventBroker *events.Broker
-	sessions    *session.Manager
-	llmService  *LLMService
+	registry           *tools.Registry
+	eventBroker        *events.Broker
+	sessions           *session.Manager
+	llmService         *LLMService
+	permissionService  permission.Service
 }
 
 // NewToolExecutor creates a new tool executor.
@@ -26,12 +28,14 @@ func NewToolExecutor(
 	eventBroker *events.Broker,
 	sessions *session.Manager,
 	llmService *LLMService,
+	permissionService permission.Service,
 ) *ToolExecutor {
 	return &ToolExecutor{
-		registry:    registry,
-		eventBroker: eventBroker,
-		sessions:    sessions,
-		llmService:  llmService,
+		registry:          registry,
+		eventBroker:       eventBroker,
+		sessions:          sessions,
+		llmService:        llmService,
+		permissionService: permissionService,
 	}
 }
 
@@ -342,23 +346,29 @@ func (e *ToolExecutor) handleAnalysisCascade(currentTier, continueTo string, ctx
 		Input: nextInput,
 	}
 	
-	// Request permission for next tier
-	permissionReq := permission.CreatePermissionRequest{
-		ToolName:    "analyze",
-		Action:      fmt.Sprintf("Run %s analysis", nextTier),
-		Path:        e.sessions.ProjectPath,
-		Description: fmt.Sprintf("Continue to %s analysis tier", nextTier),
-		SessionID:   e.sessions.ID,
-	}
-	
 	// Check permission based on initiator
 	if initiator == "system" {
 		// System-initiated gets auto-approval for cascading
 		e.handleAnalyzeAsync(nextCall, ctx, initiator)
 	} else {
 		// User-initiated needs permission for each tier
-		permissionCtx := context.WithValue(ctx, "initiator", initiator)
+		// Create permission request
+		permissionReq := permission.CreatePermissionRequest{
+			ToolName:    "analyze",
+			Action:      fmt.Sprintf("Run %s analysis", nextTier),
+			Path:        e.sessions.ProjectPath,
+			Description: fmt.Sprintf("Continue to %s analysis tier", nextTier),
+			SessionID:   "", // Sessions don't have an ID field
+		}
+		
+		// Get current session if available
+		if currentSession, err := e.sessions.GetCurrent(); err == nil && currentSession != nil {
+			permissionReq.SessionID = currentSession.ID
+		}
+		
+		// Check permission
 		if e.permissionService.Request(permissionReq) {
+			permissionCtx := context.WithValue(ctx, "initiator", initiator)
 			e.handleAnalyzeAsync(nextCall, permissionCtx, initiator)
 		} else {
 			e.eventBroker.Publish(events.Event{

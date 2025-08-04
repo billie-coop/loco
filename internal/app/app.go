@@ -96,7 +96,7 @@ func New(workingDir string, eventBroker *events.Broker) *App {
 	app.Tools.Register(tools.NewChatTool(permissionService))
 	
 	// Create unified tool architecture
-	app.ToolExecutor = NewToolExecutor(app.Tools, eventBroker, app.Sessions, app.LLMService)
+	app.ToolExecutor = NewToolExecutor(app.Tools, eventBroker, app.Sessions, app.LLMService, permissionService)
 	app.InputRouter = NewUserInputRouter(app.ToolExecutor)
 	
 	return app
