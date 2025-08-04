@@ -34,10 +34,12 @@ const (
 	SessionSwitchedEvent    EventType = "session.switched"
 
 	// Analysis events
-	AnalysisStartedEvent    EventType = "analysis.started"
-	AnalysisProgressEvent   EventType = "analysis.progress"
-	AnalysisCompletedEvent  EventType = "analysis.completed"
-	AnalysisErrorEvent      EventType = "analysis.error"
+	StartupScanStartedEvent   EventType = "startup.scan.started"
+	StartupScanCompletedEvent EventType = "startup.scan.completed"
+	AnalysisStartedEvent      EventType = "analysis.started"
+	AnalysisProgressEvent     EventType = "analysis.progress"
+	AnalysisCompletedEvent    EventType = "analysis.completed"
+	AnalysisErrorEvent        EventType = "analysis.error"
 
 	// Tool events
 	ToolExecutionRequestEvent EventType = "tool.request"

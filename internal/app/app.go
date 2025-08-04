@@ -18,6 +18,7 @@ type App struct {
 	Config           *config.Manager
 	Sessions         *session.Manager
 	LLM              llm.Client  
+	TeamClients      *llm.TeamClients    // Multiple clients for different model sizes
 	Knowledge        *knowledge.Manager
 	Tools            *tools.Registry
 	Parser           *parser.Parser
@@ -95,6 +96,9 @@ func New(workingDir string, eventBroker *events.Broker) *App {
 	app.Tools.Register(tools.NewHelpTool(permissionService, app.Tools))
 	app.Tools.Register(tools.NewChatTool(permissionService))
 	
+	// Register startup scan tool
+	app.Tools.Register(tools.NewStartupScanTool(permissionService, workingDir, app.Analysis))
+	
 	// Create unified tool architecture
 	app.ToolExecutor = NewToolExecutor(app.Tools, eventBroker, app.Sessions, app.LLMService, permissionService)
 	app.InputRouter = NewUserInputRouter(app.ToolExecutor)
@@ -125,7 +129,7 @@ func (a *App) SetModelManager(mm *llm.ModelManager) {
 func (a *App) InitLLMFromConfig() error {
 	// TODO: Use cfg := a.Config.Get() to get LM Studio URL when needed
 	
-	// Create LLM client
+	// Create LLM client (main client for chat)
 	client := llm.NewLMStudioClient()
 	a.SetLLMClient(client)
 	
@@ -133,16 +137,38 @@ func (a *App) InitLLMFromConfig() error {
 	modelManager := llm.NewModelManager(a.Sessions.ProjectPath)
 	a.SetModelManager(modelManager)
 	
+	// Create team clients for different model sizes
+	if models, err := client.GetModels(); err == nil && len(models) > 0 {
+		team := llm.GetDefaultTeam(models)
+		if teamClients, err := llm.NewTeamClients(team); err == nil {
+			a.TeamClients = teamClients
+			
+			// Update analysis service with team clients
+			if analysisService, ok := a.Analysis.(*analysis.ServiceWithTeam); ok {
+				analysisService.SetTeamClients(teamClients)
+			}
+			
+			// Note: startup_scan tool will use the small client from TeamClients
+			// when it's invoked (we'll pass it through context or registry)
+		}
+	}
+	
 	return nil
 }
 
-// RunStartupAnalysis triggers a quick analysis on startup (system-initiated).
+// RunStartupAnalysis triggers startup scan followed by analysis (system-initiated).
 func (a *App) RunStartupAnalysis() {
 	if a.ToolExecutor == nil {
 		return
 	}
 	
-	// System-initiated analysis with cascading to deep tier
+	// First run startup scan (instant detection)
+	a.ToolExecutor.ExecuteSystem(tools.ToolCall{
+		Name:  "startup_scan",
+		Input: `{}`,
+	})
+	
+	// Then start analysis with cascading to deep tier
 	a.ToolExecutor.ExecuteSystem(tools.ToolCall{
 		Name:  "analyze",
 		Input: `{"tier": "quick", "continue_to": "deep"}`,

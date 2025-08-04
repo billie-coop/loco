@@ -23,6 +23,7 @@ type Context struct {
 // AnalysisState represents the state of project analysis
 type AnalysisState struct {
 	IsRunning          bool
+	StartupScanCompleted bool  // New field for startup scan
 	QuickCompleted     bool
 	DetailedRunning    bool
 	DetailedCompleted  bool
@@ -398,7 +399,8 @@ func (s *SidebarModel) renderAnalysisTiers(content *strings.Builder) {
 	content.WriteString("\n")
 
 	// Define tier status icons and colors
-	quickIcon := "⚡"
+	startupIcon := "⚡"  // Lightning for instant scan
+	quickIcon := "🔍"    // Magnifier for quick analysis
 	detailedIcon := "📊"
 	deepIcon := "💎"
 	fullIcon := "🚀"
@@ -406,6 +408,22 @@ func (s *SidebarModel) renderAnalysisTiers(content *strings.Builder) {
 	completeStyle := theme.S().Success
 	runningStyle := theme.S().Warning
 	pendingStyle := theme.S().Subtle
+
+	// Startup Scan (instant)
+	if s.analysisState != nil && s.analysisState.StartupScanCompleted {
+		content.WriteString(completeStyle.Render(fmt.Sprintf("%s Startup", startupIcon)))
+		content.WriteString(" ")
+		content.WriteString(dimStyle.Render("✓"))
+	} else if s.analysisState != nil && s.analysisState.IsRunning && s.analysisState.CurrentPhase == "startup" {
+		content.WriteString(runningStyle.Render(fmt.Sprintf("%s Startup", startupIcon)))
+		content.WriteString(" ")
+		content.WriteString(dimStyle.Render("◐"))
+	} else {
+		content.WriteString(pendingStyle.Render(fmt.Sprintf("%s Startup", startupIcon)))
+		content.WriteString(" ")
+		content.WriteString(dimStyle.Render("○"))
+	}
+	content.WriteString("\n")
 
 	// Tier 1: Quick Analysis
 	if s.analysisState != nil && s.analysisState.QuickCompleted {

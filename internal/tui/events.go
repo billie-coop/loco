@@ -147,6 +147,41 @@ func (m *Model) handleEvent(event events.Event) (tea.Model, tea.Cmd) {
 			m.showStatus("Ready")
 		}
 
+	case events.StartupScanStartedEvent:
+		// Handle startup scan started
+		if _, ok := event.Payload.(events.AnalysisProgressPayload); ok {
+			// Create or update analysis state
+			if m.analysisState == nil {
+				m.analysisState = &chat.AnalysisState{}
+			}
+			
+			m.analysisState.IsRunning = true
+			m.analysisState.CurrentPhase = "startup"
+			
+			// Update sidebar
+			cmd := m.sidebar.SetAnalysisState(m.analysisState)
+			m.showStatus("⚡ Running startup scan...")
+			if cmd != nil {
+				cmds = append(cmds, cmd)
+			}
+		}
+	
+	case events.StartupScanCompletedEvent:
+		// Handle startup scan completed
+		if _, ok := event.Payload.(events.AnalysisProgressPayload); ok {
+			// Update existing state
+			if m.analysisState == nil {
+				m.analysisState = &chat.AnalysisState{}
+			}
+			
+			m.analysisState.StartupScanCompleted = true
+			m.analysisState.IsRunning = false  // Unless other analysis is running
+			m.analysisState.CurrentPhase = ""
+			
+			m.sidebar.SetAnalysisState(m.analysisState)
+			m.showStatus("✅ Startup scan complete")
+		}
+
 	case events.AnalysisStartedEvent:
 		// Handle analysis started
 		if payload, ok := event.Payload.(events.AnalysisProgressPayload); ok {

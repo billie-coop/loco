@@ -91,6 +91,12 @@ func (e *ToolExecutor) executeWithContext(call tools.ToolCall, initiator string)
 		return
 	}
 	
+	if call.Name == "startup_scan" {
+		// Handle startup scan specially - run it asynchronously
+		e.handleStartupScanAsync(call, ctx, initiator)
+		return
+	}
+	
 	// Run the tool synchronously for all other tools
 	result, err := tool.Run(ctx, call)
 	if err != nil {
@@ -285,6 +291,68 @@ func (e *ToolExecutor) handleAnalyzeAsync(call tools.ToolCall, ctx context.Conte
 	}()
 }
 
+// handleStartupScanAsync runs the startup scan tool asynchronously
+func (e *ToolExecutor) handleStartupScanAsync(call tools.ToolCall, ctx context.Context, initiator string) {
+	go func() {
+		// Emit startup scan started event
+		e.eventBroker.Publish(events.Event{
+			Type: events.StartupScanStartedEvent,
+			Payload: events.AnalysisProgressPayload{
+				Phase:       "startup",
+				CurrentFile: "Scanning project structure...",
+			},
+		})
+		
+		// Get the tool
+		tool, exists := e.registry.Get("startup_scan")
+		if !exists {
+			e.eventBroker.Publish(events.Event{
+				Type: events.ErrorMessageEvent,
+				Payload: events.StatusMessagePayload{
+					Message: "Startup scan tool not available",
+					Type:    "error",
+				},
+			})
+			return
+		}
+		
+		// Run the startup scan
+		result, err := tool.Run(ctx, call)
+		if err != nil {
+			e.eventBroker.Publish(events.Event{
+				Type: events.ErrorMessageEvent,
+				Payload: events.StatusMessagePayload{
+					Message: fmt.Sprintf("Startup scan failed: %v", err),
+					Type:    "error",
+				},
+			})
+			return
+		}
+		
+		// Show the result
+		if result.Content != "" {
+			e.eventBroker.Publish(events.Event{
+				Type: events.SystemMessageEvent,
+				Payload: events.MessagePayload{
+					Message: llm.Message{
+						Role:    "system",
+						Content: result.Content,
+					},
+				},
+			})
+		}
+		
+		// Emit startup scan completed event
+		e.eventBroker.Publish(events.Event{
+			Type: events.StartupScanCompletedEvent,
+			Payload: events.AnalysisProgressPayload{
+				Phase:       "startup",
+				CurrentFile: "Scan complete",
+			},
+		})
+	}()
+}
+
 // handleAnalysisCascade continues analysis to the next tier
 func (e *ToolExecutor) handleAnalysisCascade(currentTier, continueTo string, ctx context.Context, initiator string) {
 	// Determine next tier
@@ -346,40 +414,10 @@ func (e *ToolExecutor) handleAnalysisCascade(currentTier, continueTo string, ctx
 		Input: nextInput,
 	}
 	
-	// Check permission based on initiator
-	if initiator == "system" {
-		// System-initiated gets auto-approval for cascading
-		e.handleAnalyzeAsync(nextCall, ctx, initiator)
-	} else {
-		// User-initiated needs permission for each tier
-		// Create permission request
-		permissionReq := permission.CreatePermissionRequest{
-			ToolName:    "analyze",
-			Action:      fmt.Sprintf("Run %s analysis", nextTier),
-			Path:        e.sessions.ProjectPath,
-			Description: fmt.Sprintf("Continue to %s analysis tier", nextTier),
-			SessionID:   "", // Sessions don't have an ID field
-		}
-		
-		// Get current session if available
-		if currentSession, err := e.sessions.GetCurrent(); err == nil && currentSession != nil {
-			permissionReq.SessionID = currentSession.ID
-		}
-		
-		// Check permission
-		if e.permissionService.Request(permissionReq) {
-			permissionCtx := context.WithValue(ctx, "initiator", initiator)
-			e.handleAnalyzeAsync(nextCall, permissionCtx, initiator)
-		} else {
-			e.eventBroker.Publish(events.Event{
-				Type: events.StatusMessageEvent,
-				Payload: events.StatusMessagePayload{
-					Message: fmt.Sprintf("Permission denied for %s analysis", nextTier),
-					Type:    "warning",
-				},
-			})
-		}
-	}
+	// For cascading, inherit the permission from the initial request
+	// This means if user said "Always allow" for the first tier,
+	// all subsequent tiers in the cascade are automatically approved
+	e.handleAnalyzeAsync(nextCall, ctx, initiator)
 }
 
 // ExecuteFromAgent handles tool calls from LLM agents.

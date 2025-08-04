@@ -11,6 +11,10 @@ import (
 // Each tier uses progressively larger models and is encouraged to be skeptical 
 // of the tier below it, following Loco's progressive enhancement philosophy.
 type Service interface {
+	// Startup scan methods (instant detection, ~100ms)
+	GetStartupScan(projectPath string) *StartupScanResult
+	StoreStartupScan(projectPath string, result *StartupScanResult)
+	
 	// QuickAnalyze performs Tier 1 analysis (⚡ XS models, 2-3 seconds)
 	// Uses file list only, no content reading
 	QuickAnalyze(ctx context.Context, projectPath string) (*QuickAnalysis, error)
@@ -32,6 +36,19 @@ type Service interface {
 	
 	// IsStale checks if cached analysis needs refresh based on git status
 	IsStale(projectPath string, tier Tier) (bool, error)
+}
+
+// StartupScanResult represents the instant project detection result.
+type StartupScanResult struct {
+	ProjectPath string        `json:"project_path"`
+	ProjectType string        `json:"project_type"` // CLI, web app, library, etc.
+	Language    string        `json:"language"`     // Primary language
+	Framework   string        `json:"framework"`    // Primary framework
+	Purpose     string        `json:"purpose"`      // Brief purpose in 10 words
+	FileCount   int           `json:"file_count"`
+	Confidence  float64       `json:"confidence"`   // 0-1 confidence score
+	Duration    time.Duration `json:"duration"`
+	Generated   time.Time     `json:"generated"`
 }
 
 // Tier represents the analysis tier level.

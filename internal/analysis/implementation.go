@@ -21,17 +21,21 @@ type service struct {
 	deepTier     *deepTier
 	fullTier     *fullTier
 	cachePath    string
+	startupScan  *StartupScanResult // Cached startup scan result
 }
 
 // NewService creates a new analysis service.
 func NewService(llmClient llm.Client) Service {
-	return &service{
+	baseService := &service{
 		quickTier:    newQuickTier(llmClient),
 		detailedTier: newDetailedTier(llmClient),
 		deepTier:     newDeepTier(llmClient),
 		fullTier:     newFullTier(llmClient),
 		cachePath:    ".loco",
 	}
+	
+	// Return wrapped service that supports team clients
+	return NewServiceWithTeam(baseService)
 }
 
 // QuickAnalyze performs Tier 1 analysis.
@@ -307,4 +311,58 @@ func (s *service) getGitStatusHash(projectPath string) (string, error) {
 	h := sha256.New()
 	h.Write(combined)
 	return hex.EncodeToString(h.Sum(nil)), nil
+}
+
+// GetStartupScan returns the cached startup scan result.
+func (s *service) GetStartupScan(projectPath string) *StartupScanResult {
+	// Check in-memory cache first
+	if s.startupScan != nil && s.startupScan.ProjectPath == projectPath {
+		// Check if it's still fresh (within 1 hour)
+		if time.Since(s.startupScan.Generated) < 1*time.Hour {
+			return s.startupScan
+		}
+	}
+
+	// Try to load from disk cache
+	cachePath := filepath.Join(projectPath, s.cachePath, "startup_scan.json")
+	data, err := os.ReadFile(cachePath)
+	if err != nil {
+		return nil
+	}
+
+	var result StartupScanResult
+	if err := json.Unmarshal(data, &result); err != nil {
+		return nil
+	}
+
+	// Check if it's fresh
+	if time.Since(result.Generated) > 1*time.Hour {
+		return nil
+	}
+
+	// Update in-memory cache
+	s.startupScan = &result
+	return &result
+}
+
+// StoreStartupScan stores the startup scan result.
+func (s *service) StoreStartupScan(projectPath string, result *StartupScanResult) {
+	// Store in memory
+	s.startupScan = result
+	result.Generated = time.Now()
+
+	// Store on disk
+	cachePath := filepath.Join(projectPath, s.cachePath, "startup_scan.json")
+	cacheDir := filepath.Dir(cachePath)
+	
+	if err := os.MkdirAll(cacheDir, 0755); err != nil {
+		return // Ignore errors
+	}
+
+	data, err := json.MarshalIndent(result, "", "  ")
+	if err != nil {
+		return // Ignore errors
+	}
+
+	_ = os.WriteFile(cachePath, data, 0644) // Ignore errors
 }
