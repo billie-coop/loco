@@ -8,11 +8,17 @@ Loco is a **local AI coding companion** - like Claude Code or GitHub Copilot, bu
 
 ## Current Status
 
-We just started! This is a fresh Go rewrite of the [Deno version](https://github.com/billie-coop/local-llm-cli). We have:
-- ✅ Basic Bubble Tea skeleton
+**As of latest session**: Major functionality is working!
+- ✅ Basic Bubble Tea TUI with chat, sidebar, status bar
+- ✅ LM Studio integration with streaming
+- ✅ Full analysis pipeline (quick/detailed/deep tiers all working)
+- ✅ Tool visibility in chat with self-updating components
+- ✅ Permission system with Store pattern
+- ✅ Session management basics
 - ✅ Test-driven roadmap (see `roadmap_test.go`)
 - ✅ SUPER strict linting setup
-- 📝 Everything else is TODO
+- ⚠️ 15 commits ahead of origin/main (need to push!)
+- 🔥 TECH DEBT: Compatibility layer with llm.Message (see Message Architecture)
 
 ## Development Philosophy
 
@@ -155,3 +161,56 @@ Agent Call → ToolCall → ToolExecutor → Tool → Result
 - Components return data, not print it
 - The UI layer (chat.go) decides how to display data
 - No direct terminal output except from View() method
+
+## Message Architecture
+
+### Current State (NEW as of recent refactor)
+We now have a proper typed message system in the `internal/chat` package:
+
+```go
+// Typed messages with proper interfaces
+type Message interface {
+    Type() MessageType
+    Content() string
+    Timestamp() time.Time
+    ID() string
+}
+
+// Specific message types
+type UserMessage struct { BaseMessage }
+type AssistantMessage struct { BaseMessage; ToolCalls []ToolCall }
+type SystemMessage struct { BaseMessage }
+type ToolMessage struct { BaseMessage; ToolName string; Status ToolStatus; ... }
+```
+
+**MessageStore** manages all messages with thread safety and proper typing.
+
+**ToolExecution** struct encapsulates tool-related fields (Name, Status, Progress) instead of inline fields in llm.Message.
+
+### ⚠️ CRITICAL TECH DEBT - KILL WITH FIRE!
+
+There's a **temporary compatibility layer** that needs to DIE:
+- `AllAsLLM()` - converts typed messages back to llm.Message
+- `Append(llm.Message)` - accepts old message type
+- `Replace([]llm.Message)` - replaces with old message types
+
+These exist ONLY because refactoring all UI components at once would be huge. **The next major refactor should:**
+1. Update all UI components to use the typed `chat.Message` interface
+2. Remove ALL references to `llm.Message` from UI code
+3. Delete the compatibility methods from MessageStore
+4. Keep `llm.Message` ONLY for actual LLM API communication
+
+## Store Pattern
+
+We're using a Store pattern for state management:
+- **PermissionStore** - Manages tool permissions (implemented)
+- **MessageStore** - Manages chat messages (implemented)
+- **SessionStore** - Will manage sessions (TODO)
+- **SettingsStore** - Will manage app settings (TODO)
+- **UIStore** - Will manage UI preferences (TODO)
+
+Each store:
+- Has thread-safe operations
+- Emits events through the event broker
+- Can persist state to disk
+- Has a clear, focused responsibility
