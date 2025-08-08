@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="docs/website/loco-icon@2x.png" alt="Loco" width="180"/>
+</p>
+
 # Loco 🚂 – Documentation‑Driven AI Development
 
 > The future of AI‑assisted coding isn’t just faster code generation — it’s maintaining architectural coherence while coding at AI speed.
@@ -80,7 +84,7 @@ We’re building for developers who care about architectural coherence with AI i
 We use a small train motif in the TUI. If you’d like to add a logo to the repo header, place a PNG at `docs/website/loco-logo.png` and reference it in your repo description/settings or embed it at the top of this README:
 
 ```
-<img src="docs/website/loco-logo.png" alt="Loco" width="180"/>
+<img src="docs/website/loco-icon@2x.png" alt="Loco" width="180"/>
 ```
 
 ---
