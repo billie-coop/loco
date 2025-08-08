@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"time"
 
+	chatcore "github.com/billie-coop/loco/internal/chat"
 	"github.com/billie-coop/loco/internal/llm"
 	"github.com/billie-coop/loco/internal/permission"
 	"github.com/billie-coop/loco/internal/tui/components/chat"
@@ -161,6 +162,7 @@ func (m *Model) handleEvent(event events.Event) (tea.Model, tea.Cmd) {
 			// Update sidebar
 			cmd := m.sidebar.SetAnalysisState(m.analysisState)
 			m.showStatus("⚡ Running startup scan...")
+			m.updateToolProgress("startup_scan", "running", "Scanning project structure...", "")
 			if cmd != nil {
 				cmds = append(cmds, cmd)
 			}
@@ -180,6 +182,7 @@ func (m *Model) handleEvent(event events.Event) (tea.Model, tea.Cmd) {
 			m.lastProgress = time.Now()
 			m.sidebar.SetAnalysisState(m.analysisState)
 			m.showStatus("✅ Startup scan complete")
+			m.updateToolProgress("startup_scan", "complete", "Scan complete", "")
 		}
 
 	case events.AnalysisStartedEvent:
@@ -201,12 +204,15 @@ func (m *Model) handleEvent(event events.Event) (tea.Model, tea.Cmd) {
 			case "quick":
 				m.analysisState.QuickCompleted = false // Mark as running
 				m.showStatus("🔍 Quick analysis started…")
+				m.updateToolProgress("analyze", "running", "Quick analysis started…", "")
 			case "detailed":
 				m.analysisState.DetailedRunning = true
 				m.showStatus("📊 Reading key files…")
+				m.updateToolProgress("analyze", "running", "Reading key files…", "")
 			case "deep", "full":
 				m.analysisState.KnowledgeRunning = true
 				m.showStatus("💎 Deep analysis started…")
+				m.updateToolProgress("analyze", "running", "Deep analysis started…", "")
 			}
 
 			// IMPORTANT: Start the timer for analysis feedback
@@ -236,12 +242,17 @@ func (m *Model) handleEvent(event events.Event) (tea.Model, tea.Cmd) {
 			if payload.Phase == "quick" {
 				if payload.CompletedFiles == 0 && payload.TotalFiles > 0 && payload.CurrentFile == "discovered files" {
 					m.showStatus(fmt.Sprintf("🔎 Discovered %d files", payload.TotalFiles))
+					m.updateToolProgress("analyze", "running", fmt.Sprintf("Discovered %d files", payload.TotalFiles), "")
 				} else if payload.TotalFiles > 0 {
-					m.showStatus(fmt.Sprintf("🔍 Summarizing %d/%d: %s", payload.CompletedFiles, payload.TotalFiles, payload.CurrentFile))
+					msg := fmt.Sprintf("Summarizing %d/%d: %s", payload.CompletedFiles, payload.TotalFiles, payload.CurrentFile)
+					m.showStatus("🔍 " + msg)
+					m.updateToolProgress("analyze", "running", msg, "")
 				}
 			} else if payload.Phase == "detailed" {
 				if payload.TotalFiles > 0 {
-					m.showStatus(fmt.Sprintf("📖 Reading key files %d/%d: %s", payload.CompletedFiles, payload.TotalFiles, payload.CurrentFile))
+					msg := fmt.Sprintf("Reading key files %d/%d: %s", payload.CompletedFiles, payload.TotalFiles, payload.CurrentFile)
+					m.showStatus("📖 " + msg)
+					m.updateToolProgress("analyze", "running", msg, "")
 				}
 			}
 		}
@@ -272,6 +283,7 @@ func (m *Model) handleEvent(event events.Event) (tea.Model, tea.Cmd) {
 
 			m.sidebar.SetAnalysisState(m.analysisState)
 			m.showStatus("✨ Analysis complete!")
+			m.updateToolProgress("analyze", "complete", "Analysis complete", "")
 		}
 
 	case events.AnalysisErrorEvent:
@@ -287,6 +299,7 @@ func (m *Model) handleEvent(event events.Event) (tea.Model, tea.Cmd) {
 
 			// Show error
 			m.showStatus("❌ Analysis failed: " + payload.Message)
+			m.updateToolProgress("analyze", "error", payload.Message, "")
 		}
 
 	case events.DialogOpenEvent:
@@ -320,4 +333,24 @@ func (m *Model) handleEvent(event events.Event) (tea.Model, tea.Cmd) {
 	}
 
 	return m, tea.Batch(cmds...)
+}
+
+// updateToolProgress finds the last pending/running tool card and updates its status/progress
+func (m *Model) updateToolProgress(toolName, status, progress, content string) {
+	if m.messages == nil {
+		return
+	}
+	if tm, ok := m.messages.FindPendingTool(toolName); ok && tm != nil {
+		if status != "" {
+			// Cast string to internal chat ToolStatus
+			tm.Status = chatcore.ToolStatus(status)
+		}
+		tm.Progress = progress
+		if content != "" {
+			// Not usually used for running; reserved for completion/error
+			// We do not set content here to avoid clutter unless provided
+		}
+		// Refresh message list
+		m.syncMessagesToComponents()
+	}
 }

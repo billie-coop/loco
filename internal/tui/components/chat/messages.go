@@ -26,7 +26,7 @@ type MessageMetadata struct {
 
 // MessageItem represents a message that can be displayed in the list
 type MessageItem interface {
-	list.Item  // Must implement the list.Item interface
+	list.Item // Must implement the list.Item interface
 	GetMessage() llm.Message
 	SetMessage(llm.Message)
 }
@@ -58,12 +58,12 @@ func NewMessageCmp(msg llm.Message, meta *MessageMetadata, showDebug bool, toolR
 		toolRegistry: toolRegistry,
 		spinner:      spinner.New(spinner.WithSpinner(spinner.Dot)),
 	}
-	
+
 	// Create tool message component if this is a tool message
 	if msg.Role == "tool" && msg.ToolExecution != nil {
 		mc.toolMessage = NewToolMessage(msg)
 	}
-	
+
 	return mc
 }
 
@@ -90,7 +90,7 @@ func (m *messageCmp) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, cmd
 	}
-	
+
 	if m.isStreaming {
 		var cmd tea.Cmd
 		m.spinner, cmd = m.spinner.Update(msg)
@@ -105,26 +105,34 @@ func (m *messageCmp) View() string {
 	if m.width <= 0 {
 		return ""
 	}
-	
+
 	// If this is a tool message, use the tool message component
 	if m.toolMessage != nil {
-		m.toolMessage.SetWidth(m.width)
-		return m.toolMessage.View()
+		m.toolMessage.SetWidth(m.width - 4)
+		content := m.toolMessage.View()
+		// Align system/tool left
+		return lipgloss.NewStyle().
+			Width(m.width).
+			Align(lipgloss.Left).
+			Render(content)
 	}
-	
+
 	var sb strings.Builder
-	
+
 	// Style based on role
 	var rolePrefix string
 	var contentStyle lipgloss.Style
+	var align lipgloss.Position
 
 	switch m.message.Role {
 	case "user":
 		rolePrefix = "You:"
 		contentStyle = getUserStyle()
+		align = lipgloss.Right
 	case "assistant":
 		rolePrefix = "Loco:"
 		contentStyle = getAssistantStyle()
+		align = lipgloss.Left
 	case "system":
 		// Check if this is analysis results
 		if strings.Contains(m.message.Content, "Analysis Results") {
@@ -133,6 +141,7 @@ func (m *messageCmp) View() string {
 			rolePrefix = "🔧 System:"
 		}
 		contentStyle = getSystemStyle()
+		align = lipgloss.Left
 	case "tool":
 		// Tool messages are handled by toolMessage component above
 		return ""
@@ -159,42 +168,28 @@ func (m *messageCmp) View() string {
 
 	// Apply markdown rendering for assistant messages
 	if m.message.Role == "assistant" && m.width > 4 {
-		rendered, err := renderMarkdown(content, m.width-4)
+		rendered, err := renderMarkdown(content, m.width-8)
 		if err == nil {
 			content = rendered
 		}
 	} else if m.width > 4 {
 		// Apply word wrapping for non-assistant messages
-		content = wrapText(content, m.width-4)
+		content = wrapText(content, m.width-8)
 	}
 
 	// Apply style
-	sb.WriteString(contentStyle.Render(content))
-	
-	// Add spinner if streaming
-	if m.isStreaming && m.streamingMsg != "" {
-		sb.WriteString(" ")
-		sb.WriteString(m.spinner.View())
-	}
-	
-	// Render tool calls if present
-	if len(m.message.ToolCalls) > 0 && m.toolRegistry != nil {
-		sb.WriteString("\n\n")
-		for _, toolCall := range m.message.ToolCalls {
-			toolView := m.toolRegistry.Get(toolCall.Name).Render(toolCall, nil, m.width-4)
-			sb.WriteString(toolView)
-			sb.WriteString("\n")
-		}
-	}
+	bubble := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(styles.CurrentTheme().BorderFocus).
+		Padding(0, 1).
+		Width(m.width - 4).
+		Render(contentStyle.Render(content))
 
-	// Add metadata if in debug mode
-	if m.showDebug && m.meta != nil {
-		metaInfo := formatMetadata(m.meta)
-		sb.WriteString("\n")
-		sb.WriteString(getMetaStyle().Render(metaInfo))
-	}
-
-	return sb.String()
+	// Align bubble left or right depending on role
+	return lipgloss.NewStyle().
+		Width(m.width).
+		Align(align).
+		Render(bubble)
 }
 
 // GetSize implements list.Item
@@ -216,7 +211,7 @@ func (m *messageCmp) GetMessage() llm.Message {
 // SetMessage implements MessageItem
 func (m *messageCmp) SetMessage(msg llm.Message) {
 	m.message = msg
-	
+
 	// Update tool message if present
 	if m.toolMessage != nil {
 		m.toolMessage.SetMessage(msg)
@@ -236,22 +231,22 @@ func (m *messageCmp) SetStreaming(isStreaming bool, msg string) {
 
 // MessageListModel implements the message list component using virtualized list
 type MessageListModel struct {
-	list         list.List[MessageItem]
-	width        int
-	height       int
+	list   list.List[MessageItem]
+	width  int
+	height int
 
 	// State
-	messages       []llm.Message
-	messagesMeta   map[int]*MessageMetadata
-	isStreaming    bool
-	streamingMsg   string
-	showDebug      bool
-	
+	messages     []llm.Message
+	messagesMeta map[int]*MessageMetadata
+	isStreaming  bool
+	streamingMsg string
+	showDebug    bool
+
 	// Tool rendering
-	toolRegistry   *ToolRegistry
-	
+	toolRegistry *ToolRegistry
+
 	// Spinner for creating new items
-	spinner        spinner.Model
+	spinner spinner.Model
 }
 
 // Ensure MessageListModel implements required interfaces
@@ -263,7 +258,7 @@ func NewMessageList() *MessageListModel {
 	s := spinner.New(spinner.WithSpinner(spinner.Dot))
 
 	// Create list with backward direction (newest at bottom)
-	l := list.New([]MessageItem{}, 
+	l := list.New([]MessageItem{},
 		list.WithGap[MessageItem](1),
 		list.WithDirectionBackward[MessageItem](),
 	)
@@ -309,7 +304,7 @@ func (ml *MessageListModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (ml *MessageListModel) SetSize(width, height int) tea.Cmd {
 	ml.width = width
 	ml.height = height
-	
+
 	// Update all existing items with new width
 	itemWidth := width - 2
 	items := ml.list.Items()
@@ -318,7 +313,7 @@ func (ml *MessageListModel) SetSize(width, height int) tea.Cmd {
 			mc.width = itemWidth
 		}
 	}
-	
+
 	// Subtract padding like Crush does
 	return ml.list.SetSize(width-2, height-1)
 }
@@ -329,7 +324,7 @@ func (ml *MessageListModel) View() string {
 	if len(ml.messages) == 0 && !ml.isStreaming {
 		theme := styles.CurrentTheme()
 		var sb strings.Builder
-		
+
 		welcome := lipgloss.NewStyle().
 			Foreground(theme.FgSubtle).
 			Italic(true).
@@ -342,14 +337,14 @@ func (ml *MessageListModel) View() string {
 			Foreground(theme.FgMuted).
 			Render("Type a message or use /help for commands")
 		sb.WriteString(hint)
-		
+
 		return lipgloss.NewStyle().
 			Width(ml.width).
 			Height(ml.height).
 			Padding(1, 1, 0, 1).
 			Render(sb.String())
 	}
-	
+
 	// Wrap with padding like Crush does
 	theme := styles.CurrentTheme()
 	return lipgloss.NewStyle().
@@ -382,7 +377,7 @@ func (ml *MessageListModel) SetStreamingState(isStreaming bool, streamingMsg str
 // AppendStreamingChunk adds content to the current streaming message
 func (ml *MessageListModel) AppendStreamingChunk(chunk string) {
 	ml.streamingMsg += chunk
-	
+
 	// Update the last item if it's streaming
 	items := ml.list.Items()
 	if len(items) > 0 {
@@ -419,13 +414,13 @@ func (ml *MessageListModel) SetContent(content string) {
 func (ml *MessageListModel) refreshContent() {
 	// Convert messages to items
 	items := make([]MessageItem, 0, len(ml.messages))
-	
+
 	// Calculate item width (accounting for list padding)
 	itemWidth := ml.width - 2
 	if itemWidth <= 0 {
 		itemWidth = 80 // fallback
 	}
-	
+
 	for i, msg := range ml.messages {
 		item := NewMessageCmp(msg, ml.messagesMeta[i], ml.showDebug, ml.toolRegistry)
 		if mc, ok := item.(*messageCmp); ok {
@@ -434,7 +429,7 @@ func (ml *MessageListModel) refreshContent() {
 		}
 		items = append(items, item)
 	}
-	
+
 	// Add streaming item if needed
 	if ml.isStreaming {
 		streamingItem := NewMessageCmp(
@@ -454,10 +449,10 @@ func (ml *MessageListModel) refreshContent() {
 		}
 		items = append(items, streamingItem)
 	}
-	
+
 	// Update list
 	ml.list.SetItems(items)
-	
+
 	// Auto-scroll to bottom
 	if len(items) > 0 {
 		ml.list.GoToBottom()

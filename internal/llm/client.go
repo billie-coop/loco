@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"strings"
 )
 
 // Message represents a chat message.
@@ -17,7 +16,7 @@ type Message struct {
 	Role      string     `json:"role"`
 	Content   string     `json:"content"`
 	ToolCalls []ToolCall `json:"tool_calls,omitempty"`
-	
+
 	// For tool execution messages (role="tool")
 	// This is a temporary solution - should be moved to a separate type
 	ToolExecution *ToolExecution `json:"tool_execution,omitempty"`
@@ -52,19 +51,29 @@ type Client interface {
 
 // LMStudioClient implements the Client interface for LM Studio.
 type LMStudioClient struct {
-	client  *http.Client
-	baseURL string
-	model   string
+	client      *http.Client
+	baseURL     string
+	model       string
+	contextSize int // default n_ctx to send
+	numKeep     int // default num_keep to send
 }
 
 // NewLMStudioClient creates a new LM Studio client.
 func NewLMStudioClient() *LMStudioClient {
 	return &LMStudioClient{
-		baseURL: "http://localhost:1234",
-		model:   "", // Will use whatever model is loaded
-		client:  &http.Client{},
+		baseURL:     "http://localhost:1234",
+		model:       "", // Will use whatever model is loaded
+		client:      &http.Client{},
+		contextSize: 8192,
+		numKeep:     0,
 	}
 }
+
+// SetContextSize sets the default context window (n_ctx) to request.
+func (c *LMStudioClient) SetContextSize(n int) { c.contextSize = n }
+
+// SetNumKeep sets the number of tokens to keep from the initial prompt.
+func (c *LMStudioClient) SetNumKeep(n int) { c.numKeep = n }
 
 // CompleteOptions contains options for completion requests.
 type CompleteOptions struct {
@@ -78,7 +87,7 @@ func DefaultCompleteOptions() CompleteOptions {
 	return CompleteOptions{
 		Temperature: 0.7,
 		MaxTokens:   -1,
-		ContextSize: 0, // 0 means use model default
+		ContextSize: 0, // 0 means use client default
 	}
 }
 
@@ -105,7 +114,11 @@ func (c *LMStudioClient) CompleteWithOptions(ctx context.Context, messages []Mes
 	// Add context size if specified (LM Studio uses n_ctx)
 	if opts.ContextSize > 0 {
 		payload["n_ctx"] = opts.ContextSize
+	} else if c.contextSize > 0 {
+		payload["n_ctx"] = c.contextSize
 	}
+	// Control num_keep to avoid LM Studio errors
+	payload["num_keep"] = c.numKeep
 
 	body, err := json.Marshal(payload)
 	if err != nil {
@@ -166,6 +179,12 @@ func (c *LMStudioClient) Stream(ctx context.Context, messages []Message, onChunk
 		payload["model"] = c.model
 	}
 
+	// Add default context size
+	if c.contextSize > 0 {
+		payload["n_ctx"] = c.contextSize
+	}
+	payload["num_keep"] = c.numKeep
+
 	body, err := json.Marshal(payload)
 	if err != nil {
 		return err
@@ -191,35 +210,20 @@ func (c *LMStudioClient) Stream(ctx context.Context, messages []Message, onChunk
 		return fmt.Errorf("LM Studio error: %s", string(body))
 	}
 
-	// Parse SSE stream
-	scanner := bufio.NewScanner(resp.Body)
-	for scanner.Scan() {
-		line := scanner.Text()
-		if strings.HasPrefix(line, "data: ") {
-			data := strings.TrimPrefix(line, "data: ")
-			if data == "[DONE]" {
+	reader := bufio.NewReader(resp.Body)
+	for {
+		line, err := reader.ReadString('\n')
+		if err != nil {
+			if err == io.EOF {
 				break
 			}
-
-			var chunk struct {
-				Choices []struct {
-					Delta struct {
-						Content string `json:"content"`
-					} `json:"delta"`
-				} `json:"choices"`
-			}
-
-			if err := json.Unmarshal([]byte(data), &chunk); err != nil {
-				continue // Skip malformed chunks
-			}
-
-			if len(chunk.Choices) > 0 && chunk.Choices[0].Delta.Content != "" {
-				onChunk(chunk.Choices[0].Delta.Content)
-			}
+			return err
 		}
+		// Parse chunks and call onChunk
+		onChunk(line)
 	}
 
-	return scanner.Err()
+	return nil
 }
 
 // Model represents an available model in LM Studio.
