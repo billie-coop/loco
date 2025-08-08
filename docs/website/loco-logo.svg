@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="720" height="200" viewBox="0 0 720 200" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <style>
+    .primary { stroke: #FF9A16; fill: none; stroke-width: 8; stroke-linecap: round; stroke-linejoin: round; }
+    .fill   { fill: #FF9A16; }
+    .text   { fill: #1B1B1B; font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, "Helvetica Neue", Arial, "Noto Sans", "Apple Color Emoji", "Segoe UI Emoji"; font-weight: 800; }
+    @media (prefers-color-scheme: dark) {
+      .text { fill: #EDEDED; }
+    }
+  </style>
+
+  <!-- Wordmark -->
+  <g transform="translate(260, 118)">
+    <text class="text" font-size="86" letter-spacing="4">LOCO</text>
+  </g>
+
+  <!-- Simple train icon (left) -->
+  <g transform="translate(40, 40)">
+    <!-- body -->
+    <rect x="12" y="32" width="160" height="60" rx="10" class="primary"/>
+    <!-- cab -->
+    <rect x="132" y="8" width="40" height="48" rx="6" class="primary"/>
+    <!-- smokestack -->
+    <rect x="32" y="12" width="18" height="22" rx="4" class="primary"/>
+    <!-- cowcatcher -->
+    <path d="M 8 92 L 28 92 L 14 120" class="primary"/>
+    <!-- connector -->
+    <line x1="92" y1="32" x2="92" y2="12" class="primary"/>
+    <!-- wheels -->
+    <circle cx="48" cy="112" r="14" class="primary"/>
+    <circle cx="118" cy="112" r="14" class="primary"/>
+    <!-- puff -->
+    <circle cx="30" cy="0" r="6" class="primary"/>
+    <circle cx="12" cy="-12" r="4" class="primary"/>
+  </g>
+
+  <!-- underline accent -->
+  <line x1="260" y1="140" x2="580" y2="140" class="primary"/>
+</svg>
