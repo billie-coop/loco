@@ -4,8 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
+	"sync"
 	"time"
 
+	"github.com/billie-coop/loco/internal/analysis"
 	"github.com/billie-coop/loco/internal/llm"
 	"github.com/billie-coop/loco/internal/permission"
 	"github.com/billie-coop/loco/internal/session"
@@ -15,11 +18,16 @@ import (
 
 // ToolExecutor handles execution of tools from any source.
 type ToolExecutor struct {
-	registry           *tools.Registry
-	eventBroker        *events.Broker
-	sessions           *session.Manager
-	llmService         *LLMService
-	permissionService  permission.Service
+	registry          *tools.Registry
+	eventBroker       *events.Broker
+	sessions          *session.Manager
+	llmService        *LLMService
+	permissionService permission.Service
+
+	// Active job control (universal interrupt)
+	activeMu     sync.Mutex
+	activeName   string
+	activeCancel context.CancelFunc
 }
 
 // NewToolExecutor creates a new tool executor.
@@ -54,6 +62,38 @@ func (e *ToolExecutor) ExecuteAgent(call tools.ToolCall) {
 	e.executeWithContext(call, "agent")
 }
 
+// CancelCurrent cancels any in-flight tool execution.
+func (e *ToolExecutor) CancelCurrent() {
+	e.activeMu.Lock()
+	cancel := e.activeCancel
+	name := e.activeName
+	e.activeCancel = nil
+	e.activeName = ""
+	e.activeMu.Unlock()
+
+	if cancel != nil {
+		cancel()
+		// Inform UI
+		e.eventBroker.Publish(events.Event{
+			Type: events.StatusMessageEvent,
+			Payload: events.StatusMessagePayload{
+				Message: fmt.Sprintf("⏸️ Interrupted%s", func() string {
+					if name != "" {
+						return " (" + name + ")"
+					}
+					return ""
+				}()),
+				Type: "warning",
+			},
+		})
+
+		// Also stop streaming if any
+		if e.llmService != nil {
+			e.llmService.CancelStreaming()
+		}
+	}
+}
+
 // executeWithContext runs a tool with the given initiation context.
 func (e *ToolExecutor) executeWithContext(call tools.ToolCall, initiator string) {
 	// Get the tool
@@ -71,10 +111,10 @@ func (e *ToolExecutor) executeWithContext(call tools.ToolCall, initiator string)
 
 	// Create context with session and message IDs for tools that need them
 	ctx := context.Background()
-	
+
 	// Add initiator context
 	ctx = context.WithValue(ctx, tools.InitiatorKey, initiator)
-	
+
 	// Add session ID if available
 	if e.sessions != nil {
 		if currentSession, err := e.sessions.GetCurrent(); err == nil && currentSession != nil {
@@ -84,19 +124,39 @@ func (e *ToolExecutor) executeWithContext(call tools.ToolCall, initiator string)
 		}
 	}
 
+	// If analyze tool, wrap context with progress publisher
+	if call.Name == "analyze" {
+		ctx = analysis.WithProgressCallback(ctx, func(p analysis.Progress) {
+			e.eventBroker.Publish(events.Event{
+				Type: events.AnalysisProgressEvent,
+				Payload: events.AnalysisProgressPayload{
+					Phase:          p.Phase,
+					TotalFiles:     p.TotalFiles,
+					CompletedFiles: p.CompletedFiles,
+					CurrentFile:    p.CurrentFile,
+				},
+			})
+		})
+	}
+
 	// Handle special tools that need async execution
 	if call.Name == "analyze" {
 		// Handle analysis tool specially - run it asynchronously
 		e.handleAnalyzeAsync(call, ctx, initiator)
 		return
 	}
-	
+
 	if call.Name == "startup_scan" {
 		// Handle startup scan specially - run it asynchronously
 		e.handleStartupScanAsync(call, ctx, initiator)
 		return
 	}
-	
+
+	// For synchronous tools, set up cancelable context and track active job
+	ctx, cancel := context.WithCancel(ctx)
+	e.setActiveJob(call.Name, cancel)
+	defer e.clearActiveJob()
+
 	// Emit tool message showing the tool is running
 	e.eventBroker.Publish(events.Event{
 		Type: events.SystemMessageEvent,
@@ -111,41 +171,45 @@ func (e *ToolExecutor) executeWithContext(call tools.ToolCall, initiator string)
 			},
 		},
 	})
-	
+
 	// Run the tool synchronously for all other tools
 	result, err := tool.Run(ctx, call)
 	if err != nil {
-		// Update tool message to show error
+		// Update tool message to show error (suppress for system)
+		if initiator != "system" {
+			e.eventBroker.Publish(events.Event{
+				Type: events.SystemMessageEvent,
+				Payload: events.MessagePayload{
+					Message: llm.Message{
+						Role:    "tool",
+						Content: fmt.Sprintf("Tool execution failed: %v", err),
+						ToolExecution: &llm.ToolExecution{
+							Name:   call.Name,
+							Status: "error",
+						},
+					},
+				},
+			})
+		}
+		return
+	}
+
+	// Update tool message to show completion (suppress for system)
+	if initiator != "system" {
 		e.eventBroker.Publish(events.Event{
 			Type: events.SystemMessageEvent,
 			Payload: events.MessagePayload{
 				Message: llm.Message{
 					Role:    "tool",
-					Content: fmt.Sprintf("Tool execution failed: %v", err),
+					Content: result.Content,
 					ToolExecution: &llm.ToolExecution{
 						Name:   call.Name,
-						Status: "error",
+						Status: "complete",
 					},
 				},
 			},
 		})
-		return
 	}
-	
-	// Update tool message to show completion
-	e.eventBroker.Publish(events.Event{
-		Type: events.SystemMessageEvent,
-		Payload: events.MessagePayload{
-			Message: llm.Message{
-				Role:    "tool",
-				Content: result.Content,
-				ToolExecution: &llm.ToolExecution{
-					Name:   call.Name,
-					Status: "complete",
-				},
-			},
-		},
-	})
 
 	// Handle special tools with side effects
 	switch call.Name {
@@ -154,7 +218,7 @@ func (e *ToolExecutor) executeWithContext(call tools.ToolCall, initiator string)
 		e.eventBroker.Publish(events.Event{
 			Type: events.MessagesClearEvent,
 		})
-		
+
 	case "chat":
 		// Parse chat params to get the message
 		var params struct {
@@ -166,7 +230,7 @@ func (e *ToolExecutor) executeWithContext(call tools.ToolCall, initiator string)
 				Role:    "user",
 				Content: params.Message,
 			}
-			
+
 			// Publish user message event
 			e.eventBroker.Publish(events.Event{
 				Type: events.UserMessageEvent,
@@ -174,7 +238,7 @@ func (e *ToolExecutor) executeWithContext(call tools.ToolCall, initiator string)
 					Message: userMsg,
 				},
 			})
-			
+
 			// Send to LLM if available
 			if e.llmService != nil && e.sessions != nil {
 				go func() {
@@ -184,7 +248,7 @@ func (e *ToolExecutor) executeWithContext(call tools.ToolCall, initiator string)
 				}()
 			}
 		}
-		
+
 	case "help":
 		// Show help as a system message
 		if result.Content != "" {
@@ -198,71 +262,34 @@ func (e *ToolExecutor) executeWithContext(call tools.ToolCall, initiator string)
 				},
 			})
 		}
-		
-	case "copy":
-		// Just show the status message
-		if result.Content != "" {
-			e.eventBroker.Publish(events.Event{
-				Type: events.StatusMessageEvent,
-				Payload: events.StatusMessagePayload{
-					Message: result.Content,
-					Type:    "success",
-				},
-			})
-		}
-		
-		
-	default:
-		// For other tools, show result as system message if not empty
-		if result.Content != "" {
-			// Check if it's an error
-			if result.IsError {
-				e.eventBroker.Publish(events.Event{
-					Type: events.ErrorMessageEvent,
-					Payload: events.StatusMessagePayload{
-						Message: result.Content,
-						Type:    "error",
-					},
-				})
-			} else {
-				e.eventBroker.Publish(events.Event{
-					Type: events.SystemMessageEvent,
-					Payload: events.MessagePayload{
-						Message: llm.Message{
-							Role:    "system",
-							Content: result.Content,
-						},
-					},
-				})
-			}
-		}
 	}
 }
 
+func (e *ToolExecutor) setActiveJob(name string, cancel context.CancelFunc) {
+	e.activeMu.Lock()
+	defer e.activeMu.Unlock()
+	e.activeName = name
+	e.activeCancel = cancel
+}
+
+func (e *ToolExecutor) clearActiveJob() {
+	e.activeMu.Lock()
+	defer e.activeMu.Unlock()
+	e.activeName = ""
+	e.activeCancel = nil
+}
+
 // handleAnalyzeAsync runs the analyze tool asynchronously
-func (e *ToolExecutor) handleAnalyzeAsync(call tools.ToolCall, ctx context.Context, initiator string) {
-	// Parse the parameters from the input
-	var params struct {
-		Tier       string `json:"tier"`
-		Continue   bool   `json:"continue"`
-		ContinueTo string `json:"continue_to"`
-	}
-	if err := json.Unmarshal([]byte(call.Input), &params); err != nil {
-		e.eventBroker.Publish(events.Event{
-			Type: events.ErrorMessageEvent,
-			Payload: events.StatusMessagePayload{
-				Message: fmt.Sprintf("Invalid analyze parameters: %v", err),
-				Type:    "error",
-			},
-		})
-		return
-	}
-	
-	// Run analysis in background since it can take time
+func (e *ToolExecutor) handleAnalyzeAsync(call tools.ToolCall, parentCtx context.Context, initiator string) {
+	// Create cancelable context for this async job and track it
+	ctx, cancel := context.WithCancel(parentCtx)
+	e.setActiveJob("analyze", cancel)
+
 	go func() {
+		defer e.clearActiveJob()
 		// Small delay to ensure dialog has closed and UI is ready
 		time.Sleep(100 * time.Millisecond)
-		
+
 		// Add tool message to chat showing the analysis is starting
 		e.eventBroker.Publish(events.Event{
 			Type: events.SystemMessageEvent,
@@ -272,22 +299,22 @@ func (e *ToolExecutor) handleAnalyzeAsync(call tools.ToolCall, ctx context.Conte
 					ToolExecution: &llm.ToolExecution{
 						Name:     "analyze",
 						Status:   "pending",
-						Progress: fmt.Sprintf("Starting %s analysis...", params.Tier),
+						Progress: fmt.Sprintf("Starting %s analysis...", call.Input),
 					},
 				},
 			},
 		})
-		
+
 		// Emit analysis started event
 		e.eventBroker.Publish(events.Event{
 			Type: events.AnalysisStartedEvent,
 			Payload: events.AnalysisProgressPayload{
-				Phase:       params.Tier,
+				Phase:       extractTierFromInput(call.Input),
 				TotalFiles:  0,
 				CurrentFile: "Starting analysis...",
 			},
 		})
-		
+
 		// Get the tool
 		tool, exists := e.registry.Get("analyze")
 		if !exists {
@@ -300,7 +327,7 @@ func (e *ToolExecutor) handleAnalyzeAsync(call tools.ToolCall, ctx context.Conte
 			})
 			return
 		}
-		
+
 		// Run the analysis with the context that has initiator info
 		result, err := tool.Run(ctx, call)
 		if err != nil {
@@ -313,7 +340,7 @@ func (e *ToolExecutor) handleAnalyzeAsync(call tools.ToolCall, ctx context.Conte
 			})
 			return
 		}
-		
+
 		// Update tool message to show completion
 		e.eventBroker.Publish(events.Event{
 			Type: events.SystemMessageEvent,
@@ -324,31 +351,31 @@ func (e *ToolExecutor) handleAnalyzeAsync(call tools.ToolCall, ctx context.Conte
 					ToolExecution: &llm.ToolExecution{
 						Name:     "analyze",
 						Status:   "complete",
-						Progress: fmt.Sprintf("%s analysis complete", params.Tier),
+						Progress: "Analysis complete",
 					},
 				},
 			},
 		})
-		
+
 		// Emit analysis completed event
 		e.eventBroker.Publish(events.Event{
 			Type: events.AnalysisCompletedEvent,
 			Payload: events.AnalysisProgressPayload{
-				Phase:       params.Tier,
+				Phase:       extractTierFromInput(call.Input),
 				CurrentFile: "Analysis complete",
 			},
 		})
-		
-		// Handle cascading to next tier if requested
-		if params.Continue || params.ContinueTo != "" {
-			e.handleAnalysisCascade(params.Tier, params.ContinueTo, ctx, initiator)
-		}
 	}()
 }
 
 // handleStartupScanAsync runs the startup scan tool asynchronously
-func (e *ToolExecutor) handleStartupScanAsync(call tools.ToolCall, ctx context.Context, initiator string) {
+func (e *ToolExecutor) handleStartupScanAsync(call tools.ToolCall, parentCtx context.Context, initiator string) {
+	// Create cancelable context for this async job and track it
+	ctx, cancel := context.WithCancel(parentCtx)
+	e.setActiveJob("startup_scan", cancel)
+
 	go func() {
+		defer e.clearActiveJob()
 		// Add tool message to chat
 		e.eventBroker.Publish(events.Event{
 			Type: events.SystemMessageEvent,
@@ -363,7 +390,7 @@ func (e *ToolExecutor) handleStartupScanAsync(call tools.ToolCall, ctx context.C
 				},
 			},
 		})
-		
+
 		// Emit startup scan started event
 		e.eventBroker.Publish(events.Event{
 			Type: events.StartupScanStartedEvent,
@@ -372,7 +399,7 @@ func (e *ToolExecutor) handleStartupScanAsync(call tools.ToolCall, ctx context.C
 				CurrentFile: "Scanning project structure...",
 			},
 		})
-		
+
 		// Get the tool
 		tool, exists := e.registry.Get("startup_scan")
 		if !exists {
@@ -385,7 +412,7 @@ func (e *ToolExecutor) handleStartupScanAsync(call tools.ToolCall, ctx context.C
 			})
 			return
 		}
-		
+
 		// Run the startup scan
 		result, err := tool.Run(ctx, call)
 		if err != nil {
@@ -398,7 +425,7 @@ func (e *ToolExecutor) handleStartupScanAsync(call tools.ToolCall, ctx context.C
 			})
 			return
 		}
-		
+
 		// Update tool message to show completion
 		e.eventBroker.Publish(events.Event{
 			Type: events.SystemMessageEvent,
@@ -414,7 +441,7 @@ func (e *ToolExecutor) handleStartupScanAsync(call tools.ToolCall, ctx context.C
 				},
 			},
 		})
-		
+
 		// Emit startup scan completed event
 		e.eventBroker.Publish(events.Event{
 			Type: events.StartupScanCompletedEvent,
@@ -426,71 +453,16 @@ func (e *ToolExecutor) handleStartupScanAsync(call tools.ToolCall, ctx context.C
 	}()
 }
 
-// handleAnalysisCascade continues analysis to the next tier
-func (e *ToolExecutor) handleAnalysisCascade(currentTier, continueTo string, ctx context.Context, initiator string) {
-	// Determine next tier
-	nextTier := ""
-	tierOrder := []string{"quick", "detailed", "deep", "full"}
-	
-	for i, tier := range tierOrder {
-		if tier == currentTier && i < len(tierOrder)-1 {
-			nextTier = tierOrder[i+1]
-			break
-		}
+// extractTierFromInput extracts tier value from JSON input for display
+func extractTierFromInput(input string) string {
+	// naive parse; input is small
+	if strings.Contains(input, "\"detailed\"") {
+		return "detailed"
 	}
-	
-	// If no next tier or we've reached the target, stop
-	if nextTier == "" {
-		return
+	if strings.Contains(input, "\"deep\"") {
+		return "deep"
 	}
-	
-	// If continueTo is specified, check if we should stop
-	if continueTo != "" && currentTier == continueTo {
-		return
-	}
-	
-	// Check if we should stop at this tier
-	if continueTo != "" {
-		// Find if continueTo comes before nextTier
-		continueIdx := -1
-		nextIdx := -1
-		for i, tier := range tierOrder {
-			if tier == continueTo {
-				continueIdx = i
-			}
-			if tier == nextTier {
-				nextIdx = i
-			}
-		}
-		
-		// If continueTo comes before next tier, stop
-		if continueIdx != -1 && nextIdx != -1 && continueIdx < nextIdx {
-			return
-		}
-	}
-	
-	// Wait a bit before continuing
-	time.Sleep(2 * time.Second)
-	
-	// Create tool call for next tier
-	nextInput := fmt.Sprintf(`{"tier": "%s"`, nextTier)
-	if continueTo != "" && continueTo != nextTier {
-		nextInput += fmt.Sprintf(`, "continue_to": "%s"`, continueTo)
-	} else if continueTo == "" {
-		// If no specific target, keep cascading
-		nextInput += `, "continue": true`
-	}
-	nextInput += "}"
-	
-	nextCall := tools.ToolCall{
-		Name:  "analyze",
-		Input: nextInput,
-	}
-	
-	// For cascading, inherit the permission from the initial request
-	// This means if user said "Always allow" for the first tier,
-	// all subsequent tiers in the cascade are automatically approved
-	e.handleAnalyzeAsync(nextCall, ctx, initiator)
+	return "quick"
 }
 
 // ExecuteFromAgent handles tool calls from LLM agents.

@@ -22,18 +22,18 @@ type Context struct {
 
 // AnalysisState represents the state of project analysis
 type AnalysisState struct {
-	IsRunning          bool
-	StartupScanCompleted bool  // New field for startup scan
-	QuickCompleted     bool
-	DetailedRunning    bool
-	DetailedCompleted  bool
-	DeepCompleted      bool
-	KnowledgeRunning   bool
-	KnowledgeCompleted bool
-	CurrentPhase       string
-	StartTime          time.Time
-	TotalFiles         int
-	CompletedFiles     int
+	IsRunning            bool
+	StartupScanCompleted bool // New field for startup scan
+	QuickCompleted       bool
+	DetailedRunning      bool
+	DetailedCompleted    bool
+	DeepCompleted        bool
+	KnowledgeRunning     bool
+	KnowledgeCompleted   bool
+	CurrentPhase         string
+	StartTime            time.Time
+	TotalFiles           int
+	CompletedFiles       int
 }
 
 // SidebarModel implements the sidebar component
@@ -52,9 +52,9 @@ type SidebarModel struct {
 	projectContext *Context
 	analysisState  *AnalysisState
 	messages       []llm.Message
-	
+
 	// Timer for analysis tracking
-	analysisTimer  *core.Timer
+	analysisTimer *core.Timer
 
 	// Animation components (disabled)
 	// thinkingSpinner  *anim.Spinner
@@ -70,7 +70,7 @@ var _ core.Sizeable = (*SidebarModel)(nil)
 // NewSidebar creates a new sidebar component
 func NewSidebar() *SidebarModel {
 	return &SidebarModel{
-		modelUsage: make(map[string]int),
+		modelUsage:    make(map[string]int),
 		analysisTimer: core.NewTimer("analysis", 100*time.Millisecond),
 		// thinkingSpinner: anim.NewSpinner(anim.SpinnerGradient).WithLabel("Processing"),
 		// gradientText:    styles.NewAnimatedGradientText("LOCO"),
@@ -399,8 +399,8 @@ func (s *SidebarModel) renderAnalysisTiers(content *strings.Builder) {
 	content.WriteString("\n")
 
 	// Define tier status icons and colors
-	startupIcon := "⚡"  // Lightning for instant scan
-	quickIcon := "🔍"    // Magnifier for quick analysis
+	startupIcon := "⚡" // Lightning for instant scan
+	quickIcon := "🔍"   // Magnifier for quick analysis
 	detailedIcon := "📊"
 	deepIcon := "💎"
 	fullIcon := "🚀"

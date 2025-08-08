@@ -14,7 +14,7 @@ import (
 // selectKeyFiles identifies the most important files to read.
 func selectKeyFiles(files []string) []string {
 	keyFiles := []string{}
-	
+
 	// Priority files to look for
 	priorityFiles := []string{
 		"README.md", "readme.md", "README.txt",
@@ -24,7 +24,7 @@ func selectKeyFiles(files []string) []string {
 		"Makefile", "Dockerfile", "docker-compose.yml",
 		".env.example", "config.yaml", "config.json",
 	}
-	
+
 	// Check for priority files
 	for _, file := range files {
 		base := filepath.Base(file)
@@ -35,12 +35,12 @@ func selectKeyFiles(files []string) []string {
 			}
 		}
 	}
-	
+
 	// Limit to 20 key files
 	if len(keyFiles) > 20 {
 		keyFiles = keyFiles[:20]
 	}
-	
+
 	return keyFiles
 }
 
@@ -49,18 +49,18 @@ func (s *service) generateDetailedFileSummaries(ctx context.Context, projectPath
 	if s.llmClient == nil {
 		return nil, fmt.Errorf("LLM client not available")
 	}
-	
+
 	// For detailed analysis, we analyze key files more thoroughly
 	summaries := []FileSummary{}
-	
+
 	// First, add quick summaries for all files (structure)
-	for _, file := range files {
+	for i, file := range files {
 		summary := FileSummary{
 			Path:     file,
 			FileType: classifyFileType(file),
 			Size:     0, // We don't have actual size here
 		}
-		
+
 		// If we have content for this file, analyze it more deeply
 		if content, ok := fileContents[file]; ok {
 			summary.Size = len(content)
@@ -71,19 +71,28 @@ func (s *service) generateDetailedFileSummaries(ctx context.Context, projectPath
 			summary.Summary = fmt.Sprintf("%s file in %s", classifyFileType(file), filepath.Dir(file))
 			summary.Importance = estimateImportance(file)
 		}
-		
+
 		summaries = append(summaries, summary)
+
+		// Progress for structure pass
+		ReportProgress(ctx, Progress{
+			Phase:          string(TierDetailed),
+			TotalFiles:     len(files),
+			CompletedFiles: i + 1,
+			CurrentFile:    file,
+		})
 	}
-	
+
 	// Now analyze key files with content in parallel
 	var wg sync.WaitGroup
 	var mu sync.Mutex
-	
+	processed := 0
+
 	for file, content := range fileContents {
 		wg.Add(1)
 		go func(f string, c string) {
 			defer wg.Done()
-			
+
 			prompt := fmt.Sprintf(`Analyze this file in detail:
 File: %s
 
@@ -99,7 +108,7 @@ Provide a JSON response:
   "exports": ["list", "of", "exports"],
   "patterns": ["design", "patterns", "used"]
 }`, f, c)
-			
+
 			messages := []llm.Message{
 				{
 					Role:    "system",
@@ -110,12 +119,12 @@ Provide a JSON response:
 					Content: prompt,
 				},
 			}
-			
+
 			response, err := s.llmClient.Complete(ctx, messages)
 			if err != nil {
 				return
 			}
-			
+
 			// Parse and update the summary
 			var detailed struct {
 				Purpose      string   `json:"purpose"`
@@ -125,7 +134,7 @@ Provide a JSON response:
 				Exports      []string `json:"exports"`
 				Patterns     []string `json:"patterns"`
 			}
-			
+
 			jsonStart := strings.Index(response, "{")
 			jsonEnd := strings.LastIndex(response, "}")
 			if jsonStart >= 0 && jsonEnd > jsonStart {
@@ -141,14 +150,22 @@ Provide a JSON response:
 							break
 						}
 					}
+					processed++
 					mu.Unlock()
+					// Progress for detailed content pass
+					ReportProgress(ctx, Progress{
+						Phase:          string(TierDetailed),
+						TotalFiles:     len(fileContents),
+						CompletedFiles: processed,
+						CurrentFile:    f,
+					})
 				}
 			}
 		}(file, content)
 	}
-	
+
 	wg.Wait()
-	
+
 	return &FileAnalysisResult{
 		Files:      summaries,
 		TotalFiles: len(files),
@@ -169,18 +186,18 @@ func (s *service) generateKnowledgeDocumentsWithSkepticism(
 	if previousAnalysis != nil {
 		previousKnowledge = previousAnalysis.GetKnowledgeFiles()
 	}
-	
+
 	// Generate with skepticism prompts if we have previous results
 	if previousKnowledge != nil && len(previousKnowledge) > 0 {
-		return s.generateKnowledgeDocumentsSkeptical(ctx, projectPath, fileSummaries, previousKnowledge)
+		return s.generateKnowledgeDocumentsSkeptic(ctx, projectPath, fileSummaries, previousKnowledge)
 	}
-	
+
 	// Otherwise generate normally
 	return s.generateKnowledgeDocuments(ctx, projectPath, fileSummaries, tier)
 }
 
-// generateKnowledgeDocumentsSkeptical creates knowledge docs while questioning previous tier.
-func (s *service) generateKnowledgeDocumentsSkeptical(
+// generateKnowledgeDocumentsSkeptic creates knowledge docs while questioning previous tier.
+func (s *service) generateKnowledgeDocumentsSkeptic(
 	ctx context.Context,
 	projectPath string,
 	fileSummaries *FileAnalysisResult,
@@ -189,51 +206,51 @@ func (s *service) generateKnowledgeDocumentsSkeptical(
 	if s.llmClient == nil {
 		return nil, fmt.Errorf("LLM client not available")
 	}
-	
+
 	knowledgeFiles := make(map[string]string)
 	summariesJSON, _ := json.MarshalIndent(fileSummaries, "", "  ")
 	summariesStr := string(summariesJSON)
-	
+
 	// Step 1: Refine structure.md with skepticism
 	structureContent, err := s.refineStructureDoc(ctx, summariesStr, previousKnowledge["structure.md"])
 	if err != nil {
 		return nil, fmt.Errorf("failed to refine structure.md: %w", err)
 	}
 	knowledgeFiles["structure.md"] = structureContent
-	
+
 	// Step 2: Refine patterns and context in parallel
 	var wg sync.WaitGroup
 	var patternsContent, contextContent string
 	var patternsErr, contextErr error
-	
+
 	wg.Add(2)
-	
+
 	go func() {
 		defer wg.Done()
 		patternsContent, patternsErr = s.refinePatternsDoc(
 			ctx, summariesStr, structureContent, previousKnowledge["patterns.md"],
 		)
 	}()
-	
+
 	go func() {
 		defer wg.Done()
 		contextContent, contextErr = s.refineContextDoc(
 			ctx, summariesStr, structureContent, previousKnowledge["context.md"],
 		)
 	}()
-	
+
 	wg.Wait()
-	
+
 	if patternsErr != nil {
 		return nil, fmt.Errorf("failed to refine patterns.md: %w", patternsErr)
 	}
 	if contextErr != nil {
 		return nil, fmt.Errorf("failed to refine context.md: %w", contextErr)
 	}
-	
+
 	knowledgeFiles["patterns.md"] = patternsContent
 	knowledgeFiles["context.md"] = contextContent
-	
+
 	// Step 3: Refine overview with all refined docs
 	overviewContent, err := s.refineOverviewDoc(
 		ctx, summariesStr, structureContent, patternsContent, contextContent,
@@ -243,7 +260,7 @@ func (s *service) generateKnowledgeDocumentsSkeptical(
 		return nil, fmt.Errorf("failed to refine overview.md: %w", err)
 	}
 	knowledgeFiles["overview.md"] = overviewContent
-	
+
 	return knowledgeFiles, nil
 }
 
@@ -265,7 +282,7 @@ Create an improved structure.md that:
 5. Highlights what the previous analysis got wrong
 
 Be critical and accurate. Format as proper markdown.`, previousDoc, fileSummaries)
-	
+
 	messages := []llm.Message{
 		{
 			Role:    "system",
@@ -276,7 +293,7 @@ Be critical and accurate. Format as proper markdown.`, previousDoc, fileSummarie
 			Content: prompt,
 		},
 	}
-	
+
 	return s.llmClient.Complete(ctx, messages)
 }
 
@@ -300,7 +317,7 @@ Create an improved patterns.md that:
 5. Notes what the previous analysis assumed incorrectly
 
 Be precise and evidence-based. Format as proper markdown.`, previousDoc, structureDoc, fileSummaries)
-	
+
 	messages := []llm.Message{
 		{
 			Role:    "system",
@@ -311,7 +328,7 @@ Be precise and evidence-based. Format as proper markdown.`, previousDoc, structu
 			Content: prompt,
 		},
 	}
-	
+
 	return s.llmClient.Complete(ctx, messages)
 }
 
@@ -335,7 +352,7 @@ Create an improved context.md that:
 5. Notes what the previous tier misunderstood
 
 Focus on accuracy over assumptions. Format as proper markdown.`, previousDoc, structureDoc, fileSummaries)
-	
+
 	messages := []llm.Message{
 		{
 			Role:    "system",
@@ -346,7 +363,7 @@ Focus on accuracy over assumptions. Format as proper markdown.`, previousDoc, st
 			Content: prompt,
 		},
 	}
-	
+
 	return s.llmClient.Complete(ctx, messages)
 }
 
@@ -369,7 +386,7 @@ Create an improved overview.md that:
 5. Notes major refinements from previous tier
 
 Be comprehensive but accurate.`, previousDoc)
-	
+
 	messages := []llm.Message{
 		{
 			Role:    "system",
@@ -380,7 +397,7 @@ Be comprehensive but accurate.`, previousDoc)
 			Content: prompt,
 		},
 	}
-	
+
 	return s.llmClient.Complete(ctx, messages)
 }
 
@@ -388,23 +405,23 @@ Be comprehensive but accurate.`, previousDoc)
 func classifyFileType(path string) string {
 	ext := filepath.Ext(path)
 	base := filepath.Base(path)
-	
+
 	// Config files
 	if base == "package.json" || base == "go.mod" || base == "Cargo.toml" ||
 		base == "requirements.txt" || base == "Makefile" || base == "Dockerfile" {
 		return "config"
 	}
-	
+
 	// Test files
 	if strings.Contains(path, "test") || strings.Contains(path, "spec") {
 		return "test"
 	}
-	
+
 	// Documentation
 	if ext == ".md" || ext == ".txt" || ext == ".rst" {
 		return "doc"
 	}
-	
+
 	// Source code
 	codeExts := []string{".go", ".js", ".ts", ".py", ".java", ".rs", ".rb", ".php"}
 	for _, codeExt := range codeExts {
@@ -412,33 +429,33 @@ func classifyFileType(path string) string {
 			return "source"
 		}
 	}
-	
+
 	return "other"
 }
 
 func estimateImportance(path string) int {
 	base := filepath.Base(path)
-	
+
 	// Main/entry files are most important
 	if strings.Contains(base, "main") || base == "index.js" || base == "app.py" {
 		return 10
 	}
-	
+
 	// Config files are important
 	if base == "package.json" || base == "go.mod" || base == "requirements.txt" {
 		return 9
 	}
-	
+
 	// README is important
 	if strings.HasPrefix(strings.ToLower(base), "readme") {
 		return 8
 	}
-	
+
 	// Test files are less important for understanding
 	if strings.Contains(path, "test") {
 		return 3
 	}
-	
+
 	// Default
 	return 5
 }
@@ -446,7 +463,7 @@ func estimateImportance(path string) int {
 func detectTechStack(files []string, fileContents map[string]string) []string {
 	stack := []string{}
 	seen := make(map[string]bool)
-	
+
 	// Check package.json for Node dependencies
 	if content, ok := fileContents["package.json"]; ok {
 		if strings.Contains(content, "react") && !seen["React"] {
@@ -462,7 +479,7 @@ func detectTechStack(files []string, fileContents map[string]string) []string {
 			seen["Next.js"] = true
 		}
 	}
-	
+
 	// Check go.mod for Go dependencies
 	if content, ok := fileContents["go.mod"]; ok {
 		if strings.Contains(content, "gin-gonic") && !seen["Gin"] {
@@ -474,12 +491,12 @@ func detectTechStack(files []string, fileContents map[string]string) []string {
 			seen["Bubble Tea"] = true
 		}
 	}
-	
+
 	// Language detection from files
 	hasGo := false
 	hasJS := false
 	hasPython := false
-	
+
 	for _, file := range files {
 		ext := filepath.Ext(file)
 		switch ext {
@@ -491,7 +508,7 @@ func detectTechStack(files []string, fileContents map[string]string) []string {
 			hasPython = true
 		}
 	}
-	
+
 	if hasGo && !seen["Go"] {
 		stack = append([]string{"Go"}, stack...)
 	}
@@ -511,23 +528,23 @@ func detectTechStack(files []string, fileContents map[string]string) []string {
 	if hasPython && !seen["Python"] {
 		stack = append([]string{"Python"}, stack...)
 	}
-	
+
 	return stack
 }
 
 func detectEntryPoints(files []string, fileContents map[string]string) []string {
 	entryPoints := []string{}
-	
+
 	for _, file := range files {
 		base := filepath.Base(file)
-		
+
 		// Common entry point names
 		if base == "main.go" || base == "main.py" || base == "index.js" ||
 			base == "app.py" || base == "server.js" || base == "cmd.go" {
 			entryPoints = append(entryPoints, file)
 			continue
 		}
-		
+
 		// Check content for main functions
 		if content, ok := fileContents[file]; ok {
 			if strings.Contains(content, "func main()") ||
@@ -537,7 +554,7 @@ func detectEntryPoints(files []string, fileContents map[string]string) []string 
 			}
 		}
 	}
-	
+
 	return entryPoints
 }
 

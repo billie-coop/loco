@@ -12,17 +12,17 @@ import (
 
 // LLMService handles all LLM-related business logic
 type LLMService struct {
-	client       llm.Client
-	eventBroker  *events.Broker
-	
+	client      llm.Client
+	eventBroker *events.Broker
+
 	// Current state
-	isStreaming  bool
-	streamingMsg string
+	isStreaming     bool
+	streamingMsg    string
 	streamingTokens int
-	streamingStart time.Time
-	
+	streamingStart  time.Time
+
 	// Debug mode
-	debugMode    bool
+	debugMode bool
 }
 
 // NewLLMService creates a new LLM service
@@ -37,24 +37,23 @@ func (s *LLMService) SetClient(client llm.Client) {
 	s.client = client
 }
 
-
 // HandleUserMessage processes a user message and streams the response
 func (s *LLMService) HandleUserMessage(messages []llm.Message, userMessage string) {
 	// Enable debug mode for now since we don't have LLM client
 	s.debugMode = true
-	
+
 	// If in debug mode, create debug echo response
 	if s.debugMode {
 		s.handleDebugEcho(userMessage)
 		return
 	}
-	
+
 	// Add user message to history
 	messages = append(messages, llm.Message{
 		Role:    "user",
 		Content: userMessage,
 	})
-	
+
 	// Publish user message event
 	s.eventBroker.Publish(events.Event{
 		Type: events.UserMessageEvent,
@@ -65,18 +64,18 @@ func (s *LLMService) HandleUserMessage(messages []llm.Message, userMessage strin
 			},
 		},
 	})
-	
+
 	// Start streaming
 	s.eventBroker.Publish(events.Event{
 		Type: events.StreamStartEvent,
 	})
-	
+
 	// Reset streaming state
 	s.isStreaming = true
 	s.streamingMsg = ""
 	s.streamingTokens = 0
 	s.streamingStart = time.Now()
-	
+
 	// Stream from LLM
 	go s.streamResponse(messages)
 }
@@ -84,7 +83,7 @@ func (s *LLMService) HandleUserMessage(messages []llm.Message, userMessage strin
 // streamResponse handles the actual streaming from LLM
 func (s *LLMService) streamResponse(messages []llm.Message) {
 	ctx := context.Background()
-	
+
 	if s.client == nil {
 		s.eventBroker.Publish(events.Event{
 			Type: events.ErrorMessageEvent,
@@ -96,11 +95,11 @@ func (s *LLMService) streamResponse(messages []llm.Message) {
 		s.endStreaming()
 		return
 	}
-	
+
 	err := s.client.Stream(ctx, messages, func(chunk string) {
 		s.streamingMsg += chunk
 		s.streamingTokens += len(strings.Fields(chunk))
-		
+
 		// Send each chunk as an event
 		s.eventBroker.Publish(events.Event{
 			Type: events.StreamChunkEvent,
@@ -110,7 +109,7 @@ func (s *LLMService) streamResponse(messages []llm.Message) {
 			},
 		})
 	})
-	
+
 	if err != nil {
 		s.eventBroker.Publish(events.Event{
 			Type: events.ErrorMessageEvent,
@@ -120,7 +119,7 @@ func (s *LLMService) streamResponse(messages []llm.Message) {
 			},
 		})
 	}
-	
+
 	// End streaming and convert to message
 	s.endStreaming()
 }
@@ -139,12 +138,12 @@ func (s *LLMService) endStreaming() {
 			},
 		})
 	}
-	
+
 	// Reset state
 	s.isStreaming = false
 	s.streamingMsg = ""
 	s.streamingTokens = 0
-	
+
 	// End streaming event
 	s.eventBroker.Publish(events.Event{
 		Type: events.StreamEndEvent,
@@ -160,17 +159,17 @@ func (s *LLMService) IsStreaming() bool {
 func (s *LLMService) handleDebugEcho(userMessage string) {
 	// Simple, clean response
 	debugResponse := fmt.Sprintf("Echo: %s", userMessage)
-	
+
 	// Simulate streaming by sending it in chunks
 	go func() {
 		// Start streaming
 		s.eventBroker.Publish(events.Event{
 			Type: events.StreamStartEvent,
 		})
-		
+
 		s.isStreaming = true
 		s.streamingMsg = ""
-		
+
 		// Split response into words and stream them
 		words := strings.Fields(debugResponse)
 		for i, word := range words {
@@ -178,7 +177,7 @@ func (s *LLMService) handleDebugEcho(userMessage string) {
 			if i < len(words)-1 {
 				s.streamingMsg += " "
 			}
-			
+
 			// Send chunk event
 			s.eventBroker.Publish(events.Event{
 				Type: events.StreamChunkEvent,
@@ -186,11 +185,11 @@ func (s *LLMService) handleDebugEcho(userMessage string) {
 					Content: word + " ",
 				},
 			})
-			
+
 			// Small delay to simulate streaming
 			time.Sleep(20 * time.Millisecond)
 		}
-		
+
 		// Send final assistant message
 		s.eventBroker.Publish(events.Event{
 			Type: events.AssistantMessageEvent,
@@ -201,11 +200,22 @@ func (s *LLMService) handleDebugEcho(userMessage string) {
 				},
 			},
 		})
-		
+
 		// End streaming
 		s.isStreaming = false
 		s.eventBroker.Publish(events.Event{
 			Type: events.StreamEndEvent,
 		})
 	}()
+}
+
+// CancelStreaming requests the current stream to stop and emits StreamEndEvent
+func (s *LLMService) CancelStreaming() {
+	if !s.isStreaming {
+		return
+	}
+	// Mark as not streaming so any loop checks halt
+	s.isStreaming = false
+	// Emit end event to clear UI state
+	s.eventBroker.Publish(events.Event{Type: events.StreamEndEvent})
 }

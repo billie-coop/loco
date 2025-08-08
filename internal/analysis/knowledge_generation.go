@@ -18,25 +18,39 @@ func (s *service) generateFileSummaries(ctx context.Context, projectPath string,
 	if s.llmClient == nil {
 		return nil, fmt.Errorf("LLM client not available")
 	}
-	
+
 	// Limit concurrent workers
 	const maxWorkers = 10
 	semaphore := make(chan struct{}, maxWorkers)
-	
+
 	summaries := make([]FileSummary, len(files))
 	var wg sync.WaitGroup
 	var mu sync.Mutex
 	var errors []error
-	
+	processed := 0
+
 	for i, file := range files {
 		wg.Add(1)
 		go func(index int, filePath string) {
 			defer wg.Done()
-			
+			// Ensure progress is reported even on early returns
+			defer func() {
+				mu.Lock()
+				processed++
+				completed := processed
+				mu.Unlock()
+				ReportProgress(ctx, Progress{
+					Phase:          string(TierQuick),
+					TotalFiles:     len(files),
+					CompletedFiles: completed,
+					CurrentFile:    filePath,
+				})
+			}()
+
 			// Acquire semaphore
 			semaphore <- struct{}{}
 			defer func() { <-semaphore }()
-			
+
 			// Read file content (just first 100 lines for quick analysis)
 			content, err := readFileHead(filepath.Join(projectPath, filePath), 100)
 			if err != nil {
@@ -45,7 +59,7 @@ func (s *service) generateFileSummaries(ctx context.Context, projectPath string,
 				mu.Unlock()
 				return
 			}
-			
+
 			// Generate summary using LLM
 			prompt := fmt.Sprintf(`Analyze this file and provide a JSON response:
 File: %s
@@ -60,7 +74,7 @@ Respond with JSON:
   "summary": "One line summary",
   "file_type": "source/config/test/doc/other"
 }`, filePath, content)
-			
+
 			messages := []llm.Message{
 				{
 					Role:    "system",
@@ -71,7 +85,7 @@ Respond with JSON:
 					Content: prompt,
 				},
 			}
-			
+
 			response, err := s.llmClient.Complete(ctx, messages)
 			if err != nil {
 				mu.Lock()
@@ -79,12 +93,12 @@ Respond with JSON:
 				mu.Unlock()
 				return
 			}
-			
+
 			// Parse response
 			var summary FileSummary
 			summary.Path = filePath
 			summary.Size = len(content)
-			
+
 			// Try to extract JSON from response
 			jsonStart := strings.Index(response, "{")
 			jsonEnd := strings.LastIndex(response, "}")
@@ -99,14 +113,14 @@ Respond with JSON:
 			}
 		}(i, file)
 	}
-	
+
 	wg.Wait()
-	
+
 	// Check if too many errors
 	if len(errors) > len(files)/2 {
 		return nil, fmt.Errorf("too many file analysis failures: %d errors", len(errors))
 	}
-	
+
 	return &FileAnalysisResult{
 		Files:      summaries,
 		TotalFiles: len(files),
@@ -119,56 +133,56 @@ func (s *service) generateKnowledgeDocuments(ctx context.Context, projectPath st
 	if s.llmClient == nil {
 		return nil, fmt.Errorf("LLM client not available")
 	}
-	
+
 	knowledgeFiles := make(map[string]string)
-	
+
 	// Convert file summaries to string for prompts
 	summariesJSON, _ := json.MarshalIndent(fileSummaries, "", "  ")
 	summariesStr := string(summariesJSON)
-	
+
 	// Step 1: Generate structure.md (runs first)
 	structureContent, err := s.generateStructureDoc(ctx, summariesStr)
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate structure.md: %w", err)
 	}
 	knowledgeFiles["structure.md"] = structureContent
-	
+
 	// Step 2: Generate patterns.md and context.md in parallel
 	var wg sync.WaitGroup
 	var patternsContent, contextContent string
 	var patternsErr, contextErr error
-	
+
 	wg.Add(2)
-	
+
 	go func() {
 		defer wg.Done()
 		patternsContent, patternsErr = s.generatePatternsDoc(ctx, summariesStr, structureContent)
 	}()
-	
+
 	go func() {
 		defer wg.Done()
 		contextContent, contextErr = s.generateContextDoc(ctx, summariesStr, structureContent)
 	}()
-	
+
 	wg.Wait()
-	
+
 	if patternsErr != nil {
 		return nil, fmt.Errorf("failed to generate patterns.md: %w", patternsErr)
 	}
 	if contextErr != nil {
 		return nil, fmt.Errorf("failed to generate context.md: %w", contextErr)
 	}
-	
+
 	knowledgeFiles["patterns.md"] = patternsContent
 	knowledgeFiles["context.md"] = contextContent
-	
+
 	// Step 3: Generate overview.md (runs last, uses all previous)
 	overviewContent, err := s.generateOverviewDoc(ctx, summariesStr, structureContent, patternsContent, contextContent)
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate overview.md: %w", err)
 	}
 	knowledgeFiles["overview.md"] = overviewContent
-	
+
 	return knowledgeFiles, nil
 }
 
@@ -187,7 +201,7 @@ Create a markdown document that covers:
 5. Configuration files and their purposes
 
 Format as a proper markdown document with sections and bullet points.`, fileSummaries)
-	
+
 	messages := []llm.Message{
 		{
 			Role:    "system",
@@ -198,7 +212,7 @@ Format as a proper markdown document with sections and bullet points.`, fileSumm
 			Content: prompt,
 		},
 	}
-	
+
 	return s.llmClient.Complete(ctx, messages)
 }
 
@@ -221,7 +235,7 @@ Create a markdown document that covers:
 6. Error handling patterns
 
 Format as a proper markdown document with sections and code examples where relevant.`, fileSummaries, structureDoc)
-	
+
 	messages := []llm.Message{
 		{
 			Role:    "system",
@@ -232,7 +246,7 @@ Format as a proper markdown document with sections and code examples where relev
 			Content: prompt,
 		},
 	}
-	
+
 	return s.llmClient.Complete(ctx, messages)
 }
 
@@ -255,7 +269,7 @@ Create a markdown document that covers:
 6. Integration points
 
 Format as a proper markdown document with clear explanations.`, fileSummaries, structureDoc)
-	
+
 	messages := []llm.Message{
 		{
 			Role:    "system",
@@ -266,7 +280,7 @@ Format as a proper markdown document with clear explanations.`, fileSummaries, s
 			Content: prompt,
 		},
 	}
-	
+
 	return s.llmClient.Complete(ctx, messages)
 }
 
@@ -298,7 +312,7 @@ Create a markdown document that provides:
 6. Development workflow
 
 This should be the go-to document for understanding the project quickly.`, structureDoc, patternsDoc, contextDoc)
-	
+
 	messages := []llm.Message{
 		{
 			Role:    "system",
@@ -309,25 +323,25 @@ This should be the go-to document for understanding the project quickly.`, struc
 			Content: prompt,
 		},
 	}
-	
+
 	return s.llmClient.Complete(ctx, messages)
 }
 
 // saveKnowledgeFiles saves knowledge documents to disk.
 func (s *service) saveKnowledgeFiles(projectPath string, tier Tier, files map[string]string) error {
 	knowledgePath := filepath.Join(projectPath, s.cachePath, "knowledge", string(tier))
-	
+
 	if err := os.MkdirAll(knowledgePath, 0755); err != nil {
 		return err
 	}
-	
+
 	for filename, content := range files {
 		filePath := filepath.Join(knowledgePath, filename)
 		if err := os.WriteFile(filePath, []byte(content), 0644); err != nil {
 			return err
 		}
 	}
-	
+
 	return nil
 }
 
@@ -337,19 +351,19 @@ func readFileHead(path string, maxLines int) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	
+
 	lines := strings.Split(string(content), "\n")
 	if len(lines) > maxLines {
 		lines = lines[:maxLines]
 	}
-	
+
 	return strings.Join(lines, "\n"), nil
 }
 
 // Helper functions for detecting project characteristics
 func detectMainLanguage(files []string) string {
 	langCount := make(map[string]int)
-	
+
 	for _, file := range files {
 		ext := filepath.Ext(file)
 		switch ext {
@@ -371,7 +385,7 @@ func detectMainLanguage(files []string) string {
 			langCount["PHP"]++
 		}
 	}
-	
+
 	maxCount := 0
 	mainLang := "Unknown"
 	for lang, count := range langCount {
@@ -380,7 +394,7 @@ func detectMainLanguage(files []string) string {
 			mainLang = lang
 		}
 	}
-	
+
 	return mainLang
 }
 
@@ -411,7 +425,7 @@ func detectProjectType(files []string) string {
 	hasMain := false
 	hasPackageJSON := false
 	hasIndexHTML := false
-	
+
 	for _, file := range files {
 		base := filepath.Base(file)
 		if strings.Contains(base, "main.") {
@@ -424,7 +438,7 @@ func detectProjectType(files []string) string {
 			hasIndexHTML = true
 		}
 	}
-	
+
 	if hasIndexHTML {
 		return "Web Application"
 	}
@@ -434,6 +448,6 @@ func detectProjectType(files []string) string {
 	if hasPackageJSON {
 		return "Node.js Project"
 	}
-	
+
 	return "Library"
 }

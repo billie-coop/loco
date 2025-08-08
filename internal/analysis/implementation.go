@@ -27,7 +27,7 @@ func NewService(llmClient llm.Client) Service {
 		llmClient: llmClient,
 		cachePath: ".loco",
 	}
-	
+
 	// Return wrapped service that supports team clients
 	return NewServiceWithTeam(baseService)
 }
@@ -45,48 +45,62 @@ func (s *service) QuickAnalyze(ctx context.Context, projectPath string) (*QuickA
 
 	// Perform new analysis
 	start := time.Now()
-	
+
 	// Step 1: Get all project files
 	files, err := GetProjectFiles(projectPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get project files: %w", err)
 	}
-	
+	// Progress: discovered file list
+	ReportProgress(ctx, Progress{Phase: string(TierQuick), TotalFiles: len(files), CompletedFiles: 0, CurrentFile: "discovered files"})
+
 	// Step 2: Generate file summaries (using small model)
 	fileSummaries, err := s.generateFileSummaries(ctx, projectPath, files)
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate file summaries: %w", err)
 	}
-	
+	// Progress: summarized files
+	ReportProgress(ctx, Progress{Phase: string(TierQuick), TotalFiles: len(files), CompletedFiles: len(fileSummaries.Files), CurrentFile: "summaries complete"})
+
 	// Step 3: Generate knowledge documents using cascading pipeline
 	knowledgeFiles, err := s.generateKnowledgeDocuments(ctx, projectPath, fileSummaries, TierQuick)
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate knowledge documents: %w", err)
 	}
-	
+
+	// Compute characteristics for QuickAnalysis
+	projectType := detectProjectType(files)
+	mainLanguage := detectMainLanguage(files)
+	framework := detectFramework(files)
+	keyDirs := []string{}
+	entryPoints := detectEntryPoints(files, map[string]string{})
+	codeFiles := 0
+	for _, f := range files {
+		ext := filepath.Ext(f)
+		if ext == ".go" || ext == ".js" || ext == ".ts" || ext == ".py" || ext == ".java" || ext == ".rs" || ext == ".rb" || ext == ".php" {
+			codeFiles++
+		}
+	}
+
 	// Create result
 	result := &QuickAnalysis{
+		Tier:           TierQuick,
+		Generated:      time.Now(),
 		ProjectPath:    projectPath,
-		Description:    "Quick structural analysis of project",
+		ProjectType:    projectType,
+		MainLanguage:   mainLanguage,
+		Framework:      framework,
 		TotalFiles:     len(files),
-		MainLanguage:   detectMainLanguage(files),
-		Framework:      detectFramework(files),
-		ProjectType:    detectProjectType(files),
+		CodeFiles:      codeFiles,
+		Description:    "Quick structural analysis of project",
+		KeyDirectories: keyDirs,
+		EntryPoints:    entryPoints,
+		Duration:       time.Since(start),
 		KnowledgeFiles: knowledgeFiles,
 	}
 
-	result.Duration = time.Since(start)
-	result.Generated = time.Now()
-	result.Tier = TierQuick
-
 	// Cache the result
 	if err := s.saveCachedAnalysis(projectPath, result); err != nil {
-		// Log but don't fail
-		_ = err
-	}
-	
-	// Save knowledge files to disk
-	if err := s.saveKnowledgeFiles(projectPath, TierQuick, knowledgeFiles); err != nil {
 		// Log but don't fail
 		_ = err
 	}
@@ -107,35 +121,37 @@ func (s *service) DetailedAnalyze(ctx context.Context, projectPath string) (*Det
 
 	// Perform new analysis
 	start := time.Now()
-	
+
 	// Step 1: Get all project files
 	files, err := GetProjectFiles(projectPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get project files: %w", err)
 	}
-	
+	ReportProgress(ctx, Progress{Phase: string(TierDetailed), TotalFiles: len(files), CompletedFiles: 0, CurrentFile: "discovered files"})
+
 	// Step 2: Read key file contents for deeper analysis
 	keyFiles := selectKeyFiles(files)
 	fileContents := make(map[string]string)
-	for _, file := range keyFiles {
+	for i, file := range keyFiles {
 		content, err := readFileHead(filepath.Join(projectPath, file), 500) // Read more lines for detailed
 		if err == nil {
 			fileContents[file] = content
 		}
+		ReportProgress(ctx, Progress{Phase: string(TierDetailed), TotalFiles: len(keyFiles), CompletedFiles: i + 1, CurrentFile: file})
 	}
-	
+
 	// Step 3: Generate more thorough file summaries (including content analysis)
 	fileSummaries, err := s.generateDetailedFileSummaries(ctx, projectPath, files, fileContents)
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate detailed file summaries: %w", err)
 	}
-	
+
 	// Step 4: Get previous quick analysis for skeptical refinement
 	var quickAnalysis *QuickAnalysis
 	if cached, err := s.loadCachedAnalysis(projectPath, TierQuick); err == nil {
 		quickAnalysis, _ = cached.(*QuickAnalysis)
 	}
-	
+
 	// Step 5: Generate knowledge documents with skepticism
 	knowledgeFiles, err := s.generateKnowledgeDocumentsWithSkepticism(
 		ctx, projectPath, fileSummaries, TierDetailed, quickAnalysis,
@@ -143,12 +159,14 @@ func (s *service) DetailedAnalyze(ctx context.Context, projectPath string) (*Det
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate knowledge documents: %w", err)
 	}
-	
+
 	// Detect tech stack from actual file contents
 	techStack := detectTechStack(files, fileContents)
-	
+
 	// Create result
 	result := &DetailedAnalysis{
+		Tier:           TierDetailed,
+		Generated:      time.Now(),
 		ProjectPath:    projectPath,
 		Description:    "Comprehensive analysis with file content inspection",
 		Architecture:   extractArchitecture(knowledgeFiles["structure.md"]),
@@ -159,25 +177,14 @@ func (s *service) DetailedAnalyze(ctx context.Context, projectPath string) (*Det
 		FileCount:      len(files),
 		FileContents:   fileContents,
 		KnowledgeFiles: knowledgeFiles,
+		Duration:       time.Since(start),
 	}
-
-	result.Duration = time.Since(start)
-	result.Generated = time.Now()
-	result.Tier = TierDetailed
-
-	// Add git status hash for cache invalidation
 	if hash, err := s.getGitStatusHash(projectPath); err == nil {
 		result.GitStatusHash = hash
 	}
 
 	// Cache the result
 	if err := s.saveCachedAnalysis(projectPath, result); err != nil {
-		// Log but don't fail
-		_ = err
-	}
-	
-	// Save knowledge files to disk
-	if err := s.saveKnowledgeFiles(projectPath, TierDetailed, knowledgeFiles); err != nil {
 		// Log but don't fail
 		_ = err
 	}
@@ -204,13 +211,13 @@ func (s *service) DeepAnalyze(ctx context.Context, projectPath string) (*DeepAna
 
 	// Perform new analysis
 	start := time.Now()
-	
+
 	// Step 1: Get all project files
 	files, err := GetProjectFiles(projectPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get project files: %w", err)
 	}
-	
+
 	// Step 2: Read MORE file contents for deep analysis (not just key files)
 	extendedFiles := selectExtendedFiles(files, 50) // Read up to 50 files
 	fileContents := make(map[string]string)
@@ -220,13 +227,13 @@ func (s *service) DeepAnalyze(ctx context.Context, projectPath string) (*DeepAna
 			fileContents[file] = content
 		}
 	}
-	
+
 	// Step 3: Generate very thorough file analysis
 	fileSummaries, err := s.generateDeepFileSummaries(ctx, projectPath, files, fileContents)
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate deep file summaries: %w", err)
 	}
-	
+
 	// Step 4: Generate knowledge documents with high skepticism of detailed tier
 	knowledgeFiles, refinementNotes, err := s.generateDeepKnowledgeDocuments(
 		ctx, projectPath, fileSummaries, detailed,
@@ -234,12 +241,14 @@ func (s *service) DeepAnalyze(ctx context.Context, projectPath string) (*DeepAna
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate deep knowledge documents: %w", err)
 	}
-	
+
 	// Step 5: Extract architectural insights
 	insights := extractArchitecturalInsights(knowledgeFiles, detailed.KnowledgeFiles)
-	
+
 	// Create result
 	result := &DeepAnalysis{
+		Tier:                  TierDeep,
+		Generated:             time.Now(),
 		ProjectPath:           projectPath,
 		Description:           "Deep analysis with skeptical refinement and architectural insights",
 		Architecture:          extractArchitecture(knowledgeFiles["structure.md"]),
@@ -249,21 +258,18 @@ func (s *service) DeepAnalyze(ctx context.Context, projectPath string) (*DeepAna
 		EntryPoints:           detailed.EntryPoints,
 		FileCount:             len(files),
 		KnowledgeFiles:        knowledgeFiles,
+		Duration:              time.Since(start),
+		GitStatusHash:         detailed.GitStatusHash,
 		RefinementNotes:       refinementNotes,
 		ArchitecturalInsights: insights,
 	}
-
-	result.Duration = time.Since(start)
-	result.Generated = time.Now()
-	result.Tier = TierDeep
-	result.GitStatusHash = detailed.GitStatusHash
 
 	// Cache the result
 	if err := s.saveCachedAnalysis(projectPath, result); err != nil {
 		// Log but don't fail
 		_ = err
 	}
-	
+
 	// Save knowledge files to disk
 	if err := s.saveKnowledgeFiles(projectPath, TierDeep, knowledgeFiles); err != nil {
 		// Log but don't fail
@@ -294,15 +300,17 @@ func (s *service) FullAnalyze(ctx context.Context, projectPath string) (*FullAna
 	start := time.Now()
 	// TODO: Implement full analysis
 	result := &FullAnalysis{
-		ProjectPath: projectPath,
-		Description: "Full analysis not yet implemented",
-		Architecture: deep.Architecture,
+		Tier:           TierFull,
+		Generated:      time.Now(),
+		ProjectPath:    projectPath,
+		Description:    "Full analysis not yet implemented",
+		Architecture:   deep.Architecture,
+		KnowledgeFiles: map[string]string{},
+		Duration:       time.Since(start),
 	}
-
-	result.Duration = time.Since(start)
-	result.Generated = time.Now()
-	result.Tier = TierFull
-	result.GitStatusHash = deep.GitStatusHash
+	if hash, err := s.getGitStatusHash(projectPath); err == nil {
+		result.GitStatusHash = hash
+	}
 
 	// Cache the result
 	if err := s.saveCachedAnalysis(projectPath, result); err != nil {
@@ -365,7 +373,7 @@ func (s *service) getCachePath(projectPath string, tier Tier) string {
 
 func (s *service) loadCachedAnalysis(projectPath string, tier Tier) (Analysis, error) {
 	cachePath := s.getCachePath(projectPath, tier)
-	
+
 	data, err := os.ReadFile(cachePath)
 	if err != nil {
 		return nil, err
@@ -405,7 +413,7 @@ func (s *service) loadCachedAnalysis(projectPath string, tier Tier) (Analysis, e
 func (s *service) saveCachedAnalysis(projectPath string, analysis Analysis) error {
 	cachePath := s.getCachePath(projectPath, analysis.GetTier())
 	cacheDir := filepath.Dir(cachePath)
-	
+
 	if err := os.MkdirAll(cacheDir, 0755); err != nil {
 		return err
 	}
@@ -486,7 +494,7 @@ func (s *service) StoreStartupScan(projectPath string, result *StartupScanResult
 	// Store on disk
 	cachePath := filepath.Join(projectPath, s.cachePath, "startup_scan.json")
 	cacheDir := filepath.Dir(cachePath)
-	
+
 	if err := os.MkdirAll(cacheDir, 0755); err != nil {
 		return // Ignore errors
 	}

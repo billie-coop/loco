@@ -2,6 +2,7 @@ package tui
 
 import (
 	"strings"
+	"time"
 
 	"github.com/billie-coop/loco/internal/app"
 	chatpkg "github.com/billie-coop/loco/internal/chat"
@@ -35,15 +36,18 @@ type Model struct {
 	eventBroker      *events.Broker
 	eventSub         <-chan events.Event
 	currentSessionID string
-	messages         *chatpkg.MessageStore  // Using chatpkg to avoid name collision
+	messages         *chatpkg.MessageStore // Using chatpkg to avoid name collision
 	messagesMeta     *csync.Map[int, *chat.MessageMetadata]
 	analysisState    *chat.AnalysisState
-	
+
 	// UI state
 	isStreaming      bool
 	streamingMessage string
 	debugMode        bool
 	ready            bool
+
+	// Heartbeat tracking for progress
+	lastProgress time.Time
 }
 
 // New creates a new TUI model with all components initialized
@@ -87,28 +91,28 @@ func (m *Model) Init() tea.Cmd {
 	cmds = append(cmds, m.statusBar.Init())
 	cmds = append(cmds, m.dialogManager.Init())
 	cmds = append(cmds, m.completions.Init())
-	
+
 	// Focus the input by default
 	cmds = append(cmds, m.input.Focus())
 
 	// Start event processing
 	cmds = append(cmds, m.listenForEvents())
-	
+
 	// Initialize default size if not set (will be updated by WindowSizeMsg)
 	if m.width == 0 || m.height == 0 {
 		// Set reasonable defaults that will be overridden
 		m.width = 80
 		m.height = 24
 	}
-	
+
 	// ALWAYS set component sizes during init to ensure proper layout
 	cmds = append(cmds, m.resizeComponents())
-	
+
 	// Load session messages from app
 	if m.app.Sessions != nil {
 		// Set the session manager in sidebar
 		m.sidebar.SetSessionManager(m.app.Sessions)
-		
+
 		currentSession, err := m.app.Sessions.GetCurrent()
 		if err == nil && currentSession != nil {
 			// Load existing messages from session
@@ -117,7 +121,7 @@ func (m *Model) Init() tea.Cmd {
 			}
 		}
 	}
-	
+
 	// Sync all state to components after loading
 	m.syncStateToComponents()
 
@@ -129,7 +133,6 @@ func (m *Model) Init() tea.Cmd {
 			Type:    "info",
 		},
 	})
-
 
 	// Mark as ready
 	m.ready = true
@@ -156,7 +159,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.dialogManager = dm
 		}
 		cmds = append(cmds, cmd)
-		
+
 		// Don't process key events further if a dialog is open
 		if _, ok := msg.(tea.KeyMsg); ok {
 			return m, tea.Batch(cmds...)
@@ -174,7 +177,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		cmds = append(cmds, cmd)
 		return m, tea.Batch(cmds...)
-		
+
 	case completions.SelectCompletionMsg:
 		// Handle completion selection
 		if value, ok := msg.Value.(string); ok {
@@ -188,7 +191,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		cmds = append(cmds, cmd)
 		return m, tea.Batch(cmds...)
-		
+
 	case chat.CloseCompletionsMsg:
 		compModel, cmd := m.completions.Update(msg)
 		if cm, ok := compModel.(*completions.CompletionsModel); ok {
@@ -205,7 +208,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
-		
+
 		cmds = append(cmds, m.resizeComponents())
 
 		// Sync all state to components
@@ -229,6 +232,13 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "ctrl+p":
 			// Open command palette
 			return m, m.dialogManager.OpenDialog(dialog.CommandPaletteDialogType)
+		case "esc":
+			// Universal interrupt: cancel any active tool/stream if no dialog or completion is consuming ESC
+			if m.app != nil && m.app.ToolExecutor != nil && !m.completions.IsOpen() && !m.dialogManager.IsDialogOpen() {
+				m.app.ToolExecutor.CancelCurrent()
+				m.showStatus("⏸️ Interrupted")
+				return m, nil
+			}
 		}
 	}
 
@@ -247,7 +257,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 	}
-	
+
 	// Update components
 	// Always update message list for scrolling
 	listModel, cmd := m.messageList.Update(msg)
@@ -260,7 +270,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	inputModel, cmd := m.input.Update(msg)
 	if im, ok := inputModel.(*chat.InputModel); ok {
 		m.input = im
-		
+
 		// Check if input was submitted (enter key pressed with non-empty value)
 		if keyMsg, ok := msg.(tea.KeyMsg); ok && keyMsg.String() == "enter" {
 			value := im.Value()
@@ -285,7 +295,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.statusBar = sb
 	}
 	cmds = append(cmds, cmd)
-	
+
 	// Update completions (for window size changes, etc)
 	compModel, cmd := m.completions.Update(msg)
 	if cm, ok := compModel.(*completions.CompletionsModel); ok {
@@ -305,61 +315,61 @@ func (m *Model) View() string {
 
 	// Use lipgloss to create bordered sections
 	theme := styles.CurrentTheme()
-	
+
 	// Calculate dimensions
 	sidebarWidth := m.calculateSidebarWidth()
 	mainWidth := m.width - sidebarWidth
 	statusHeight := 1
 	inputHeight := 3
 	messageHeight := m.height - statusHeight - inputHeight
-	
+
 	// Create bordered sidebar with rounded corners (golden orange like dialogs)
 	sidebarStyle := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(theme.BorderFocus).
-		Width(sidebarWidth - 2). // Account for border
+		Width(sidebarWidth - 2).            // Account for border
 		Height(m.height - statusHeight - 2) // Account for border and status
-	
+
 	// Create bordered message area with rounded corners (golden orange like dialogs)
 	messageAreaStyle := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(theme.BorderFocus).
-		Width(mainWidth - 2). // Account for border
+		Width(mainWidth - 2).     // Account for border
 		Height(messageHeight - 2) // Account for border
-		
+
 	// Create bordered input area with rounded corners (golden orange like dialogs)
 	inputStyle := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(theme.BorderFocus).
-		Width(mainWidth - 2). // Account for border
+		Width(mainWidth - 2).   // Account for border
 		Height(inputHeight - 2) // Account for border
 
 	// Calculate input position for completions
 	// The input is inside a bordered box at the bottom
 	// We need the absolute Y position on the screen
 	inputY := messageHeight + 2 // +2 for message border and spacing
-	inputX := sidebarWidth + 2 // +2 for the border and padding
+	inputX := sidebarWidth + 2  // +2 for the border and padding
 	m.input.SetPosition(inputX, inputY)
-	
+
 	// Render components with borders
 	sidebar := sidebarStyle.Render(m.sidebar.View())
 	messages := messageAreaStyle.Render(m.messageList.View())
 	input := inputStyle.Render(m.input.View())
-	
+
 	// Stack messages and input vertically
 	mainContent := lipgloss.JoinVertical(lipgloss.Left, messages, input)
-	
+
 	// Join sidebar and main content horizontally
 	topSection := lipgloss.JoinHorizontal(lipgloss.Top, sidebar, mainContent)
-	
+
 	// Add status bar at the bottom
 	baseView := lipgloss.JoinVertical(lipgloss.Left, topSection, m.statusBar.View())
-	
+
 	// Use lipgloss layers for overlays
 	layers := []*lipgloss.Layer{
 		lipgloss.NewLayer(baseView),
 	}
-	
+
 	// Add completions layer if open
 	if m.completions.IsOpen() {
 		x, y := m.completions.Position()
@@ -369,7 +379,7 @@ func (m *Model) View() string {
 				lipgloss.NewLayer(completionsView).X(x).Y(y))
 		}
 	}
-	
+
 	// Add dialog layer if open
 	if m.dialogManager.IsDialogOpen() {
 		dialogView := m.dialogManager.View()
@@ -379,7 +389,7 @@ func (m *Model) View() string {
 			dialogHeight := lipgloss.Height(dialogView)
 			x := (m.width - dialogWidth) / 2
 			y := (m.height - dialogHeight) / 2
-			
+
 			// Add semi-transparent overlay first (dim the background)
 			// Create a dimming overlay with dots or spaces
 			var overlayBuilder strings.Builder
@@ -396,17 +406,17 @@ func (m *Model) View() string {
 					overlayBuilder.WriteString("\n")
 				}
 			}
-			
+
 			overlayStyle := lipgloss.NewStyle().
 				Foreground(lipgloss.Color("238")) // Dark gray for the dots
 			overlay := overlayStyle.Render(overlayBuilder.String())
 			layers = append(layers, lipgloss.NewLayer(overlay))
-			
+
 			// Then add the dialog on top
 			layers = append(layers, lipgloss.NewLayer(dialogView).X(x).Y(y))
 		}
 	}
-	
+
 	// Create canvas with layers
 	canvas := lipgloss.NewCanvas(layers...)
 	return canvas.Render()

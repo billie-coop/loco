@@ -3,7 +3,7 @@ package tui
 import (
 	"fmt"
 	"time"
-	
+
 	"github.com/billie-coop/loco/internal/llm"
 	"github.com/billie-coop/loco/internal/permission"
 	"github.com/billie-coop/loco/internal/tui/components/chat"
@@ -39,7 +39,7 @@ func (m *Model) handleEvent(event events.Event) (tea.Model, tea.Cmd) {
 			m.messages.Append(payload.Message)
 			m.syncMessagesToComponents()
 			m.showStatus("Sending message...")
-			
+
 			// Set streaming state
 			m.isStreaming = true
 			m.streamingMessage = ""
@@ -65,7 +65,7 @@ func (m *Model) handleEvent(event events.Event) (tea.Model, tea.Cmd) {
 		// Handle stream end
 		// Note: The assistant message is now added via AssistantMessageEvent
 		// from the LLM service, so we just clear the streaming state here
-		
+
 		// Clear streaming state
 		m.isStreaming = false
 		m.streamingMessage = ""
@@ -96,7 +96,7 @@ func (m *Model) handleEvent(event events.Event) (tea.Model, tea.Cmd) {
 			}
 			m.messages.Append(errorMsg)
 			m.syncStateToComponents()
-			
+
 			// Save to session
 			if m.app.Sessions != nil {
 				m.app.Sessions.AddMessage(errorMsg)
@@ -114,7 +114,7 @@ func (m *Model) handleEvent(event events.Event) (tea.Model, tea.Cmd) {
 		if payload, ok := event.Payload.(events.MessagePayload); ok {
 			m.messages.Append(payload.Message)
 			m.syncStateToComponents()
-			
+
 			// Save to session
 			if m.app.Sessions != nil {
 				if err := m.app.Sessions.AddMessage(payload.Message); err != nil {
@@ -122,7 +122,7 @@ func (m *Model) handleEvent(event events.Event) (tea.Model, tea.Cmd) {
 				}
 			}
 		}
-	
+
 	case events.AssistantMessageEvent:
 		// Handle assistant messages (separate from streaming)
 		if payload, ok := event.Payload.(events.MessagePayload); ok {
@@ -132,18 +132,18 @@ func (m *Model) handleEvent(event events.Event) (tea.Model, tea.Cmd) {
 				m.streamingMessage = ""
 				m.messageList.SetStreamingState(false, "")
 			}
-			
+
 			// Add the assistant message
 			m.messages.Append(payload.Message)
 			m.syncStateToComponents()
-			
+
 			// Save to session
 			if m.app.Sessions != nil {
 				if err := m.app.Sessions.AddMessage(payload.Message); err != nil {
 					m.showStatus("⚠️ Failed to save assistant message: " + err.Error())
 				}
 			}
-			
+
 			m.showStatus("Ready")
 		}
 
@@ -154,10 +154,10 @@ func (m *Model) handleEvent(event events.Event) (tea.Model, tea.Cmd) {
 			if m.analysisState == nil {
 				m.analysisState = &chat.AnalysisState{}
 			}
-			
+
 			m.analysisState.IsRunning = true
 			m.analysisState.CurrentPhase = "startup"
-			
+			m.lastProgress = time.Now()
 			// Update sidebar
 			cmd := m.sidebar.SetAnalysisState(m.analysisState)
 			m.showStatus("⚡ Running startup scan...")
@@ -165,7 +165,7 @@ func (m *Model) handleEvent(event events.Event) (tea.Model, tea.Cmd) {
 				cmds = append(cmds, cmd)
 			}
 		}
-	
+
 	case events.StartupScanCompletedEvent:
 		// Handle startup scan completed
 		if _, ok := event.Payload.(events.AnalysisProgressPayload); ok {
@@ -173,11 +173,11 @@ func (m *Model) handleEvent(event events.Event) (tea.Model, tea.Cmd) {
 			if m.analysisState == nil {
 				m.analysisState = &chat.AnalysisState{}
 			}
-			
+
 			m.analysisState.StartupScanCompleted = true
-			m.analysisState.IsRunning = false  // Unless other analysis is running
+			m.analysisState.IsRunning = false // Unless other analysis is running
 			m.analysisState.CurrentPhase = ""
-			
+			m.lastProgress = time.Now()
 			m.sidebar.SetAnalysisState(m.analysisState)
 			m.showStatus("✅ Startup scan complete")
 		}
@@ -189,25 +189,28 @@ func (m *Model) handleEvent(event events.Event) (tea.Model, tea.Cmd) {
 			if m.analysisState == nil {
 				m.analysisState = &chat.AnalysisState{}
 			}
-			
+
 			m.analysisState.IsRunning = true
 			m.analysisState.CurrentPhase = payload.Phase
 			m.analysisState.StartTime = time.Now()
 			m.analysisState.TotalFiles = payload.TotalFiles
-			
+			m.lastProgress = time.Now()
+
 			// Set analysis state based on phase
 			switch payload.Phase {
 			case "quick":
 				m.analysisState.QuickCompleted = false // Mark as running
+				m.showStatus("🔍 Quick analysis started…")
 			case "detailed":
 				m.analysisState.DetailedRunning = true
+				m.showStatus("📊 Reading key files…")
 			case "deep", "full":
 				m.analysisState.KnowledgeRunning = true
+				m.showStatus("💎 Deep analysis started…")
 			}
-			
+
 			// IMPORTANT: Start the timer for analysis feedback
 			cmd := m.sidebar.SetAnalysisState(m.analysisState)
-			m.showStatus("🔍 Analysis in progress...")
 			if cmd != nil {
 				// This command starts the timer - ensure it's added to commands
 				cmds = append(cmds, cmd)
@@ -221,13 +224,26 @@ func (m *Model) handleEvent(event events.Event) (tea.Model, tea.Cmd) {
 			if m.analysisState == nil {
 				m.analysisState = &chat.AnalysisState{}
 			}
-			
+
 			m.analysisState.IsRunning = true
 			m.analysisState.CurrentPhase = payload.Phase
 			m.analysisState.TotalFiles = payload.TotalFiles
 			m.analysisState.CompletedFiles = payload.CompletedFiles
-			
+			m.lastProgress = time.Now()
 			m.sidebar.SetAnalysisState(m.analysisState)
+
+			// Show richer status
+			if payload.Phase == "quick" {
+				if payload.CompletedFiles == 0 && payload.TotalFiles > 0 && payload.CurrentFile == "discovered files" {
+					m.showStatus(fmt.Sprintf("🔎 Discovered %d files", payload.TotalFiles))
+				} else if payload.TotalFiles > 0 {
+					m.showStatus(fmt.Sprintf("🔍 Summarizing %d/%d: %s", payload.CompletedFiles, payload.TotalFiles, payload.CurrentFile))
+				}
+			} else if payload.Phase == "detailed" {
+				if payload.TotalFiles > 0 {
+					m.showStatus(fmt.Sprintf("📖 Reading key files %d/%d: %s", payload.CompletedFiles, payload.TotalFiles, payload.CurrentFile))
+				}
+			}
 		}
 
 	case events.AnalysisCompletedEvent:
@@ -237,10 +253,11 @@ func (m *Model) handleEvent(event events.Event) (tea.Model, tea.Cmd) {
 			if m.analysisState == nil {
 				m.analysisState = &chat.AnalysisState{}
 			}
-			
+
 			m.analysisState.IsRunning = false
 			m.analysisState.CurrentPhase = "complete"
-			
+			m.lastProgress = time.Now()
+
 			// Mark appropriate tier as complete (keep previous completions)
 			switch payload.Phase {
 			case "quick":
@@ -252,7 +269,7 @@ func (m *Model) handleEvent(event events.Event) (tea.Model, tea.Cmd) {
 				m.analysisState.DeepCompleted = true
 				m.analysisState.KnowledgeRunning = false
 			}
-			
+
 			m.sidebar.SetAnalysisState(m.analysisState)
 			m.showStatus("✨ Analysis complete!")
 		}
@@ -267,7 +284,7 @@ func (m *Model) handleEvent(event events.Event) (tea.Model, tea.Cmd) {
 				m.analysisState.KnowledgeRunning = false
 				m.sidebar.SetAnalysisState(m.analysisState)
 			}
-			
+
 			// Show error
 			m.showStatus("❌ Analysis failed: " + payload.Message)
 		}
@@ -281,22 +298,22 @@ func (m *Model) handleEvent(event events.Event) (tea.Model, tea.Cmd) {
 		// Handle clear messages event
 		m.clearMessages()
 		m.showStatus("✅ Messages cleared")
-	
+
 	case events.ToolExecutionApprovedEvent, events.ToolExecutionDeniedEvent:
 		// These events are handled by the permission service's listener
 		// No need to handle them here
-	
+
 	case "permission.request":
 		// Handle permission request from permission service
 		// Try to handle as struct first (direct from service)
 		if reqEvent, ok := event.Payload.(permission.PermissionRequestEvent); ok {
 			// Set the request in the dialog
 			m.dialogManager.SetToolRequest(reqEvent.Request.ToolName, map[string]interface{}{
-				"action": reqEvent.Request.Action,
-				"path": reqEvent.Request.Path,
+				"action":      reqEvent.Request.Action,
+				"path":        reqEvent.Request.Path,
 				"description": reqEvent.Request.Description,
 			}, reqEvent.ID)
-			
+
 			// Open the permissions dialog
 			cmds = append(cmds, m.dialogManager.OpenDialog(dialog.PermissionsDialogType))
 		}
