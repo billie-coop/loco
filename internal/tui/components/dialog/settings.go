@@ -1,6 +1,7 @@
 package dialog
 
 import (
+	"strconv"
 	"strings"
 
 	"github.com/billie-coop/loco/internal/tui/events"
@@ -13,15 +14,15 @@ import (
 type SettingsDialog struct {
 	*BaseDialog
 
-	fields          []settingField
-	selectedIndex   int
-	eventBroker     *events.Broker
-	
+	fields        []settingField
+	selectedIndex int
+	eventBroker   *events.Broker
+
 	// Styling
-	labelStyle      lipgloss.Style
-	valueStyle      lipgloss.Style
-	selectedStyle   lipgloss.Style
-	descStyle       lipgloss.Style
+	labelStyle    lipgloss.Style
+	valueStyle    lipgloss.Style
+	selectedStyle lipgloss.Style
+	descStyle     lipgloss.Style
 }
 
 type settingField struct {
@@ -29,7 +30,7 @@ type settingField struct {
 	description string
 	fieldType   string // "text", "bool", "select"
 	value       interface{}
-	options     []string // for select fields
+	options     []string         // for select fields
 	input       *SimpleTextInput // for text fields
 	editing     bool
 }
@@ -37,6 +38,8 @@ type settingField struct {
 // Settings represents the application settings
 type Settings struct {
 	APIEndpoint     string
+	ContextSize     int
+	NumKeep         int
 	EnableTelemetry bool
 	DebugMode       bool
 	AutoSave        bool
@@ -46,11 +49,11 @@ type Settings struct {
 // NewSettingsDialog creates a new settings dialog
 func NewSettingsDialog(eventBroker *events.Broker) *SettingsDialog {
 	theme := styles.CurrentTheme()
-	
+
 	d := &SettingsDialog{
-		BaseDialog:     NewBaseDialog("Settings"),
-		selectedIndex:  0,
-		eventBroker:    eventBroker,
+		BaseDialog:    NewBaseDialog("Settings"),
+		selectedIndex: 0,
+		eventBroker:   eventBroker,
 
 		labelStyle: lipgloss.NewStyle().
 			Bold(true).
@@ -70,7 +73,7 @@ func NewSettingsDialog(eventBroker *events.Broker) *SettingsDialog {
 
 	// Initialize fields
 	d.initFields()
-	
+
 	return d
 }
 
@@ -79,6 +82,14 @@ func (d *SettingsDialog) initFields() {
 	apiInput.Placeholder("http://localhost:1234")
 	apiInput.SetValue("http://localhost:1234")
 
+	nctxInput := NewSimpleTextInput()
+	nctxInput.Placeholder("8192")
+	nctxInput.SetValue("8192")
+
+	numKeepInput := NewSimpleTextInput()
+	numKeepInput.Placeholder("0")
+	numKeepInput.SetValue("0")
+
 	d.fields = []settingField{
 		{
 			label:       "API Endpoint",
@@ -86,6 +97,20 @@ func (d *SettingsDialog) initFields() {
 			fieldType:   "text",
 			value:       "http://localhost:1234",
 			input:       apiInput,
+		},
+		{
+			label:       "Context Size (n_ctx)",
+			description: "Tokens context window sent to LM Studio",
+			fieldType:   "text",
+			value:       "8192",
+			input:       nctxInput,
+		},
+		{
+			label:       "Num Keep",
+			description: "Tokens to keep from prompt (0 recommended)",
+			fieldType:   "text",
+			value:       "0",
+			input:       numKeepInput,
 		},
 		{
 			label:       "Enable Telemetry",
@@ -199,7 +224,7 @@ func (d *SettingsDialog) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				// Save settings
 				settings := d.getSettings()
 				d.SetResult(settings)
-				
+
 				// Publish settings updated event
 				if d.eventBroker != nil {
 					d.eventBroker.PublishAsync(events.Event{
@@ -210,7 +235,7 @@ func (d *SettingsDialog) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						},
 					})
 				}
-				
+
 				return d, d.Close()
 			}
 		}
@@ -229,17 +254,17 @@ func (d *SettingsDialog) View() string {
 	var items []string
 	for i, field := range d.fields {
 		var item string
-		
+
 		// Selection indicator
 		if i == d.selectedIndex {
 			item = d.selectedStyle.Render("▶ ")
 		} else {
 			item = "  "
 		}
-		
+
 		// Label
 		item += d.labelStyle.Render(field.label) + ": "
-		
+
 		// Value
 		switch field.fieldType {
 		case "text":
@@ -257,30 +282,40 @@ func (d *SettingsDialog) View() string {
 		case "select":
 			item += d.valueStyle.Render(field.value.(string))
 		}
-		
+
 		// Description
 		if field.description != "" {
 			item += "\n  " + d.descStyle.Render(field.description)
 		}
-		
+
 		items = append(items, item)
 	}
-	
+
 	// Add instructions
 	instructions := d.descStyle.Render("\n\n↑/↓ Navigate • Enter/Space Toggle • S Save • Esc Cancel")
-	
+
 	content := strings.Join(items, "\n\n") + instructions
-	
+
 	return d.RenderDialog(content)
 }
 
 func (d *SettingsDialog) getSettings() *Settings {
+	// Parse integers safely for n_ctx and num_keep
+	parseInt := func(s string, def int) int {
+		v, err := strconv.Atoi(strings.TrimSpace(s))
+		if err != nil {
+			return def
+		}
+		return v
+	}
 	return &Settings{
 		APIEndpoint:     d.fields[0].value.(string),
-		EnableTelemetry: d.fields[1].value.(bool),
-		DebugMode:       d.fields[2].value.(bool),
-		AutoSave:        d.fields[3].value.(bool),
-		Theme:           d.fields[4].value.(string),
+		ContextSize:     parseInt(d.fields[1].value.(string), 8192),
+		NumKeep:         parseInt(d.fields[2].value.(string), 0),
+		EnableTelemetry: d.fields[3].value.(bool),
+		DebugMode:       d.fields[4].value.(bool),
+		AutoSave:        d.fields[5].value.(bool),
+		Theme:           d.fields[6].value.(string),
 	}
 }
 
@@ -289,11 +324,18 @@ func (d *SettingsDialog) SetSettings(settings *Settings) {
 	if settings == nil {
 		return
 	}
-	
+
 	d.fields[0].value = settings.APIEndpoint
 	d.fields[0].input.SetValue(settings.APIEndpoint)
-	d.fields[1].value = settings.EnableTelemetry
-	d.fields[2].value = settings.DebugMode
-	d.fields[3].value = settings.AutoSave
-	d.fields[4].value = settings.Theme
+
+	d.fields[1].value = strconv.Itoa(settings.ContextSize)
+	d.fields[1].input.SetValue(strconv.Itoa(settings.ContextSize))
+
+	d.fields[2].value = strconv.Itoa(settings.NumKeep)
+	d.fields[2].input.SetValue(strconv.Itoa(settings.NumKeep))
+
+	d.fields[3].value = settings.EnableTelemetry
+	d.fields[4].value = settings.DebugMode
+	d.fields[5].value = settings.AutoSave
+	d.fields[6].value = settings.Theme
 }

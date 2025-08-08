@@ -12,13 +12,15 @@ import (
 // Config represents the Loco configuration
 type Config struct {
 	// LM Studio settings
-	LMStudioURL    string `json:"lm_studio_url"`
-	PreferredModel string `json:"preferred_model"`
-	
+	LMStudioURL         string `json:"lm_studio_url"`
+	PreferredModel      string `json:"preferred_model"`
+	LMStudioContextSize int    `json:"lm_studio_n_ctx"`
+	LMStudioNumKeep     int    `json:"lm_studio_num_keep"`
+
 	// UI preferences
 	Theme string `json:"theme"`
 	Debug bool   `json:"debug"`
-	
+
 	// Tool settings
 	ToolsEnabled bool     `json:"tools_enabled"`
 	AllowedTools []string `json:"allowed_tools"`
@@ -27,12 +29,14 @@ type Config struct {
 // DefaultConfig returns a config with sensible defaults
 func DefaultConfig() *Config {
 	return &Config{
-		LMStudioURL:    "http://localhost:1234",
-		PreferredModel: "auto",
-		Theme:          "fire",
-		Debug:          false,
-		ToolsEnabled:   true,
-		AllowedTools:   []string{"copy", "clear", "help", "chat"}, // Safe tools allowed by default
+		LMStudioURL:         "http://localhost:1234",
+		PreferredModel:      "auto",
+		LMStudioContextSize: 8192,
+		LMStudioNumKeep:     0,
+		Theme:               "fire",
+		Debug:               false,
+		ToolsEnabled:        true,
+		AllowedTools:        []string{"copy", "clear", "help", "chat"}, // Safe tools allowed by default
 	}
 }
 
@@ -60,35 +64,35 @@ func (m *Manager) Load() error {
 	if err := os.MkdirAll(locoDir, 0o755); err != nil {
 		return fmt.Errorf("failed to create .loco directory: %w", err)
 	}
-	
+
 	// Create .gitignore if it doesn't exist
 	if err := m.ensureGitignore(); err != nil {
 		return fmt.Errorf("failed to create .gitignore: %w", err)
 	}
-	
+
 	// Check if config file exists
 	if _, err := os.Stat(m.configPath); os.IsNotExist(err) {
 		// Create default config
 		return m.Save()
 	}
-	
+
 	// Read existing config
 	data, err := os.ReadFile(m.configPath)
 	if err != nil {
 		return fmt.Errorf("failed to read config file: %w", err)
 	}
-	
+
 	// Parse JSON
 	var config Config
 	if err := json.Unmarshal(data, &config); err != nil {
 		return fmt.Errorf("failed to parse config JSON: %w", err)
 	}
-	
+
 	// Expand environment variables
 	if err := m.expandEnvVars(&config); err != nil {
 		return fmt.Errorf("failed to expand environment variables: %w", err)
 	}
-	
+
 	m.config = &config
 	return nil
 }
@@ -99,11 +103,11 @@ func (m *Manager) Save() error {
 	if err != nil {
 		return fmt.Errorf("failed to marshal config: %w", err)
 	}
-	
+
 	if err := os.WriteFile(m.configPath, data, 0o644); err != nil {
 		return fmt.Errorf("failed to write config file: %w", err)
 	}
-	
+
 	return nil
 }
 
@@ -128,21 +132,21 @@ func (m *Manager) Set(key, value string) error {
 	default:
 		return fmt.Errorf("unknown config key: %s", key)
 	}
-	
+
 	return m.Save()
 }
 
 // ensureGitignore creates a .gitignore in .loco/ with smart defaults
 func (m *Manager) ensureGitignore() error {
 	gitignorePath := filepath.Join(filepath.Dir(m.configPath), ".gitignore")
-	
+
 	// Check if .gitignore already exists
 	if _, err := os.Stat(gitignorePath); !os.IsNotExist(err) {
 		return nil // Already exists
 	}
-	
+
 	gitignoreContent := `# Loco data directory .gitignore
-# 
+#
 # This file controls what gets committed to git from your .loco/ directory
 # By default, we commit config but ignore logs, cache, and temporary files
 
@@ -164,7 +168,7 @@ tmp/
 # Sessions are up to you - uncomment to ignore:
 # sessions/
 `
-	
+
 	return os.WriteFile(gitignorePath, []byte(gitignoreContent), 0o644)
 }
 
@@ -181,7 +185,7 @@ func (m *Manager) expandEnvVars(config *Config) error {
 func (m *Manager) expandString(s string) string {
 	// Regular expression to match $VAR or ${VAR}
 	re := regexp.MustCompile(`\$\{([^}]+)\}|\$([A-Za-z_][A-Za-z0-9_]*)`)
-	
+
 	return re.ReplaceAllStringFunc(s, func(match string) string {
 		var varName string
 		if strings.HasPrefix(match, "${") {
@@ -191,11 +195,11 @@ func (m *Manager) expandString(s string) string {
 			// $VAR format
 			varName = match[1:]
 		}
-		
+
 		if value := os.Getenv(varName); value != "" {
 			return value
 		}
-		
+
 		// Return original if env var not found
 		return match
 	})

@@ -17,6 +17,9 @@ import (
 	"github.com/charmbracelet/lipgloss/v2"
 )
 
+// heartbeat message
+type heartbeatTickMsg struct{}
+
 // Model represents the main TUI model that orchestrates all components
 type Model struct {
 	// Window dimensions
@@ -80,6 +83,11 @@ func New(appInstance *app.App, eventBroker *events.Broker) *Model {
 	return m
 }
 
+// heartbeat ticker cmd
+func heartbeatTick() tea.Cmd {
+	return tea.Tick(time.Second, func(time.Time) tea.Msg { return heartbeatTickMsg{} })
+}
+
 // Init initializes the TUI model and all components
 func (m *Model) Init() tea.Cmd {
 	var cmds []tea.Cmd
@@ -97,6 +105,9 @@ func (m *Model) Init() tea.Cmd {
 
 	// Start event processing
 	cmds = append(cmds, m.listenForEvents())
+
+	// Start heartbeat
+	cmds = append(cmds, heartbeatTick())
 
 	// Initialize default size if not set (will be updated by WindowSizeMsg)
 	if m.width == 0 || m.height == 0 {
@@ -143,6 +154,23 @@ func (m *Model) Init() tea.Cmd {
 // Update handles all TUI updates and routes to components
 func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmds []tea.Cmd
+
+	// Heartbeat check
+	if _, ok := msg.(heartbeatTickMsg); ok {
+		// Re-schedule next tick
+		cmds = append(cmds, heartbeatTick())
+
+		// If analysis running but no progress recently, show heartbeats
+		if m.analysisState != nil && m.analysisState.IsRunning {
+			elapsed := time.Since(m.lastProgress)
+			if elapsed > 10*time.Second {
+				m.showStatus("⏳ Might be slow (check LM Studio/model)…")
+			} else if elapsed > 2*time.Second {
+				m.showStatus("…still working…")
+			}
+		}
+		return m, tea.Batch(cmds...)
+	}
 
 	// Handle events that come as messages
 	if event, ok := msg.(events.Event); ok {
@@ -247,7 +275,6 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if keyMsg, ok := msg.(tea.KeyMsg); ok {
 			switch keyMsg.String() {
 			case "tab", "up", "down", "enter", "esc":
-				// Route these keys to completions when they're open
 				compModel, cmd := m.completions.Update(msg)
 				if cm, ok := compModel.(*completions.CompletionsModel); ok {
 					m.completions = cm
@@ -258,50 +285,22 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	}
 
-	// Update components
-	// Always update message list for scrolling
-	listModel, cmd := m.messageList.Update(msg)
-	if ml, ok := listModel.(*chat.MessageListModel); ok {
-		m.messageList = ml
-	}
-	cmds = append(cmds, cmd)
-
-	// Update input (handles most keyboard input)
-	inputModel, cmd := m.input.Update(msg)
-	if im, ok := inputModel.(*chat.InputModel); ok {
-		m.input = im
-
-		// Check if input was submitted (enter key pressed with non-empty value)
-		if keyMsg, ok := msg.(tea.KeyMsg); ok && keyMsg.String() == "enter" {
-			value := im.Value()
-			if value != "" {
-				cmds = append(cmds, m.handleSendMessage(value))
-				im.Reset()
-			}
+	// Route message to input and message list components
+	{
+		inputModel, cmd := m.input.Update(msg)
+		if im, ok := inputModel.(*chat.InputModel); ok {
+			m.input = im
 		}
+		cmds = append(cmds, cmd)
 	}
-	cmds = append(cmds, cmd)
 
-	// Update sidebar
-	sidebarModel, cmd := m.sidebar.Update(msg)
-	if sm, ok := sidebarModel.(*chat.SidebarModel); ok {
-		m.sidebar = sm
+	{
+		messageListModel, cmd := m.messageList.Update(msg)
+		if ml, ok := messageListModel.(*chat.MessageListModel); ok {
+			m.messageList = ml
+		}
+		cmds = append(cmds, cmd)
 	}
-	cmds = append(cmds, cmd)
-
-	// Update status bar
-	statusModel, cmd := m.statusBar.Update(msg)
-	if sb, ok := statusModel.(*status.Component); ok {
-		m.statusBar = sb
-	}
-	cmds = append(cmds, cmd)
-
-	// Update completions (for window size changes, etc)
-	compModel, cmd := m.completions.Update(msg)
-	if cm, ok := compModel.(*completions.CompletionsModel); ok {
-		m.completions = cm
-	}
-	cmds = append(cmds, cmd)
 
 	return m, tea.Batch(cmds...)
 }

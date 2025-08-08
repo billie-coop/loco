@@ -7,6 +7,7 @@ import (
 	chatcore "github.com/billie-coop/loco/internal/chat"
 	"github.com/billie-coop/loco/internal/llm"
 	"github.com/billie-coop/loco/internal/permission"
+	"github.com/billie-coop/loco/internal/tools"
 	"github.com/billie-coop/loco/internal/tui/components/chat"
 	"github.com/billie-coop/loco/internal/tui/components/dialog"
 	"github.com/billie-coop/loco/internal/tui/events"
@@ -111,15 +112,43 @@ func (m *Model) handleEvent(event events.Event) (tea.Model, tea.Cmd) {
 		}
 
 	case events.SystemMessageEvent:
-		// Handle system messages
+		// Handle system and tool messages
 		if payload, ok := event.Payload.(events.MessagePayload); ok {
-			m.messages.Append(payload.Message)
-			m.syncStateToComponents()
-
-			// Save to session
-			if m.app.Sessions != nil {
-				if err := m.app.Sessions.AddMessage(payload.Message); err != nil {
-					m.showStatus("⚠️ Failed to save system message: " + err.Error())
+			msg := payload.Message
+			if msg.Role == "tool" && msg.ToolExecution != nil {
+				// Merge into existing pending/running tool card if available
+				toolName := msg.ToolExecution.Name
+				status := msg.ToolExecution.Status
+				progress := msg.ToolExecution.Progress
+				content := msg.Content
+				if tm, ok := m.messages.FindPendingTool(toolName); ok && tm != nil {
+					// Update status/progress
+					if status != "" {
+						tm.UpdateStatus(chatcore.ToolStatus(status))
+					}
+					if progress != "" {
+						tm.UpdateProgress(progress)
+					}
+					// If content provided (usually on complete/error), set result
+					if content != "" {
+						res := tools.ToolResponse{Content: content, IsError: status == "error"}
+						tm.UpdateResult(res)
+					}
+					m.syncMessagesToComponents()
+				} else {
+					// No existing pending tool; add as a new message
+					m.messages.Append(msg)
+					m.syncMessagesToComponents()
+				}
+			} else {
+				// Non-tool system message: append normally
+				m.messages.Append(msg)
+				m.syncMessagesToComponents()
+				// Save to session
+				if m.app.Sessions != nil {
+					if err := m.app.Sessions.AddMessage(msg); err != nil {
+						m.showStatus("⚠️ Failed to save system message: " + err.Error())
+					}
 				}
 			}
 		}
@@ -303,14 +332,32 @@ func (m *Model) handleEvent(event events.Event) (tea.Model, tea.Cmd) {
 		}
 
 	case events.DialogOpenEvent:
-		// Handle dialog open requests
-		// The dialog manager already handles opening dialogs internally
-		// This event is just for notification purposes
+		// The dialog manager handles opening; nothing else to do
 
-	case events.MessagesClearEvent:
-		// Handle clear messages event
-		m.clearMessages()
-		m.showStatus("✅ Messages cleared")
+	case events.DialogCloseEvent:
+		// Apply settings when settings dialog closes with a result
+		if payload, ok := event.Payload.(events.DialogPayload); ok {
+			if payload.DialogID == string(dialog.SettingsDialogType) {
+				settings := m.dialogManager.GetSettings()
+				if settings != nil {
+					// Update config
+					cfg := m.app.Config.Get()
+					if cfg != nil {
+						cfg.LMStudioURL = settings.APIEndpoint
+						cfg.LMStudioContextSize = settings.ContextSize
+						cfg.LMStudioNumKeep = settings.NumKeep
+						_ = m.app.Config.Save()
+					}
+					// Update LLM client if LM Studio
+					if client, ok := m.app.LLM.(*llm.LMStudioClient); ok {
+						client.SetEndpoint(settings.APIEndpoint)
+						client.SetContextSize(settings.ContextSize)
+						client.SetNumKeep(settings.NumKeep)
+					}
+					m.showStatus("Settings applied")
+				}
+			}
+		}
 
 	case events.ToolExecutionApprovedEvent, events.ToolExecutionDeniedEvent:
 		// These events are handled by the permission service's listener
@@ -329,6 +376,17 @@ func (m *Model) handleEvent(event events.Event) (tea.Model, tea.Cmd) {
 
 			// Open the permissions dialog
 			cmds = append(cmds, m.dialogManager.OpenDialog(dialog.PermissionsDialogType))
+		}
+
+	case events.ModelSelectedEvent:
+		// Apply selected model to client and sidebar
+		if payload, ok := event.Payload.(events.ModelSelectedPayload); ok {
+			if client, ok := m.app.LLM.(*llm.LMStudioClient); ok {
+				client.SetModel(payload.ModelID)
+			}
+			// Update sidebar display
+			m.sidebar.SetModel(payload.ModelID, payload.ModelSize)
+			m.showStatus("Model selected: " + payload.ModelID)
 		}
 	}
 
