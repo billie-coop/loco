@@ -80,8 +80,9 @@ func (tm *ToolMessage) View() string {
 	toolName := tm.prettifyToolName(tm.message.ToolExecution.Name)
 
 	header := fmt.Sprintf("%s %s", icon, toolName)
-	if tm.message.ToolExecution.Status == "error" {
-		header = styles.RenderThemeGradient(header, false) // Use gradient for errors
+	// For welcome tool, use a more friendly header
+	if tm.message.ToolExecution.Name == "startup_welcome" {
+		header = "👋 Welcome"
 	}
 
 	// Add spinner and elapsed time if pending/running
@@ -203,7 +204,7 @@ func (tm *ToolMessage) renderStartupScan() string {
 	var output []string
 
 	for _, line := range lines {
-		if strings.Contains(line, "Project type:") ||
+		if strings.Contains(line, "Project:") ||
 			strings.Contains(line, "Language:") ||
 			strings.Contains(line, "Framework:") ||
 			strings.Contains(line, "Files:") ||

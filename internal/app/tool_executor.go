@@ -175,41 +175,37 @@ func (e *ToolExecutor) executeWithContext(call tools.ToolCall, initiator string)
 	// Run the tool synchronously for all other tools
 	result, err := tool.Run(ctx, call)
 	if err != nil {
-		// Update tool message to show error (suppress for system)
-		if initiator != "system" {
-			e.eventBroker.Publish(events.Event{
-				Type: events.SystemMessageEvent,
-				Payload: events.MessagePayload{
-					Message: llm.Message{
-						Role:    "tool",
-						Content: fmt.Sprintf("Tool execution failed: %v", err),
-						ToolExecution: &llm.ToolExecution{
-							Name:   call.Name,
-							Status: "error",
-						},
-					},
-				},
-			})
-		}
-		return
-	}
-
-	// Update tool message to show completion (suppress for system)
-	if initiator != "system" {
+		// Update tool message to show error
 		e.eventBroker.Publish(events.Event{
 			Type: events.SystemMessageEvent,
 			Payload: events.MessagePayload{
 				Message: llm.Message{
 					Role:    "tool",
-					Content: result.Content,
+					Content: fmt.Sprintf("Tool execution failed: %v", err),
 					ToolExecution: &llm.ToolExecution{
 						Name:   call.Name,
-						Status: "complete",
+						Status: "error",
 					},
 				},
 			},
 		})
+		return
 	}
+
+	// Update tool message to show completion
+	e.eventBroker.Publish(events.Event{
+		Type: events.SystemMessageEvent,
+		Payload: events.MessagePayload{
+			Message: llm.Message{
+				Role:    "tool",
+				Content: result.Content,
+				ToolExecution: &llm.ToolExecution{
+					Name:   call.Name,
+					Status: "complete",
+				},
+			},
+		},
+	})
 
 	// Handle special tools with side effects
 	switch call.Name {
