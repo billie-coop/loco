@@ -1,0 +1,101 @@
+package tools
+
+import (
+	"context"
+	"fmt"
+	"strings"
+	"time"
+
+	"github.com/billie-coop/loco/internal/llm"
+	"github.com/billie-coop/loco/internal/permission"
+	"github.com/billie-coop/loco/internal/ui"
+)
+
+// startupWelcomeTool renders a welcome banner and environment info
+// Name: startup_welcome
+// Description: Prints ASCII banner, current model info, and quick commands
+
+type startupWelcomeTool struct {
+	permissions permission.Service
+	client      *llm.LMStudioClient
+}
+
+const (
+	// StartupWelcomeToolName is the name of this tool
+	StartupWelcomeToolName = "startup_welcome"
+)
+
+// NewStartupWelcomeTool creates a new instance
+func NewStartupWelcomeTool(permissions permission.Service, client *llm.LMStudioClient) BaseTool {
+	return &startupWelcomeTool{
+		permissions: permissions,
+		client:      client,
+	}
+}
+
+// Name returns the tool name
+func (t *startupWelcomeTool) Name() string { return StartupWelcomeToolName }
+
+// Info returns tool information
+func (t *startupWelcomeTool) Info() ToolInfo {
+	return ToolInfo{
+		Name:        StartupWelcomeToolName,
+		Description: "Render welcome banner and environment info",
+		Parameters:  map[string]any{},
+		Required:    []string{},
+	}
+}
+
+// Run executes the tool
+func (t *startupWelcomeTool) Run(ctx context.Context, call ToolCall) (ToolResponse, error) {
+	var sb strings.Builder
+
+	// Header ASCII
+	sb.WriteString("" + ui.LocoASCII() + "\n")
+	sb.WriteString(ui.LocoTagline() + "\n\n")
+
+	// Time
+	sb.WriteString(fmt.Sprintf("🕐 %s\n\n", time.Now().Format("15:04:05")))
+
+	// Model info from LM Studio, if available
+	if t.client != nil {
+		models, err := t.client.GetModels()
+		if err == nil && len(models) > 0 {
+			// Count by size
+			countBySize := map[llm.ModelSize]int{}
+			for _, m := range models {
+				countBySize[m.Size]++
+			}
+			sb.WriteString("Models detected in LM Studio:\n")
+			for _, size := range []llm.ModelSize{llm.SizeXS, llm.SizeS, llm.SizeM, llm.SizeL, llm.SizeXL} {
+				if n := countBySize[size]; n > 0 {
+					sb.WriteString(fmt.Sprintf("  - %s: %d\n", size, n))
+				}
+			}
+			// Show up to 5 example IDs
+			limit := 5
+			if len(models) < limit {
+				limit = len(models)
+			}
+			sb.WriteString("  e.g.\n")
+			for i := 0; i < limit; i++ {
+				sb.WriteString("    • " + models[i].ID + "\n")
+			}
+			sb.WriteString("\n")
+		} else {
+			sb.WriteString("LM Studio connected (no models listed)\n\n")
+		}
+	} else {
+		sb.WriteString("LM Studio client not configured\n\n")
+	}
+
+	// Quick commands
+	sb.WriteString("Quick commands:\n")
+	sb.WriteString("  /help — show commands\n")
+	sb.WriteString("  /scan — instant project detection\n")
+	sb.WriteString("  /analyze quick — fast analysis (then deeper tiers)\n")
+	sb.WriteString("  /settings — adjust LM Studio endpoint, n_ctx, num_keep\n")
+	sb.WriteString("  /model — choose model\n")
+
+	return NewTextResponse(sb.String()), nil
+}

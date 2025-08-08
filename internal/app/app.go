@@ -121,6 +121,13 @@ func (a *App) SetLLMClient(client llm.Client) {
 	if a.Tools != nil && a.Analysis != nil && a.permissionServiceInternal != nil {
 		a.Tools.Register(tools.NewAnalyzeTool(a.permissionServiceInternal, a.workingDir, a.Analysis))
 	}
+
+	// Register startup_welcome tool if LM Studio client is available
+	if a.Tools != nil {
+		if lm, ok := client.(*llm.LMStudioClient); ok {
+			a.Tools.Register(tools.NewStartupWelcomeTool(a.permissionServiceInternal, lm))
+		}
+	}
 }
 
 // SetModelManager sets the model manager
@@ -157,19 +164,25 @@ func (a *App) InitLLMFromConfig() error {
 	return nil
 }
 
-// RunStartupAnalysis triggers startup scan followed by analysis.
+// RunStartupAnalysis triggers startup tools and analysis.
 func (a *App) RunStartupAnalysis() {
 	if a.ToolExecutor == nil {
 		return
 	}
 
-	// First run startup scan (system-initiated so it doesn't clutter chat or prompt)
+	// First show welcome banner (system-initiated tool card)
+	a.ToolExecutor.ExecuteSystem(tools.ToolCall{
+		Name:  tools.StartupWelcomeToolName,
+		Input: `{}`,
+	})
+
+	// Then run startup scan
 	a.ToolExecutor.ExecuteSystem(tools.ToolCall{
 		Name:  "startup_scan",
 		Input: `{}`,
 	})
 
-	// Then start analysis with cascading to deep tier (also system-initiated)
+	// Then start analysis with cascading to deep tier
 	a.ToolExecutor.ExecuteSystem(tools.ToolCall{
 		Name:  "analyze",
 		Input: `{"tier": "quick", "continue_to": "deep"}`,

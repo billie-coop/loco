@@ -105,6 +105,20 @@
       "description": "Mistral's developer-focused model",
       "tool_calls": true
     },
+    "openai/gpt-oss-20b": {
+      "size": "L",
+      "params": "20B",
+      "category": "general",
+      "description": "Open-source GPT-OSS model",
+      "tool_calls": true
+    },
+    "qwen/qwen3-30b-a3b-2507": {
+      "size": "L",
+      "params": "30B",
+      "category": "general",
+      "description": "Large Qwen 3 A3B 2507 build",
+      "tool_calls": true
+    },
     "qwen3-30b-a3b-instruct-2507-mlx": {
       "size": "L",
       "params": "30B",
