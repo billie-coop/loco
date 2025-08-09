@@ -3,9 +3,10 @@
 # Default target
 help:
 	@echo "Loco Development Commands:"
-	@echo "  make run          - Run the application"
-	@echo "  make run-debug    - Run with debug symbols (for attach)"
-	@echo "  make run-dlv      - Run with dlv server (port 2345)"
+	@echo "  make run          - Run the application (keeps .loco)"
+	@echo "  make run-fresh    - Run with a fresh .loco (deletes .loco)"
+	@echo "  make run-debug    - Run with debug symbols (keeps .loco)"
+	@echo "  make run-dlv      - Run with dlv server (port 2345) (keeps .loco)"
 	@echo "  make test         - Run all tests"
 	@echo "  make watch        - Run tests in watch mode (TDD)"
 	@echo "  make coverage     - Generate test coverage report"
@@ -14,20 +15,22 @@ help:
 	@echo "  make clean        - Clean build artifacts"
 	@echo "  make install-tools - Install development tools"
 
-# Run the application (fresh start - deletes .loco directory)
+# Run the application (keep .loco)
 run:
+	go run .
+
+# Run with a fresh .loco (deletes .loco directory first)
+run-fresh:
 	rm -rf .loco
 	go run .
 
-# Run with debug symbols for attaching debugger
+# Run with debug symbols for attaching debugger (keep .loco)
 run-debug:
-	rm -rf .loco
 	go build -gcflags="all=-N -l" -o loco
 	./loco
 
-# Run with dlv debugger in headless mode (for VSCode attach)
+# Run with dlv debugger in headless mode (keep .loco)
 run-dlv:
-	rm -rf .loco
 	dlv debug --headless --listen=:2345 --api-version=2 --accept-multiclient
 
 # Run all tests

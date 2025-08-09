@@ -4,11 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/billie-coop/loco/internal/analysis"
+	"github.com/billie-coop/loco/internal/config"
 	"github.com/billie-coop/loco/internal/llm"
 	"github.com/billie-coop/loco/internal/permission"
 )
@@ -33,8 +36,7 @@ const (
 
 WHAT THIS DOES:
 - Runs 10 parallel analyses with the fastest model
-- Uses consensus to determine project type, language, and framework
-- Takes ~100ms to complete
+- Asks the model to adjudicate a consensus from the 10 answers
 - Only looks at file structure (no content reading)
 - Provides instant context for all other tools
 
@@ -46,8 +48,8 @@ WHEN IT RUNS:
 OUTPUT:
 - Project type (CLI, web app, library, etc.)
 - Primary language and framework
-- Key directories and files
-- Instant understanding of project structure
+- Key purpose in 10 words or less
+- Confidence estimate from the adjudicator model
 
 This is NOT the same as the analyze tool - this is just instant detection!`
 )
@@ -60,7 +62,6 @@ func NewStartupScanTool(permissions permission.Service, workingDir string, analy
 		analysisService: analysisService,
 	}
 }
-
 
 // Name returns the tool name.
 func (s *startupScanTool) Name() string {
@@ -103,7 +104,7 @@ func (s *startupScanTool) Run(ctx context.Context, call ToolCall) (ToolResponse,
 		if messageID == "" {
 			messageID = "startup"
 		}
-		
+
 		p := s.permissions.Request(
 			permission.CreatePermissionRequest{
 				SessionID:   sessionID,
@@ -119,6 +120,14 @@ func (s *startupScanTool) Run(ctx context.Context, call ToolCall) (ToolResponse,
 		}
 	}
 
+	// Apply config clean flag to force fresh scan
+	if cfgMgr := config.NewManager(s.workingDir); cfgMgr != nil {
+		_ = cfgMgr.Load()
+		if c := cfgMgr.Get(); c != nil && c.Analysis.Startup.Clean {
+			params.Force = true
+		}
+	}
+
 	// Check cache unless forced
 	if !params.Force {
 		if cached := s.analysisService.GetStartupScan(s.workingDir); cached != nil {
@@ -131,12 +140,12 @@ func (s *startupScanTool) Run(ctx context.Context, call ToolCall) (ToolResponse,
 	if teamService, ok := s.analysisService.(*analysis.ServiceWithTeam); ok {
 		llmClient = teamService.GetClient(analysis.TierQuick) // Use small model
 	}
-	
+
 	if llmClient == nil {
 		return NewTextErrorResponse("LLM client not available for startup scan"), nil
 	}
 
-	// Perform the scan with consensus
+	// Perform the scan with model-based adjudication
 	startTime := time.Now()
 	result, err := s.performConsensusScan(ctx, llmClient)
 	if err != nil {
@@ -152,64 +161,76 @@ func (s *startupScanTool) Run(ctx context.Context, call ToolCall) (ToolResponse,
 	return s.formatScanResult(result, false), nil
 }
 
-// performConsensusScan runs 10 parallel analyses and uses consensus.
+// performConsensusScan runs 10 parallel analyses and asks the model to adjudicate consensus.
 func (s *startupScanTool) performConsensusScan(ctx context.Context, llmClient llm.Client) (*analysis.StartupScanResult, error) {
-	// Get file structure
-	structure, err := analysis.GetProjectStructure(s.workingDir)
+	// Load config
+	cfgMgr := config.NewManager(s.workingDir)
+	_ = cfgMgr.Load()
+	cfg := cfgMgr.Get()
+
+	// Get full file list (git ls-files), no truncation
+	files, err := analysis.GetProjectFiles(s.workingDir)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get project structure: %w", err)
+		return nil, fmt.Errorf("failed to get project files: %w", err)
 	}
+	fileList := strings.Join(files, "\n")
 
 	// Prepare prompt for parallel analyses
-	prompt := fmt.Sprintf(`Analyze this project structure and determine:
-1. Project type (CLI, web app, library, API, etc.)
-2. Primary language
-3. Primary framework (if any)
-4. Key purpose in 10 words or less
+	prompt := fmt.Sprintf(`Analyze this project's file list and determine:
+	1. Project type (CLI, web app, library, API, etc.)
+	2. Primary language
+	3. Primary framework (if any)
+	4. Key purpose in 10 words or less
 
-Project structure:
-%s
+	Project files (all git-tracked):
+	%s
 
-Respond in JSON format:
-{
-  "type": "project type",
-  "language": "primary language",
-  "framework": "framework or none",
-  "purpose": "brief purpose"
-}`, structure)
+	Respond in JSON format:
+	{
+	  "type": "project type",
+	  "language": "primary language",
+	  "framework": "framework or none",
+	  "purpose": "brief purpose"
+	}`, fileList)
 
-	// Run 10 parallel analyses
-	const numAnalyses = 10
-	type result struct {
+	// Determine crowd size from config (default 10)
+	numAnalyses := cfg.Analysis.Startup.CrowdSize
+	if numAnalyses <= 0 {
+		numAnalyses = 10
+	}
+
+	// Run crowd analyses (capped concurrency)
+	type crowdResult struct {
 		Type      string `json:"type"`
 		Language  string `json:"language"`
 		Framework string `json:"framework"`
 		Purpose   string `json:"purpose"`
 	}
 
-	results := make([]result, numAnalyses)
+	crowd := make([]crowdResult, numAnalyses)
 	var wg sync.WaitGroup
 	var mu sync.Mutex
 	errors := 0
+
+	// Cap concurrency to avoid overwhelming the model server
+	maxConcurrent := 10
+	if numAnalyses < maxConcurrent {
+		maxConcurrent = numAnalyses
+	}
+	sem := make(chan struct{}, maxConcurrent)
 
 	for i := 0; i < numAnalyses; i++ {
 		wg.Add(1)
 		go func(index int) {
 			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
 
-			// Create messages for LLM
 			messages := []llm.Message{
-				{
-					Role:    "system",
-					Content: "You are a project analyzer. Analyze project structures and respond only in JSON.",
-				},
-				{
-					Role:    "user",
-					Content: prompt,
-				},
+				{Role: "system", Content: "You are a project analyzer. Analyze project structures and respond only in JSON."},
+				{Role: "user", Content: prompt},
 			}
 
-			// Call LLM
 			response, err := llmClient.Complete(ctx, messages)
 			if err != nil {
 				mu.Lock()
@@ -218,144 +239,143 @@ Respond in JSON format:
 				return
 			}
 
-			// Parse response
-			var r result
-			// Try to extract JSON from response
+			var r crowdResult
 			jsonStart := strings.Index(response, "{")
 			jsonEnd := strings.LastIndex(response, "}")
 			if jsonStart >= 0 && jsonEnd > jsonStart {
 				jsonStr := response[jsonStart : jsonEnd+1]
 				if err := json.Unmarshal([]byte(jsonStr), &r); err == nil {
 					mu.Lock()
-					results[index] = r
+					crowd[index] = r
 					mu.Unlock()
-				} else {
-					mu.Lock()
-					errors++
-					mu.Unlock()
+					return
 				}
-			} else {
-				mu.Lock()
-				errors++
-				mu.Unlock()
 			}
+			mu.Lock()
+			errors++
+			mu.Unlock()
 		}(i)
 	}
 
 	wg.Wait()
-
-	// If too many errors, fail
-	if errors > 5 {
+	if errors > numAnalyses/2 {
 		return nil, fmt.Errorf("too many analysis failures (%d/%d)", errors, numAnalyses)
 	}
 
-	// Find consensus
-	typeVotes := make(map[string]int)
-	langVotes := make(map[string]int)
-	frameworkVotes := make(map[string]int)
-	purposes := []string{}
-
-	for _, r := range results {
-		if r.Type != "" {
-			typeVotes[strings.ToLower(r.Type)]++
-		}
-		if r.Language != "" {
-			langVotes[strings.ToLower(r.Language)]++
-		}
-		if r.Framework != "" {
-			frameworkVotes[strings.ToLower(r.Framework)]++
-		}
-		if r.Purpose != "" {
-			purposes = append(purposes, r.Purpose)
+	// Debug artifacts (guarded by per-tier debug flag or LOCO_DEBUG)
+	shouldDebug := false
+	if cfg != nil && cfg.Analysis.Startup.Debug {
+		shouldDebug = true
+	}
+	if os.Getenv("LOCO_DEBUG") == "true" {
+		shouldDebug = true
+	}
+	var debugDir string
+	if shouldDebug {
+		ts := time.Now().Format("20060102_150405")
+		debugDir = filepath.Join(s.workingDir, ".loco", "debug", "startup_scan", ts)
+		_ = os.MkdirAll(debugDir, 0o755)
+		if b, err := json.MarshalIndent(crowd, "", "  "); err == nil {
+			_ = os.WriteFile(filepath.Join(debugDir, "crowd_answers.json"), b, 0o644)
 		}
 	}
 
-	// Get consensus values
-	consensusType := getMostVoted(typeVotes)
-	consensusLang := getMostVoted(langVotes)
-	consensusFramework := getMostVoted(frameworkVotes)
-	
-	// For purpose, pick the most common one or the first valid one
-	consensusPurpose := ""
-	if len(purposes) > 0 {
-		consensusPurpose = purposes[0] // Simple approach - take first valid one
+	// Final adjudication pass using Small model only, no local tally
+	fileCount := len(files)
+
+	crowdJSON, _ := json.Marshal(crowd)
+	final, ok := s.adjudicateConsensus(ctx, llmClient, string(crowdJSON), "")
+	if !ok {
+		// Fallback: pick the first non-empty crowd entry to avoid empty output
+		for _, r := range crowd {
+			if r.Type != "" || r.Language != "" || r.Framework != "" || r.Purpose != "" {
+				finalOut := adjudicated{Type: r.Type, Language: r.Language, Framework: r.Framework, Purpose: r.Purpose, Confidence: 0}
+				if shouldDebug {
+					if b, err := json.MarshalIndent(finalOut, "", "  "); err == nil {
+						_ = os.WriteFile(filepath.Join(debugDir, "adjudicated.json"), b, 0o644)
+					}
+				}
+				return &analysis.StartupScanResult{
+					ProjectPath: s.workingDir,
+					ProjectType: r.Type,
+					Language:    r.Language,
+					Framework:   r.Framework,
+					Purpose:     r.Purpose,
+					FileCount:   fileCount,
+					Confidence:  0.0,
+				}, nil
+			}
+		}
+		return nil, fmt.Errorf("failed to adjudicate consensus")
 	}
 
-	// Count files
-	fileCount := countFiles(structure)
+	// Save adjudicated result to debug
+	if shouldDebug {
+		if b, err := json.MarshalIndent(final, "", "  "); err == nil {
+			_ = os.WriteFile(filepath.Join(debugDir, "adjudicated.json"), b, 0o644)
+		}
+	}
 
 	return &analysis.StartupScanResult{
 		ProjectPath: s.workingDir,
-		ProjectType: consensusType,
-		Language:    consensusLang,
-		Framework:   consensusFramework,
-		Purpose:     consensusPurpose,
+		ProjectType: final.Type,
+		Language:    final.Language,
+		Framework:   final.Framework,
+		Purpose:     final.Purpose,
 		FileCount:   fileCount,
-		Confidence:  calculateConfidence(typeVotes, langVotes, frameworkVotes, numAnalyses-errors),
+		Confidence:  final.Confidence,
 	}, nil
 }
 
-// getMostVoted returns the item with the most votes.
-func getMostVoted(votes map[string]int) string {
-	maxVotes := 0
-	result := ""
-	for item, count := range votes {
-		if count > maxVotes {
-			maxVotes = count
-			result = item
-		}
-	}
-	return result
+// adjudicateConsensus asks the Small model to choose a final consensus from the crowd.
+type adjudicated struct {
+	Type       string  `json:"type"`
+	Language   string  `json:"language"`
+	Framework  string  `json:"framework"`
+	Purpose    string  `json:"purpose"`
+	Confidence float64 `json:"confidence"`
 }
 
-// calculateConfidence calculates confidence based on consensus.
-func calculateConfidence(typeVotes, langVotes, frameworkVotes map[string]int, totalVotes int) float64 {
-	if totalVotes == 0 {
-		return 0
-	}
-
-	// Get max votes for each category
-	maxType := 0
-	for _, v := range typeVotes {
-		if v > maxType {
-			maxType = v
-		}
-	}
-
-	maxLang := 0
-	for _, v := range langVotes {
-		if v > maxLang {
-			maxLang = v
-		}
-	}
-
-	maxFramework := 0
-	for _, v := range frameworkVotes {
-		if v > maxFramework {
-			maxFramework = v
-		}
-	}
-
-	// Calculate average consensus percentage
-	typeConfidence := float64(maxType) / float64(totalVotes)
-	langConfidence := float64(maxLang) / float64(totalVotes)
-	frameworkConfidence := float64(maxFramework) / float64(totalVotes)
-
-	// Framework might be "none" with high confidence, so weight it less
-	return (typeConfidence*0.4 + langConfidence*0.4 + frameworkConfidence*0.2)
+func (s *startupScanTool) adjudicateConsensus(
+	ctx context.Context,
+	llmClient llm.Client,
+	crowdJSON string,
+	structure string,
+) (adjudicated, bool) {
+	prompt := fmt.Sprintf(`You are the adjudicator. You are given 10 JSON answers from the same Small model about a project's type, language, framework, and purpose.
+Pick the single best consensus answer. Prefer agreement across answers. Return confidence 0..1.
+Respond ONLY with JSON:
+{
+  "type": "project type",
+  "language": "primary language",
+  "framework": "framework or none",
+  "purpose": "brief purpose",
+  "confidence": 0.0
 }
 
-// countFiles counts files in the structure string.
-func countFiles(structure string) int {
-	lines := strings.Split(structure, "\n")
-	count := 0
-	for _, line := range lines {
-		// Count lines that look like files (have extensions)
-		if strings.Contains(line, ".") && !strings.HasPrefix(strings.TrimSpace(line), ".") {
-			count++
+Crowd answers (JSON array):
+%s
+`, crowdJSON)
+
+	messages := []llm.Message{
+		{Role: "system", Content: "Adjudicate crowd answers into a single JSON. Be decisive. Output only valid JSON."},
+		{Role: "user", Content: prompt},
+	}
+
+	response, err := llmClient.Complete(ctx, messages)
+	if err != nil {
+		return adjudicated{}, false
+	}
+	var out adjudicated
+	jsonStart := strings.Index(response, "{")
+	jsonEnd := strings.LastIndex(response, "}")
+	if jsonStart >= 0 && jsonEnd > jsonStart {
+		jsonStr := response[jsonStart : jsonEnd+1]
+		if err := json.Unmarshal([]byte(jsonStr), &out); err == nil {
+			return out, true
 		}
 	}
-	return count
+	return adjudicated{}, false
 }
 
 // formatScanResult formats the scan result for display.
@@ -378,7 +398,9 @@ func (s *startupScanTool) formatScanResult(result *analysis.StartupScanResult, c
 	}
 	response.WriteString(fmt.Sprintf("**Purpose:** %s\n", result.Purpose))
 	response.WriteString(fmt.Sprintf("**Files:** %d\n", result.FileCount))
-	response.WriteString(fmt.Sprintf("**Confidence:** %.0f%%\n", result.Confidence*100))
+	if result.Confidence > 0 {
+		response.WriteString(fmt.Sprintf("**Confidence:** %.0f%%\n", result.Confidence*100))
+	}
 
 	response.WriteString("\n## Next Steps\n")
 	response.WriteString("- Run `/analyze quick` for detailed structure analysis\n")

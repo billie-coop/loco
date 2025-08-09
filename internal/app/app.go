@@ -114,18 +114,29 @@ func (a *App) SetLLMClient(client llm.Client) {
 	a.LLM = client
 	a.LLMService.SetClient(client)
 
+	// Apply config to primary client if LM Studio
+	if cfg := a.Config.Get(); cfg != nil {
+		if lm, ok := client.(*llm.LMStudioClient); ok {
+			lm.SetEndpoint(cfg.LMStudioURL)
+			lm.SetContextSize(cfg.LMStudioContextSize)
+			lm.SetNumKeep(cfg.LMStudioNumKeep)
+		}
+	}
+
 	// Recreate analysis service with LLM client
 	a.Analysis = analysis.NewService(client)
 
-	// Register the analyze tool now that we have the service
+	// Register or replace the analyze tool now that we have the service
 	if a.Tools != nil && a.Analysis != nil && a.permissionServiceInternal != nil {
-		a.Tools.Register(tools.NewAnalyzeTool(a.permissionServiceInternal, a.workingDir, a.Analysis))
+		// Replace to avoid duplicate registration errors across re-init paths
+		a.Tools.Replace(tools.NewAnalyzeTool(a.permissionServiceInternal, a.workingDir, a.Analysis))
 	}
 
 	// Register startup_welcome tool if LM Studio client is available
 	if a.Tools != nil {
 		if lm, ok := client.(*llm.LMStudioClient); ok {
-			a.Tools.Register(tools.NewStartupWelcomeTool(a.permissionServiceInternal, lm))
+			// Ensure settings already applied above
+			a.Tools.Replace(tools.NewStartupWelcomeTool(a.permissionServiceInternal, lm))
 		}
 	}
 }
@@ -139,6 +150,14 @@ func (a *App) SetModelManager(mm *llm.ModelManager) {
 func (a *App) InitLLMFromConfig() error {
 	// Create LLM client (main client for chat)
 	client := llm.NewLMStudioClient()
+
+	// Apply config to main client before any model discovery
+	if cfg := a.Config.Get(); cfg != nil {
+		client.SetEndpoint(cfg.LMStudioURL)
+		client.SetContextSize(cfg.LMStudioContextSize)
+		client.SetNumKeep(cfg.LMStudioNumKeep)
+	}
+
 	a.SetLLMClient(client)
 
 	// Create model manager
@@ -151,13 +170,34 @@ func (a *App) InitLLMFromConfig() error {
 		if teamClients, err := llm.NewTeamClients(team); err == nil {
 			a.TeamClients = teamClients
 
+			// Propagate endpoint and context settings to team clients if LM Studio
+			if cfg := a.Config.Get(); cfg != nil {
+				if c, ok := a.TeamClients.Small.(*llm.LMStudioClient); ok {
+					c.SetEndpoint(cfg.LMStudioURL)
+					c.SetContextSize(cfg.LMStudioContextSize)
+					c.SetNumKeep(cfg.LMStudioNumKeep)
+				}
+				if c, ok := a.TeamClients.Medium.(*llm.LMStudioClient); ok {
+					c.SetEndpoint(cfg.LMStudioURL)
+					c.SetContextSize(cfg.LMStudioContextSize)
+					c.SetNumKeep(cfg.LMStudioNumKeep)
+				}
+				if c, ok := a.TeamClients.Large.(*llm.LMStudioClient); ok {
+					c.SetEndpoint(cfg.LMStudioURL)
+					c.SetContextSize(cfg.LMStudioContextSize)
+					c.SetNumKeep(cfg.LMStudioNumKeep)
+				}
+			}
+
 			// Update analysis service with team clients
 			if analysisService, ok := a.Analysis.(*analysis.ServiceWithTeam); ok {
 				analysisService.SetTeamClients(teamClients)
 			}
 
-			// Note: startup_scan tool will use the small client from TeamClients
-			// when it's invoked (we'll pass it through context or registry)
+			// Give ToolExecutor access to team to display in welcome
+			if a.ToolExecutor != nil {
+				a.ToolExecutor.SetTeamClients(teamClients)
+			}
 		}
 	}
 
@@ -176,15 +216,24 @@ func (a *App) RunStartupAnalysis() {
 		Input: `{}`,
 	})
 
+	// Ensure startup_scan uses the updated analysis service (replace tool)
+	if a.Tools != nil && a.permissionServiceInternal != nil && a.Analysis != nil {
+		a.Tools.Replace(tools.NewStartupScanTool(a.permissionServiceInternal, a.workingDir, a.Analysis))
+	}
+	// Pass config-driven crowd size into startup tool by adjusting analysis service behavior is not required;
+	// startup tool will read it directly via analysis service when running.
+
 	// Then run startup scan
 	a.ToolExecutor.ExecuteSystem(tools.ToolCall{
 		Name:  "startup_scan",
 		Input: `{}`,
 	})
 
-	// Then start analysis with cascading to deep tier
-	a.ToolExecutor.ExecuteSystem(tools.ToolCall{
-		Name:  "analyze",
-		Input: `{"tier": "quick", "continue_to": "deep"}`,
-	})
+	// Conditionally auto-run analysis after startup based on config
+	if cfg := a.Config.Get(); cfg != nil && cfg.Analysis.Quick.AutoRun {
+		a.ToolExecutor.ExecuteSystem(tools.ToolCall{
+			Name:  "analyze",
+			Input: `{"tier": "quick", "continue_to": "deep"}`,
+		})
+	}
 }

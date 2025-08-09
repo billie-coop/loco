@@ -6,11 +6,15 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
+	"strings"
 	"time"
 
+	"github.com/billie-coop/loco/internal/config"
 	"github.com/billie-coop/loco/internal/llm"
 )
 
@@ -34,11 +38,21 @@ func NewService(llmClient llm.Client) Service {
 
 // QuickAnalyze performs Tier 1 analysis.
 func (s *service) QuickAnalyze(ctx context.Context, projectPath string) (*QuickAnalysis, error) {
-	// Check cache first
-	if cached, err := s.loadCachedAnalysis(projectPath, TierQuick); err == nil {
-		if stale, err := s.IsStale(projectPath, TierQuick); err == nil && !stale {
-			if quick, ok := cached.(*QuickAnalysis); ok {
-				return quick, nil
+	// Respect per-tier clean flag
+	forceClean := false
+	if cfgMgr := config.NewManager(projectPath); cfgMgr != nil {
+		_ = cfgMgr.Load()
+		if c := cfgMgr.Get(); c != nil && c.Analysis.Quick.Clean {
+			forceClean = true
+		}
+	}
+	// Check cache first (unless clean)
+	if !forceClean {
+		if cached, err := s.loadCachedAnalysis(projectPath, TierQuick); err == nil {
+			if stale, err := s.IsStale(projectPath, TierQuick); err == nil && !stale {
+				if quick, ok := cached.(*QuickAnalysis); ok {
+					return quick, nil
+				}
 			}
 		}
 	}
@@ -54,18 +68,28 @@ func (s *service) QuickAnalyze(ctx context.Context, projectPath string) (*QuickA
 	// Progress: discovered file list
 	ReportProgress(ctx, Progress{Phase: string(TierQuick), TotalFiles: len(files), CompletedFiles: 0, CurrentFile: "discovered files"})
 
-	// Step 2: Generate file summaries (using small model)
-	fileSummaries, err := s.generateFileSummaries(ctx, projectPath, files)
+	// Step 2: Crowd ranking + adjudication (no file contents)
+	consensus, err := s.consensusRankFiles(ctx, projectPath, files)
 	if err != nil {
-		return nil, fmt.Errorf("failed to generate file summaries: %w", err)
+		return nil, fmt.Errorf("failed to compute consensus ranking: %w", err)
 	}
-	// Progress: summarized files
-	ReportProgress(ctx, Progress{Phase: string(TierQuick), TotalFiles: len(files), CompletedFiles: len(fileSummaries.Files), CurrentFile: "summaries complete"})
+	// Progress: show worker-level completion for quick tier
+	qcCfg := config.NewManager(projectPath)
+	_ = qcCfg.Load()
+	qc := qcCfg.Get().Analysis.Quick
+	ReportProgress(ctx, Progress{Phase: string(TierQuick), TotalFiles: max(1, qc.Workers), CompletedFiles: max(1, qc.Workers), CurrentFile: "adjudication complete"})
 
-	// Step 3: Generate knowledge documents using cascading pipeline
-	knowledgeFiles, err := s.generateKnowledgeDocuments(ctx, projectPath, fileSummaries, TierQuick)
+	// Persist importance to canonical summaries (no content fields for quick)
+	fileSummaries := &FileAnalysisResult{Files: make([]FileSummary, 0, len(consensus.Rankings)), TotalFiles: len(files), Generated: time.Now().Format(time.RFC3339)}
+	for _, r := range consensus.Rankings {
+		fileSummaries.Files = append(fileSummaries.Files, FileSummary{Path: r.Path, Importance: int(r.Importance + 0.5), Summary: r.Reason, FileType: classifyByExt(r.Path)})
+	}
+	_ = s.updateCanonicalSummaries(projectPath, TierQuick, fileSummaries)
+
+	// Step 3: Generate quick knowledge from compact ranking view
+	knowledgeFiles, err := s.generateQuickKnowledge(ctx, projectPath, consensus)
 	if err != nil {
-		return nil, fmt.Errorf("failed to generate knowledge documents: %w", err)
+		return nil, fmt.Errorf("failed to generate quick knowledge: %w", err)
 	}
 
 	// Compute characteristics for QuickAnalysis
@@ -92,7 +116,7 @@ func (s *service) QuickAnalyze(ctx context.Context, projectPath string) (*QuickA
 		Framework:      framework,
 		TotalFiles:     len(files),
 		CodeFiles:      codeFiles,
-		Description:    "Quick structural analysis of project",
+		Description:    "Quick structural analysis of project (crowd ranking + adjudication)",
 		KeyDirectories: keyDirs,
 		EntryPoints:    entryPoints,
 		Duration:       time.Since(start),
@@ -105,22 +129,50 @@ func (s *service) QuickAnalyze(ctx context.Context, projectPath string) (*QuickA
 		_ = err
 	}
 
+	// Start background Detailed job queue after quick adjudication
+	go func() {
+		ctxBg := context.Background()
+		_, _ = s.DetailedAnalyze(ctxBg, projectPath)
+	}()
+
 	return result, nil
 }
 
 // DetailedAnalyze performs Tier 2 analysis.
 func (s *service) DetailedAnalyze(ctx context.Context, projectPath string) (*DetailedAnalysis, error) {
-	// Check cache first
-	if cached, err := s.loadCachedAnalysis(projectPath, TierDetailed); err == nil {
-		if stale, err := s.IsStale(projectPath, TierDetailed); err == nil && !stale {
-			if detailed, ok := cached.(*DetailedAnalysis); ok {
-				return detailed, nil
+	// Respect per-tier clean flag
+	forceClean := false
+	if cfgMgr := config.NewManager(projectPath); cfgMgr != nil {
+		_ = cfgMgr.Load()
+		if c := cfgMgr.Get(); c != nil && c.Analysis.Detailed.Clean {
+			forceClean = true
+		}
+	}
+	// Check cache first (unless clean)
+	if !forceClean {
+		if cached, err := s.loadCachedAnalysis(projectPath, TierDetailed); err == nil {
+			if stale, err := s.IsStale(projectPath, TierDetailed); err == nil && !stale {
+				if detailed, ok := cached.(*DetailedAnalysis); ok {
+					return detailed, nil
+				}
 			}
 		}
 	}
 
 	// Perform new analysis
 	start := time.Now()
+
+	// Per-tier debug gating (analysis.detailed.debug or LOCO_DEBUG)
+	cfgMgr := config.NewManager(projectPath)
+	_ = cfgMgr.Load()
+	cfg := cfgMgr.Get()
+	shouldDebugDetailed := (cfg != nil && cfg.Analysis.Detailed.Debug) || os.Getenv("LOCO_DEBUG") == "true"
+	var detailedDebugDir string
+	if shouldDebugDetailed {
+		ts := time.Now().Format("20060102_150405")
+		detailedDebugDir = filepath.Join(projectPath, s.cachePath, "debug", "detailed", ts)
+		_ = os.MkdirAll(detailedDebugDir, 0o755)
+	}
 
 	// Step 1: Get all project files
 	files, err := GetProjectFiles(projectPath)
@@ -145,6 +197,9 @@ func (s *service) DetailedAnalyze(ctx context.Context, projectPath string) (*Det
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate detailed file summaries: %w", err)
 	}
+
+	// Save canonical/global summaries at knowledge root
+	_ = s.updateCanonicalSummaries(projectPath, TierDetailed, fileSummaries)
 
 	// Step 4: Get previous quick analysis for skeptical refinement
 	var quickAnalysis *QuickAnalysis
@@ -189,6 +244,17 @@ func (s *service) DetailedAnalyze(ctx context.Context, projectPath string) (*Det
 		_ = err
 	}
 
+	// Save knowledge files to disk
+	if err := s.saveKnowledgeFiles(projectPath, TierDetailed, knowledgeFiles); err != nil {
+		// Log but don't fail
+		_ = err
+	}
+
+	// Write debug artifact if enabled
+	if shouldDebugDetailed {
+		_ = os.WriteFile(filepath.Join(detailedDebugDir, "summary.txt"), []byte("detailed analysis completed"), 0o644)
+	}
+
 	return result, nil
 }
 
@@ -200,17 +266,39 @@ func (s *service) DeepAnalyze(ctx context.Context, projectPath string) (*DeepAna
 		return nil, fmt.Errorf("failed to get detailed analysis for deep analysis: %w", err)
 	}
 
-	// Check cache first
-	if cached, err := s.loadCachedAnalysis(projectPath, TierDeep); err == nil {
-		if stale, err := s.IsStale(projectPath, TierDeep); err == nil && !stale {
-			if deep, ok := cached.(*DeepAnalysis); ok {
-				return deep, nil
+	// Respect per-tier clean flag
+	forceClean := false
+	if cfgMgr := config.NewManager(projectPath); cfgMgr != nil {
+		_ = cfgMgr.Load()
+		if c := cfgMgr.Get(); c != nil && c.Analysis.Deep.Clean {
+			forceClean = true
+		}
+	}
+	// Check cache first (unless clean)
+	if !forceClean {
+		if cached, err := s.loadCachedAnalysis(projectPath, TierDeep); err == nil {
+			if stale, err := s.IsStale(projectPath, TierDeep); err == nil && !stale {
+				if deep, ok := cached.(*DeepAnalysis); ok {
+					return deep, nil
+				}
 			}
 		}
 	}
 
 	// Perform new analysis
 	start := time.Now()
+
+	// Per-tier debug gating (analysis.deep.debug or LOCO_DEBUG)
+	cfgMgr := config.NewManager(projectPath)
+	_ = cfgMgr.Load()
+	cfg := cfgMgr.Get()
+	shouldDebugDeep := (cfg != nil && cfg.Analysis.Deep.Debug) || os.Getenv("LOCO_DEBUG") == "true"
+	var deepDebugDir string
+	if shouldDebugDeep {
+		ts := time.Now().Format("20060102_150405")
+		deepDebugDir = filepath.Join(projectPath, s.cachePath, "debug", "deep", ts)
+		_ = os.MkdirAll(deepDebugDir, 0o755)
+	}
 
 	// Step 1: Get all project files
 	files, err := GetProjectFiles(projectPath)
@@ -233,6 +321,9 @@ func (s *service) DeepAnalyze(ctx context.Context, projectPath string) (*DeepAna
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate deep file summaries: %w", err)
 	}
+
+	// Save canonical/global summaries at knowledge root
+	_ = s.updateCanonicalSummaries(projectPath, TierDeep, fileSummaries)
 
 	// Step 4: Generate knowledge documents with high skepticism of detailed tier
 	knowledgeFiles, refinementNotes, err := s.generateDeepKnowledgeDocuments(
@@ -276,7 +367,267 @@ func (s *service) DeepAnalyze(ctx context.Context, projectPath string) (*DeepAna
 		_ = err
 	}
 
+	// Write debug artifact if enabled
+	if shouldDebugDeep {
+		_ = os.WriteFile(filepath.Join(deepDebugDir, "summary.txt"), []byte("deep analysis completed"), 0o644)
+	}
+
 	return result, nil
+}
+
+// --- Canonical summaries management ---
+
+type canonicalFileSummary struct {
+	Path          string            `json:"path"`
+	RepoRoot      string            `json:"repo_root,omitempty"`
+	GitBlobHash   string            `json:"git_blob_hash,omitempty"`
+	GitStatus     string            `json:"git_status,omitempty"`
+	ContentHash   string            `json:"content_hash,omitempty"`
+	SizeBytes     int               `json:"size_bytes,omitempty"`
+	LineCount     int               `json:"line_count,omitempty"`
+	Language      string            `json:"language,omitempty"`
+	FileType      string            `json:"file_type,omitempty"`
+	Summary       string            `json:"summary,omitempty"`
+	Purpose       string            `json:"purpose,omitempty"`
+	Importance    int               `json:"importance,omitempty"`
+	Tags          []string          `json:"tags,omitempty"`
+	Confidence    float64           `json:"confidence,omitempty"`
+	AnalyzedAt    time.Time         `json:"analyzed_at"`
+	Tier          Tier              `json:"tier"`
+	Analyzer      map[string]any    `json:"analyzer,omitempty"`
+	Dirty         bool              `json:"dirty"`
+	SchemaVersion int               `json:"schema_version"`
+	Extras        map[string]string `json:"extras,omitempty"`
+}
+
+// updateCanonicalSummaries merges the latest summaries into .loco/knowledge/file_summaries.json and writes a global compact view.
+func (s *service) updateCanonicalSummaries(projectPath string, tier Tier, fileSummaries *FileAnalysisResult) error {
+	canonPath := filepath.Join(projectPath, s.cachePath, "knowledge", "file_summaries.json")
+	_ = os.MkdirAll(filepath.Dir(canonPath), 0755)
+
+	// Load existing if present
+	existing := map[string]canonicalFileSummary{}
+	if data, err := os.ReadFile(canonPath); err == nil {
+		_ = json.Unmarshal(data, &existing)
+	}
+
+	// Prepare git info
+	tracked := s.getGitTrackedSet(projectPath)
+	status := s.getGitStatusMap(projectPath)
+
+	// Merge each summary, skip empty paths
+	for _, fs := range fileSummaries.Files {
+		path := strings.TrimSpace(fs.Path)
+		if path == "" {
+			continue
+		}
+		c := existing[path]
+		c.Path = path
+		c.Tier = tier
+		c.AnalyzedAt = time.Now()
+		c.SchemaVersion = 1
+		// Prefer deterministic file type
+		c.FileType = classifyByExt(path)
+		// Only set content-like fields for non-quick tiers
+		if tier != TierQuick {
+			c.Summary = fs.Summary
+			c.Purpose = fs.Purpose
+		}
+		if fs.Importance > 0 {
+			c.Importance = fs.Importance
+		}
+		// Language detection
+		c.Language = detectLanguageForFile(path)
+		// Content hash and size/lines only for non-quick tiers
+		if tier != TierQuick {
+			contentHash, sizeBytes, lineCount := computeContentHashStats(filepath.Join(projectPath, path))
+			if contentHash != "" {
+				c.ContentHash = contentHash
+			}
+			c.SizeBytes = sizeBytes
+			c.LineCount = lineCount
+		}
+		// Git status
+		if _, ok := tracked[path]; ok {
+			c.GitStatus = "tracked"
+		} else if st, ok := status[path]; ok {
+			c.GitStatus = st
+		} else {
+			c.GitStatus = "untracked"
+		}
+		// Analyzer provenance
+		c.Analyzer = map[string]any{}
+		if lm, ok := s.llmClient.(*llm.LMStudioClient); ok {
+			c.Analyzer["model_id"] = lm.CurrentModel()
+		}
+		existing[path] = c
+	}
+
+	// Write canonical map at knowledge root
+	b, _ := json.MarshalIndent(existing, "", "  ")
+	if err := os.WriteFile(canonPath, b, 0644); err != nil {
+		return err
+	}
+
+	// Also write a global compact view for convenience at knowledge root
+	var globalCompact []map[string]string
+	if tier == TierQuick {
+		// For quick tier, build compact view directly from provided summaries (reasons), without storing in canonical content fields
+		globalCompact = make([]map[string]string, 0, len(fileSummaries.Files))
+		for _, fs := range fileSummaries.Files {
+			p := strings.TrimSpace(fs.Path)
+			s := strings.TrimSpace(fs.Summary)
+			if p == "" || s == "" {
+				continue
+			}
+			globalCompact = append(globalCompact, map[string]string{"path": p, "summary": s})
+		}
+		// Sort by importance desc, then path
+		sort.SliceStable(globalCompact, func(i, j int) bool {
+			iPath := globalCompact[i]["path"]
+			jPath := globalCompact[j]["path"]
+			iImp := 0
+			jImp := 0
+			if irec, ok := existing[iPath]; ok {
+				iImp = irec.Importance
+			}
+			if jrec, ok := existing[jPath]; ok {
+				jImp = jrec.Importance
+			}
+			if iImp != jImp {
+				return iImp > jImp
+			}
+			return iPath < jPath
+		})
+	} else {
+		globalCompact = make([]map[string]string, 0, len(existing))
+		for _, rec := range existing {
+			if strings.TrimSpace(rec.Summary) == "" || strings.TrimSpace(rec.Path) == "" {
+				continue
+			}
+			globalCompact = append(globalCompact, map[string]string{
+				"path":    rec.Path,
+				"summary": rec.Summary,
+			})
+		}
+		// Sort by importance desc, then path
+		sort.SliceStable(globalCompact, func(i, j int) bool {
+			iPath := globalCompact[i]["path"]
+			jPath := globalCompact[j]["path"]
+			iImp := existing[iPath].Importance
+			jImp := existing[jPath].Importance
+			if iImp != jImp {
+				return iImp > jImp
+			}
+			return iPath < jPath
+		})
+	}
+	_ = s.saveKnowledgeRootJSON(projectPath, "compact_file_summaries.json", globalCompact)
+	return nil
+}
+
+func detectLanguageForFile(p string) string {
+	ext := strings.ToLower(filepath.Ext(p))
+	switch ext {
+	case ".go":
+		return "Go"
+	case ".js":
+		return "JavaScript"
+	case ".ts":
+		return "TypeScript"
+	case ".py":
+		return "Python"
+	case ".java":
+		return "Java"
+	case ".rs":
+		return "Rust"
+	case ".rb":
+		return "Ruby"
+	case ".php":
+		return "PHP"
+	case ".md":
+		return "Markdown"
+	default:
+		return ""
+	}
+}
+
+func classifyByExt(p string) string {
+	ext := strings.ToLower(filepath.Ext(p))
+	switch ext {
+	case ".md", ".txt", ".rst":
+		return "doc"
+	case ".go", ".js", ".ts", ".py", ".java", ".rs", ".rb", ".php":
+		return "source"
+	case ".yaml", ".yml", ".toml", ".json":
+		return "config"
+	default:
+		return "other"
+	}
+}
+
+func computeContentHashStats(absPath string) (hash string, size int, lines int) {
+	data, err := os.ReadFile(absPath)
+	if err != nil {
+		// File may have been deleted or unreadable
+		var fi fs.FileInfo
+		if fi, err = os.Stat(absPath); err == nil {
+			size = int(fi.Size())
+		}
+		return "", size, 0
+	}
+	size = len(data)
+	lines = strings.Count(string(data), "\n") + 1
+	h := sha256.New()
+	h.Write(data)
+	return hex.EncodeToString(h.Sum(nil)), size, lines
+}
+
+func (s *service) getGitTrackedSet(projectPath string) map[string]struct{} {
+	res := map[string]struct{}{}
+	cmd := exec.Command("git", "ls-files")
+	cmd.Dir = projectPath
+	out, err := cmd.Output()
+	if err != nil {
+		return res
+	}
+	for _, line := range strings.Split(string(out), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		res[line] = struct{}{}
+	}
+	return res
+}
+
+func (s *service) getGitStatusMap(projectPath string) map[string]string {
+	res := map[string]string{}
+	cmd := exec.Command("git", "status", "--porcelain")
+	cmd.Dir = projectPath
+	out, err := cmd.Output()
+	if err != nil {
+		return res
+	}
+	for _, line := range strings.Split(string(out), "\n") {
+		if len(line) < 4 {
+			continue
+		}
+		code := strings.TrimSpace(line[:2])
+		path := strings.TrimSpace(line[3:])
+		switch code {
+		case "??":
+			res[path] = "untracked"
+		case "M", "MM", "AM", "MA", "A", "AA":
+			res[path] = "modified"
+		case "D", "AD", "DA":
+			res[path] = "deleted"
+		default:
+			// fallback generic state
+			res[path] = "modified"
+		}
+	}
+	return res
 }
 
 // FullAnalyze performs Tier 4 analysis.
@@ -287,17 +638,39 @@ func (s *service) FullAnalyze(ctx context.Context, projectPath string) (*FullAna
 		return nil, fmt.Errorf("failed to get deep analysis for full analysis: %w", err)
 	}
 
-	// Check cache first
-	if cached, err := s.loadCachedAnalysis(projectPath, TierFull); err == nil {
-		if stale, err := s.IsStale(projectPath, TierFull); err == nil && !stale {
-			if full, ok := cached.(*FullAnalysis); ok {
-				return full, nil
+	// Respect per-tier clean flag
+	forceClean := false
+	if cfgMgr := config.NewManager(projectPath); cfgMgr != nil {
+		_ = cfgMgr.Load()
+		if c := cfgMgr.Get(); c != nil && c.Analysis.Full.Clean {
+			forceClean = true
+		}
+	}
+	// Check cache first (unless clean)
+	if !forceClean {
+		if cached, err := s.loadCachedAnalysis(projectPath, TierFull); err == nil {
+			if stale, err := s.IsStale(projectPath, TierFull); err == nil && !stale {
+				if full, ok := cached.(*FullAnalysis); ok {
+					return full, nil
+				}
 			}
 		}
 	}
 
 	// Perform new analysis
 	start := time.Now()
+
+	// Per-tier debug gating (analysis.full.debug or LOCO_DEBUG)
+	cfgMgr := config.NewManager(projectPath)
+	_ = cfgMgr.Load()
+	cfg := cfgMgr.Get()
+	shouldDebugFull := (cfg != nil && cfg.Analysis.Full.Debug) || os.Getenv("LOCO_DEBUG") == "true"
+	var fullDebugDir string
+	if shouldDebugFull {
+		ts := time.Now().Format("20060102_150405")
+		fullDebugDir = filepath.Join(projectPath, s.cachePath, "debug", "full", ts)
+		_ = os.MkdirAll(fullDebugDir, 0o755)
+	}
 	// TODO: Implement full analysis
 	result := &FullAnalysis{
 		Tier:           TierFull,
@@ -316,6 +689,11 @@ func (s *service) FullAnalyze(ctx context.Context, projectPath string) (*FullAna
 	if err := s.saveCachedAnalysis(projectPath, result); err != nil {
 		// Log but don't fail
 		_ = err
+	}
+
+	// Write debug artifact if enabled
+	if shouldDebugFull {
+		_ = os.WriteFile(filepath.Join(fullDebugDir, "summary.txt"), []byte("full analysis completed"), 0o644)
 	}
 
 	return result, nil
@@ -424,6 +802,20 @@ func (s *service) saveCachedAnalysis(projectPath string, analysis Analysis) erro
 	}
 
 	return os.WriteFile(cachePath, data, 0644)
+}
+
+// saveKnowledgeRootJSON writes JSON into .loco/knowledge/
+func (s *service) saveKnowledgeRootJSON(projectPath string, filename string, data any) error {
+	dir := filepath.Join(projectPath, s.cachePath, "knowledge")
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return err
+	}
+	path := filepath.Join(dir, filename)
+	b, err := json.MarshalIndent(data, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(path, b, 0644)
 }
 
 func (s *service) getGitStatusHash(projectPath string) (string, error) {
