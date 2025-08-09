@@ -55,7 +55,7 @@ type LMStudioClient struct {
 	baseURL     string
 	model       string
 	contextSize int // default n_ctx to send
-	numKeep     int // default num_keep to send
+	numKeep     int // default n_keep to send
 }
 
 // NewLMStudioClient creates a new LM Studio client.
@@ -107,23 +107,18 @@ func (c *LMStudioClient) CompleteWithOptions(ctx context.Context, messages []Mes
 
 	// Add model if specified
 	if c.model != "" {
-		// Only log in detailed scenarios to reduce noise
 		payload["model"] = c.model
 	}
 
-	// Add context size if specified (LM Studio uses n_ctx)
+	// Add context window and n_keep (LM Studio / llama.cpp style)
 	if opts.ContextSize > 0 {
 		payload["n_ctx"] = opts.ContextSize
 	} else if c.contextSize > 0 {
 		payload["n_ctx"] = c.contextSize
 	}
-	// Control num_keep to avoid LM Studio errors
-	payload["num_keep"] = c.numKeep
+	payload["n_keep"] = c.numKeep
 
-	body, err := json.Marshal(payload)
-	if err != nil {
-		return "", err
-	}
+	body, _ := json.Marshal(payload)
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/v1/chat/completions", bytes.NewReader(body))
 	if err != nil {
@@ -138,33 +133,26 @@ func (c *LMStudioClient) CompleteWithOptions(ctx context.Context, messages []Mes
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		body, err := io.ReadAll(resp.Body)
-		if err != nil {
-			return "", fmt.Errorf("LM Studio returned status %d but failed to read body: %w", resp.StatusCode, err)
-		}
-		return "", fmt.Errorf("LM Studio error: %s", string(body))
+		data, _ := io.ReadAll(resp.Body)
+		return "", fmt.Errorf("LM Studio returned status %d: %s", resp.StatusCode, string(data))
 	}
 
 	var result struct {
 		Choices []struct {
-			Message struct {
-				Content string `json:"content"`
-			} `json:"message"`
+			Message Message `json:"message"`
 		} `json:"choices"`
 	}
-
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
 		return "", err
 	}
-
-	if len(result.Choices) > 0 {
-		return result.Choices[0].Message.Content, nil
+	if len(result.Choices) == 0 {
+		return "", errors.New("no choices returned")
 	}
 
-	return "", errors.New("no response from LM Studio")
+	return result.Choices[0].Message.Content, nil
 }
 
-// Stream sends messages and streams the response.
+// Stream streams the response from the LLM.
 func (c *LMStudioClient) Stream(ctx context.Context, messages []Message, onChunk func(string)) error {
 	payload := map[string]interface{}{
 		"messages":    messages,
@@ -172,23 +160,13 @@ func (c *LMStudioClient) Stream(ctx context.Context, messages []Message, onChunk
 		"max_tokens":  -1,
 		"stream":      true,
 	}
-
-	// Add model if specified
 	if c.model != "" {
-		// Only log in detailed scenarios to reduce noise
 		payload["model"] = c.model
 	}
+	payload["n_ctx"] = c.contextSize
+	payload["n_keep"] = c.numKeep
 
-	// Add default context size
-	if c.contextSize > 0 {
-		payload["n_ctx"] = c.contextSize
-	}
-	payload["num_keep"] = c.numKeep
-
-	body, err := json.Marshal(payload)
-	if err != nil {
-		return err
-	}
+	body, _ := json.Marshal(payload)
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/v1/chat/completions", bytes.NewReader(body))
 	if err != nil {
@@ -203,24 +181,23 @@ func (c *LMStudioClient) Stream(ctx context.Context, messages []Message, onChunk
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		body, err := io.ReadAll(resp.Body)
-		if err != nil {
-			return fmt.Errorf("LM Studio returned status %d but failed to read body: %w", resp.StatusCode, err)
-		}
-		return fmt.Errorf("LM Studio error: %s", string(body))
+		data, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("LM Studio returned status %d: %s", resp.StatusCode, string(data))
 	}
 
 	reader := bufio.NewReader(resp.Body)
 	for {
-		line, err := reader.ReadString('\n')
+		line, err := reader.ReadBytes('\n')
 		if err != nil {
-			if err == io.EOF {
+			if errors.Is(err, io.EOF) {
 				break
 			}
 			return err
 		}
-		// Parse chunks and call onChunk
-		onChunk(line)
+		if len(line) == 0 {
+			continue
+		}
+		onChunk(string(line))
 	}
 
 	return nil
@@ -292,3 +269,6 @@ func (c *LMStudioClient) SetModel(modelID string) {
 func (c *LMStudioClient) SetEndpoint(endpoint string) {
 	c.baseURL = endpoint
 }
+
+// CurrentModel returns the currently set model ID.
+func (c *LMStudioClient) CurrentModel() string { return c.model }

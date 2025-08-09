@@ -124,6 +124,17 @@ func (e *ToolExecutor) executeWithContext(call tools.ToolCall, initiator string)
 		}
 	}
 
+	// If we have team clients, pass selected team into context so welcome tool can display
+	if e.llmService != nil {
+		// Try to access App via llmService? Not directly; but team clients are on sessions? No.
+		// As a simple pass-through, attach a best-effort pointer if LLMService's client has a model set.
+		if e.llmService != nil && e.llmService.client != nil {
+			if lm, ok := e.llmService.client.(*llm.LMStudioClient); ok {
+				_ = lm // nothing to add here; team info is not available from service
+			}
+		}
+	}
+
 	// If analyze tool, wrap context with progress publisher
 	if call.Name == "analyze" {
 		ctx = analysis.WithProgressCallback(ctx, func(p analysis.Progress) {

@@ -89,6 +89,17 @@ func (t *startupWelcomeTool) Run(ctx context.Context, call ToolCall) (ToolRespon
 		sb.WriteString("LM Studio client not configured\n\n")
 	}
 
+	// Selected models/teams if available on context (optional)
+	if team, ok := ctx.Value("model_team").(*llm.ModelTeam); ok && team != nil {
+		sb.WriteString("Selected models (team):\n")
+		sb.WriteString(fmt.Sprintf("  Small:  %s\n", team.Small))
+		sb.WriteString(fmt.Sprintf("  Medium: %s\n", team.Medium))
+		sb.WriteString(fmt.Sprintf("  Large:  %s\n\n", team.Large))
+	}
+	if currentModel := t.client.CurrentModel(); currentModel != "" {
+		sb.WriteString(fmt.Sprintf("Preferred model: %s\n\n", currentModel))
+	}
+
 	// Quick commands
 	sb.WriteString("Quick commands:\n")
 	sb.WriteString("  /help — show commands\n")
