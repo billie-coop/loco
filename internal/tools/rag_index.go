@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/billie-coop/loco/internal/config"
+	"github.com/billie-coop/loco/internal/llm"
 	"github.com/billie-coop/loco/internal/sidecar"
 )
 
@@ -21,6 +23,8 @@ type RagIndexParams struct {
 type ragIndexTool struct {
 	workingDir     string
 	sidecarService sidecar.Service
+	llmClient      llm.Client
+	configManager  *config.Manager
 }
 
 const (
@@ -47,10 +51,12 @@ OUTPUT:
 )
 
 // NewRagIndexTool creates a new RAG indexing tool
-func NewRagIndexTool(workingDir string, sidecarService sidecar.Service) BaseTool {
+func NewRagIndexTool(workingDir string, sidecarService sidecar.Service, llmClient llm.Client, configManager *config.Manager) BaseTool {
 	return &ragIndexTool{
 		workingDir:     workingDir,
 		sidecarService: sidecarService,
+		llmClient:      llmClient,
+		configManager:  configManager,
 	}
 }
 
@@ -82,6 +88,18 @@ func (r *ragIndexTool) Info() ToolInfo {
 func (r *ragIndexTool) Run(ctx context.Context, call ToolCall) (ToolResponse, error) {
 	if r.sidecarService == nil {
 		return NewTextErrorResponse("RAG service not available"), nil
+	}
+	
+	// Check if embedding model is available in LM Studio
+	if r.llmClient != nil && r.configManager != nil {
+		if lmClient, ok := r.llmClient.(*llm.LMStudioClient); ok {
+			cfg := r.configManager.Get()
+			if cfg != nil && cfg.Analysis.RAG.EmbeddingModel != "" {
+				if err := lmClient.CheckEmbeddingModel(cfg.Analysis.RAG.EmbeddingModel); err != nil {
+					return NewTextErrorResponse(fmt.Sprintf("❌ Embedding model check failed: %s\n\nPlease load the embedding model in LM Studio before indexing.", err)), nil
+				}
+			}
+		}
 	}
 	
 	var params RagIndexParams

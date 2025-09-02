@@ -49,9 +49,10 @@ type AnalysisQuickConfig struct {
 }
 
 type RAGConfig struct {
-	AutoIndex bool   `json:"autoindex"` // Index on startup
-	Embedder  string `json:"embedder"`  // "mock" or "lmstudio"
-	BatchSize int    `json:"batch_size"` // Files per batch during indexing
+	AutoIndex      bool   `json:"autoindex"`       // Index on startup
+	Embedder       string `json:"embedder"`        // "mock" or "lmstudio"
+	BatchSize      int    `json:"batch_size"`      // Files per batch during indexing
+	EmbeddingModel string `json:"embedding_model"` // Model ID for embeddings (e.g., "nomic-embed-text-v1.5-GGUF")
 }
 
 type AnalysisConfig struct {
@@ -144,9 +145,10 @@ func DefaultConfig() *Config {
 			Deep:     TierConfig{Clean: false, Debug: false, AutoRun: false},
 			Full:     TierConfig{Clean: false, Debug: false, AutoRun: false},
 			RAG: RAGConfig{
-				AutoIndex: true,       // Index on startup by default
-				Embedder:  "lmstudio", // Use LM Studio for real embeddings
-				BatchSize: 10,         // Process 10 files at a time
+				AutoIndex:      true,                        // Index on startup by default
+				Embedder:       "lmstudio",                  // Use LM Studio for real embeddings
+				BatchSize:      10,                          // Process 10 files at a time
+				EmbeddingModel: "nomic-embed-text-v1.5-GGUF", // Default embedding model
 			},
 		},
 	}

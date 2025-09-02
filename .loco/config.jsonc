@@ -95,7 +95,11 @@
       // - "lmstudio": Real embeddings (~200ms), requires embedding model loaded in LM Studio
       "embedder": "lmstudio",       // Using LM Studio for real semantic search
       
-      "batch_size": 10              // Number of files to process per batch during indexing
+      "batch_size": 10,             // Number of files to process per batch during indexing
+      
+      // Embedding model to use (must be loaded in LM Studio)
+      // Common options: "nomic-embed-text-v1.5-GGUF", "text-embedding-3-small", etc.
+      "embedding_model": "nomic-embed-text-v1.5-GGUF"
     }
   },
 

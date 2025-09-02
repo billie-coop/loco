@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 )
 
 // Message represents a chat message.
@@ -279,3 +280,45 @@ func (c *LMStudioClient) SetEndpoint(endpoint string) {
 
 // CurrentModel returns the currently set model ID.
 func (c *LMStudioClient) CurrentModel() string { return c.model }
+
+// CheckEmbeddingModel checks if an embedding model is available in LM Studio.
+func (c *LMStudioClient) CheckEmbeddingModel(modelID string) error {
+	models, err := c.GetModels()
+	if err != nil {
+		return fmt.Errorf("failed to get models: %w", err)
+	}
+	
+	// Check if the model is available
+	for _, model := range models {
+		if model.ID == modelID {
+			// Found the model, it's available
+			return nil
+		}
+	}
+	
+	// Model not found, return helpful error
+	var embedModels []string
+	for _, model := range models {
+		// Check if it's an embedding model (contains "embed" in the name)
+		if containsEmbedding(model.ID) {
+			embedModels = append(embedModels, model.ID)
+		}
+	}
+	
+	if len(embedModels) > 0 {
+		return fmt.Errorf("embedding model %s not loaded in LM Studio. Available embedding models: %v", modelID, embedModels)
+	}
+	return fmt.Errorf("embedding model %s not loaded in LM Studio. No embedding models found. Please load an embedding model like nomic-embed-text-v1.5-GGUF", modelID)
+}
+
+// containsEmbedding checks if a model ID contains embedding-related keywords
+func containsEmbedding(modelID string) bool {
+	embedKeywords := []string{"embed", "embedding", "e5", "bge", "gte"}
+	lower := modelID // Already lowercase from model detection
+	for _, keyword := range embedKeywords {
+		if strings.Contains(lower, keyword) {
+			return true
+		}
+	}
+	return false
+}

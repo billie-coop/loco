@@ -73,7 +73,7 @@ func (e *LMStudioEmbedder) Embed(ctx context.Context, text string) ([]float32, e
 	// Send request
 	resp, err := e.client.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("failed to send request: %w", err)
+		return nil, fmt.Errorf("failed to connect to LM Studio: %w", err)
 	}
 	defer resp.Body.Close()
 	
@@ -86,9 +86,13 @@ func (e *LMStudioEmbedder) Embed(ctx context.Context, text string) ([]float32, e
 			} `json:"error"`
 		}
 		if err := json.NewDecoder(resp.Body).Decode(&errorResp); err == nil && errorResp.Error.Message != "" {
+			// Check for common error about missing embedding model
+			if errorResp.Error.Type == "invalid_request_error" {
+				return nil, fmt.Errorf("embedding model not loaded in LM Studio (need %s): %s", e.model, errorResp.Error.Message)
+			}
 			return nil, fmt.Errorf("LM Studio error: %s", errorResp.Error.Message)
 		}
-		return nil, fmt.Errorf("LM Studio returned status %d", resp.StatusCode)
+		return nil, fmt.Errorf("LM Studio returned status %d - ensure embedding model %s is loaded", resp.StatusCode, e.model)
 	}
 	
 	// Parse response
@@ -98,7 +102,7 @@ func (e *LMStudioEmbedder) Embed(ctx context.Context, text string) ([]float32, e
 	}
 	
 	if len(embResp.Data) == 0 {
-		return nil, fmt.Errorf("no embeddings returned")
+		return nil, fmt.Errorf("no embeddings returned - check if embedding model %s is loaded", e.model)
 	}
 	
 	embedding := embResp.Data[0].Embedding

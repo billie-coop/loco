@@ -123,20 +123,36 @@ func New(workingDir string, eventBroker *events.Broker) *App {
 	switch embedderType {
 	case "lmstudio":
 		lmStudioURL := "http://localhost:1234"
-		if cfg := app.Config.Get(); cfg != nil && cfg.LMStudioURL != "" {
-			lmStudioURL = cfg.LMStudioURL
+		embeddingModel := "nomic-embed-text-v1.5-GGUF"
+		if cfg := app.Config.Get(); cfg != nil {
+			if cfg.LMStudioURL != "" {
+				lmStudioURL = cfg.LMStudioURL
+			}
+			if cfg.Analysis.RAG.EmbeddingModel != "" {
+				embeddingModel = cfg.Analysis.RAG.EmbeddingModel
+			}
 		}
-		sidecarEmbedder = embedder.NewLMStudioEmbedder(lmStudioURL)
+		lmEmbedder := embedder.NewLMStudioEmbedder(lmStudioURL)
+		lmEmbedder.SetModel(embeddingModel)
+		sidecarEmbedder = lmEmbedder
 	case "mock":
 		// Mock for testing only
 		sidecarEmbedder = embedder.NewMockEmbedder(384)
 	default:
 		// Default to LM Studio
 		lmStudioURL := "http://localhost:1234"
-		if cfg := app.Config.Get(); cfg != nil && cfg.LMStudioURL != "" {
-			lmStudioURL = cfg.LMStudioURL
+		embeddingModel := "nomic-embed-text-v1.5-GGUF"
+		if cfg := app.Config.Get(); cfg != nil {
+			if cfg.LMStudioURL != "" {
+				lmStudioURL = cfg.LMStudioURL
+			}
+			if cfg.Analysis.RAG.EmbeddingModel != "" {
+				embeddingModel = cfg.Analysis.RAG.EmbeddingModel
+			}
 		}
-		sidecarEmbedder = embedder.NewLMStudioEmbedder(lmStudioURL)
+		lmEmbedder := embedder.NewLMStudioEmbedder(lmStudioURL)
+		lmEmbedder.SetModel(embeddingModel)
+		sidecarEmbedder = lmEmbedder
 	}
 	
 	memoryStore := vectordb.NewMemoryStore(sidecarEmbedder)
@@ -144,7 +160,7 @@ func New(workingDir string, eventBroker *events.Broker) *App {
 	
 	// Register RAG tools
 	app.Tools.Register(tools.NewRagTool(app.Sidecar))
-	app.Tools.Register(tools.NewRagIndexTool(workingDir, app.Sidecar))
+	app.Tools.Register(tools.NewRagIndexTool(workingDir, app.Sidecar, nil, app.Config))
 
 	// Create unified tool architecture
 	app.ToolExecutor = NewToolExecutor(app.Tools, eventBroker, app.Sessions, app.LLMService, permissionService)
@@ -305,6 +321,11 @@ func (a *App) RunStartupAnalysis() {
 				_ = err
 			}
 		}()
+		
+		// Update RAG index tool with LLM client now that it's available
+		if a.Tools != nil && a.Sidecar != nil && a.LLM != nil {
+			a.Tools.Replace(tools.NewRagIndexTool(a.workingDir, a.Sidecar, a.LLM, a.Config))
+		}
 		
 		// Conditionally run RAG indexing based on config
 		if cfg := a.Config.Get(); cfg != nil && cfg.Analysis.RAG.AutoIndex {
