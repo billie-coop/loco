@@ -100,6 +100,16 @@ Good luck! The compiler is your friend! 🚂
 - **Don't run commands automatically** - I prefer to run things myself (like `make run`, `make test`, etc.) unless I specifically ask you to run them
 - Just tell me what command to run and I'll do it!
 
+## Working Style - IMPORTANT
+
+- **I'm an experienced senior engineer** - Don't just implement things without discussing the approach
+- **Explain tradeoffs** - When there are multiple options, lay them out clearly
+- **Don't make assumptions** - Ask when something is unclear rather than guessing
+- **Collaborative approach** - We're working together, not you doing everything
+- **Be honest about uncertainty** - If you don't know something or if a library seems questionable, say so
+- **Research before adding dependencies** - Understand what we're adding and why
+- **Question bad ideas** - If something seems like a bad approach (like adding a complex, poorly documented library), speak up
+
 ## Unified Tool Architecture
 
 As of recent refactoring, Loco uses a **unified tool architecture** where everything is a tool:

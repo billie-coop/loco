@@ -114,31 +114,29 @@ func New(workingDir string, eventBroker *events.Broker) *App {
 	var sidecarEmbedder sidecar.Embedder
 	
 	// Get embedder type from config
-	embedderType := "mock"
+	embedderType := "lmstudio"
 	if cfg := app.Config.Get(); cfg != nil && cfg.Analysis.RAG.Embedder != "" {
 		embedderType = cfg.Analysis.RAG.Embedder
 	}
 	
 	// Create appropriate embedder
 	switch embedderType {
-	case "onnx":
-		// Use ONNX embedder (currently wraps mock until hugot API is figured out)
-		onnxEmb, err := embedder.NewONNXEmbedder(workingDir)
-		if err != nil {
-			// Fall back to mock if ONNX fails
-			sidecarEmbedder = embedder.NewMockEmbedder(384)
-		} else {
-			sidecarEmbedder = onnxEmb
-		}
 	case "lmstudio":
 		lmStudioURL := "http://localhost:1234"
 		if cfg := app.Config.Get(); cfg != nil && cfg.LMStudioURL != "" {
 			lmStudioURL = cfg.LMStudioURL
 		}
 		sidecarEmbedder = embedder.NewLMStudioEmbedder(lmStudioURL)
-	default:
-		// Default to mock
+	case "mock":
+		// Mock for testing only
 		sidecarEmbedder = embedder.NewMockEmbedder(384)
+	default:
+		// Default to LM Studio
+		lmStudioURL := "http://localhost:1234"
+		if cfg := app.Config.Get(); cfg != nil && cfg.LMStudioURL != "" {
+			lmStudioURL = cfg.LMStudioURL
+		}
+		sidecarEmbedder = embedder.NewLMStudioEmbedder(lmStudioURL)
 	}
 	
 	memoryStore := vectordb.NewMemoryStore(sidecarEmbedder)

@@ -90,11 +90,10 @@
     "rag": {
       "autoindex": true,            // If true, index files on startup (shows progress in UI)
       
-      // Embedder selection: "mock" | "onnx" | "lmstudio"
+      // Embedder selection: "mock" | "lmstudio"
       // - "mock": Fast, testing only, no semantic understanding
-      // - "onnx": FASTEST (~10ms), pure Go with hugot, downloads models automatically
-      // - "lmstudio": Slower (~200ms), requires embedding model loaded in LM Studio
-      "embedder": "onnx",           // Now using ONNX since hugot is installed!
+      // - "lmstudio": Real embeddings (~200ms), requires embedding model loaded in LM Studio
+      "embedder": "lmstudio",       // Using LM Studio for real semantic search
       
       "batch_size": 10              // Number of files to process per batch during indexing
     }
