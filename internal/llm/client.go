@@ -308,7 +308,7 @@ func (c *LMStudioClient) CheckEmbeddingModel(modelID string) error {
 	if len(embedModels) > 0 {
 		return fmt.Errorf("embedding model %s not loaded in LM Studio. Available embedding models: %v", modelID, embedModels)
 	}
-	return fmt.Errorf("embedding model %s not loaded in LM Studio. No embedding models found. Please load an embedding model like nomic-embed-text-v1.5-GGUF", modelID)
+	return fmt.Errorf("embedding model %s not loaded in LM Studio. No embedding models found. Please load an embedding model like text-embedding-nomic-embed-text-v1.5", modelID)
 }
 
 // containsEmbedding checks if a model ID contains embedding-related keywords

@@ -98,8 +98,10 @@
       "batch_size": 10,             // Number of files to process per batch during indexing
       
       // Embedding model to use (must be loaded in LM Studio)
-      // Common options: "nomic-embed-text-v1.5-GGUF", "text-embedding-3-small", etc.
-      "embedding_model": "nomic-embed-text-v1.5-GGUF"
+      // Common options: 
+      // - "text-embedding-nomic-embed-text-v1.5@q8_0" (8-bit, highest quality)
+      // - "text-embedding-nomic-embed-text-v1.5@q4_k_m" (4-bit, faster/smaller)
+      "embedding_model": "text-embedding-nomic-embed-text-v1.5@q8_0"
     }
   },
 

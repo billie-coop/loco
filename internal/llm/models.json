@@ -154,11 +154,18 @@
       "description": "Nomic embedding model (not for generation)",
       "tool_calls": false
     },
-    "nomic-embed-text-v1.5-GGUF": {
+    "text-embedding-nomic-embed-text-v1.5@q8_0": {
       "size": "special",
       "params": "137M",
       "category": "embedding",
-      "description": "Nomic embedding model v1.5 - GGUF format for LM Studio",
+      "description": "Nomic embedding model v1.5 - 8-bit quantized (highest quality)",
+      "tool_calls": false
+    },
+    "text-embedding-nomic-embed-text-v1.5@q4_k_m": {
+      "size": "special",
+      "params": "137M",
+      "category": "embedding",
+      "description": "Nomic embedding model v1.5 - 4-bit quantized (smaller, faster)",
       "tool_calls": false
     }
   }

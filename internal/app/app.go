@@ -123,7 +123,7 @@ func New(workingDir string, eventBroker *events.Broker) *App {
 	switch embedderType {
 	case "lmstudio":
 		lmStudioURL := "http://localhost:1234"
-		embeddingModel := "nomic-embed-text-v1.5-GGUF"
+		embeddingModel := "text-embedding-nomic-embed-text-v1.5@q8_0"
 		if cfg := app.Config.Get(); cfg != nil {
 			if cfg.LMStudioURL != "" {
 				lmStudioURL = cfg.LMStudioURL
@@ -141,7 +141,7 @@ func New(workingDir string, eventBroker *events.Broker) *App {
 	default:
 		// Default to LM Studio
 		lmStudioURL := "http://localhost:1234"
-		embeddingModel := "nomic-embed-text-v1.5-GGUF"
+		embeddingModel := "text-embedding-nomic-embed-text-v1.5@q8_0"
 		if cfg := app.Config.Get(); cfg != nil {
 			if cfg.LMStudioURL != "" {
 				lmStudioURL = cfg.LMStudioURL

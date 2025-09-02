@@ -145,10 +145,10 @@ func DefaultConfig() *Config {
 			Deep:     TierConfig{Clean: false, Debug: false, AutoRun: false},
 			Full:     TierConfig{Clean: false, Debug: false, AutoRun: false},
 			RAG: RAGConfig{
-				AutoIndex:      true,                        // Index on startup by default
-				Embedder:       "lmstudio",                  // Use LM Studio for real embeddings
-				BatchSize:      10,                          // Process 10 files at a time
-				EmbeddingModel: "nomic-embed-text-v1.5-GGUF", // Default embedding model
+				AutoIndex:      true,                                      // Index on startup by default
+				Embedder:       "lmstudio",                                // Use LM Studio for real embeddings
+				BatchSize:      10,                                        // Process 10 files at a time
+				EmbeddingModel: "text-embedding-nomic-embed-text-v1.5@q8_0", // Default embedding model (8-bit quantized)
 			},
 		},
 	}
