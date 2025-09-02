@@ -72,6 +72,10 @@ func (t *startupWelcomeTool) Run(ctx context.Context, call ToolCall) (ToolRespon
 					sb.WriteString(fmt.Sprintf("  - %s: %d\n", size, n))
 				}
 			}
+			// Show embedding models separately
+			if n := countBySize[llm.SizeSpecial]; n > 0 {
+				sb.WriteString(fmt.Sprintf("  - Embedding: %d\n", n))
+			}
 			sb.WriteString("\n")
 		} else {
 			sb.WriteString("LM Studio connected (no models listed)\n\n")

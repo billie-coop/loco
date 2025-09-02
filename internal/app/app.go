@@ -303,17 +303,7 @@ func (a *App) RunStartupAnalysis() {
 		Input: `{}`,
 	})
 
-	// Ensure startup_scan uses the updated analysis service (replace tool)
-	if a.Tools != nil && a.permissionServiceInternal != nil && a.Analysis != nil {
-		a.Tools.Replace(tools.NewStartupScanTool(a.permissionServiceInternal, a.workingDir, a.Analysis))
-	}
-	// Then run startup scan
-	a.ToolExecutor.ExecuteSystem(tools.ToolCall{
-		Name:  "startup_scan",
-		Input: `{}`,
-	})
-	
-	// Start sidecar/RAG service
+	// Start sidecar/RAG service BEFORE startup scan to avoid conflicts
 	if a.Sidecar != nil {
 		go func() {
 			if err := a.Sidecar.Start(context.Background()); err != nil {
@@ -327,7 +317,7 @@ func (a *App) RunStartupAnalysis() {
 			a.Tools.Replace(tools.NewRagIndexTool(a.workingDir, a.Sidecar, a.LLM, a.Config))
 		}
 		
-		// Conditionally run RAG indexing based on config
+		// Conditionally run RAG indexing based on config (BEFORE startup scan)
 		if cfg := a.Config.Get(); cfg != nil && cfg.Analysis.RAG.AutoIndex {
 			a.ToolExecutor.ExecuteSystem(tools.ToolCall{
 				Name:  "rag_index",
@@ -335,6 +325,16 @@ func (a *App) RunStartupAnalysis() {
 			})
 		}
 	}
+
+	// Ensure startup_scan uses the updated analysis service (replace tool)
+	if a.Tools != nil && a.permissionServiceInternal != nil && a.Analysis != nil {
+		a.Tools.Replace(tools.NewStartupScanTool(a.permissionServiceInternal, a.workingDir, a.Analysis))
+	}
+	// Then run startup scan (AFTER RAG indexing completes)
+	a.ToolExecutor.ExecuteSystem(tools.ToolCall{
+		Name:  "startup_scan",
+		Input: `{}`,
+	})
 
 	// Conditionally auto-run analysis after startup based on config
 	if cfg := a.Config.Get(); cfg != nil && cfg.Analysis.Quick.AutoRun {

@@ -8,11 +8,12 @@ import (
 type ModelSize string
 
 const (
-	SizeXS ModelSize = "XS" // < 2B params (super fast)
-	SizeS  ModelSize = "S"  // 2-4B params (fast)
-	SizeM  ModelSize = "M"  // 7-13B params (balanced)
-	SizeL  ModelSize = "L"  // 14-34B params (powerful)
-	SizeXL ModelSize = "XL" // 70B+ params (maximum power)
+	SizeXS      ModelSize = "XS"      // < 2B params (super fast)
+	SizeS       ModelSize = "S"       // 2-4B params (fast)
+	SizeM       ModelSize = "M"       // 7-13B params (balanced)
+	SizeL       ModelSize = "L"       // 14-34B params (powerful)
+	SizeXL      ModelSize = "XL"      // 70B+ params (maximum power)
+	SizeSpecial ModelSize = "special" // Embedding models (not for generation)
 )
 
 // ModelInfo contains detected model information.
