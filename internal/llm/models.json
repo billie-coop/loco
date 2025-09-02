@@ -153,6 +153,13 @@
       "category": "embedding",
       "description": "Nomic embedding model (not for generation)",
       "tool_calls": false
+    },
+    "nomic-embed-text-v1.5-GGUF": {
+      "size": "special",
+      "params": "137M",
+      "category": "embedding",
+      "description": "Nomic embedding model v1.5 - GGUF format for LM Studio",
+      "tool_calls": false
     }
   }
 }
