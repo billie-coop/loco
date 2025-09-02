@@ -110,10 +110,30 @@ func New(workingDir string, eventBroker *events.Broker) *App {
 	// Register startup scan tool
 	app.Tools.Register(tools.NewStartupScanTool(permissionService, workingDir, app.Analysis))
 	
-	// Initialize sidecar/RAG service with ONNX embedder
-	// For now, using mock until hugot is added
-	// TODO: Replace with real ONNX once hugot dependency is added
-	sidecarEmbedder := embedder.NewMockEmbedder(384)
+	// Initialize sidecar/RAG service based on config
+	var sidecarEmbedder sidecar.Embedder
+	
+	// Get embedder type from config
+	embedderType := "mock"
+	if cfg := app.Config.Get(); cfg != nil && cfg.Analysis.RAG.Embedder != "" {
+		embedderType = cfg.Analysis.RAG.Embedder
+	}
+	
+	// Create appropriate embedder
+	switch embedderType {
+	case "onnx":
+		// TODO: Implement once hugot is added
+		sidecarEmbedder = embedder.NewMockEmbedder(384)
+	case "lmstudio":
+		lmStudioURL := "http://localhost:1234"
+		if cfg := app.Config.Get(); cfg != nil && cfg.LMStudioURL != "" {
+			lmStudioURL = cfg.LMStudioURL
+		}
+		sidecarEmbedder = embedder.NewLMStudioEmbedder(lmStudioURL)
+	default:
+		// Default to mock
+		sidecarEmbedder = embedder.NewMockEmbedder(384)
+	}
 	
 	memoryStore := vectordb.NewMemoryStore(sidecarEmbedder)
 	app.Sidecar = sidecar.NewService(workingDir, sidecarEmbedder, memoryStore)
@@ -273,15 +293,22 @@ func (a *App) RunStartupAnalysis() {
 		Input: `{}`,
 	})
 	
-	// Start sidecar/RAG service for indexing
+	// Start sidecar/RAG service
 	if a.Sidecar != nil {
 		go func() {
 			if err := a.Sidecar.Start(context.Background()); err != nil {
 				// Log error but don't fail startup
-				// In production, use proper logger
 				_ = err
 			}
 		}()
+		
+		// Conditionally run RAG indexing based on config
+		if cfg := a.Config.Get(); cfg != nil && cfg.Analysis.RAG.AutoIndex {
+			a.ToolExecutor.ExecuteSystem(tools.ToolCall{
+				Name:  "rag_index",
+				Input: `{}`,
+			})
+		}
 	}
 
 	// Conditionally auto-run analysis after startup based on config

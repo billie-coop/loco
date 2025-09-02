@@ -48,12 +48,19 @@ type AnalysisQuickConfig struct {
 	WorkerSummaryWordLimit int  `json:"worker_summary_word_limit"`
 }
 
+type RAGConfig struct {
+	AutoIndex bool   `json:"autoindex"` // Index on startup
+	Embedder  string `json:"embedder"`  // "mock", "onnx", "lmstudio"
+	BatchSize int    `json:"batch_size"` // Files per batch during indexing
+}
+
 type AnalysisConfig struct {
 	Startup  AnalysisStartupConfig `json:"startup"`
 	Quick    AnalysisQuickConfig   `json:"quick"`
 	Detailed TierConfig            `json:"detailed"`
 	Deep     TierConfig            `json:"deep"`
 	Full     TierConfig            `json:"full"`
+	RAG      RAGConfig             `json:"rag"`
 	// Future: additional per-tier settings can be added here
 }
 
@@ -136,6 +143,11 @@ func DefaultConfig() *Config {
 			Detailed: TierConfig{Clean: false, Debug: false, AutoRun: false},
 			Deep:     TierConfig{Clean: false, Debug: false, AutoRun: false},
 			Full:     TierConfig{Clean: false, Debug: false, AutoRun: false},
+			RAG: RAGConfig{
+				AutoIndex: true,     // Index on startup by default
+				Embedder:  "mock",   // Start with mock, user can change to "onnx" or "lmstudio"
+				BatchSize: 10,       // Process 10 files at a time
+			},
 		},
 	}
 }
