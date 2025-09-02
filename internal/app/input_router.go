@@ -91,6 +91,14 @@ func (r *UserInputRouter) routeCommand(input string) {
 			Name:  "analyze",
 			Input: string(params),
 		})
+	
+	case "/scan":
+		// Startup scan
+		params, _ := json.Marshal(map[string]bool{"force": true})
+		r.toolExecutor.Execute(tools.ToolCall{
+			Name:  "startup_scan",
+			Input: string(params),
+		})
 
 	case "/model":
 		// Handle model commands
@@ -114,6 +122,32 @@ func (r *UserInputRouter) routeCommand(input string) {
 		r.toolExecutor.Execute(tools.ToolCall{
 			Name:  "session_info",
 			Input: "{}",
+		})
+	
+	case "/rag":
+		// RAG semantic search
+		if len(args) == 0 {
+			// Show help for RAG
+			if r.toolExecutor.eventBroker != nil {
+				r.toolExecutor.eventBroker.Publish(events.Event{
+					Type: events.StatusMessageEvent,
+					Payload: events.StatusMessagePayload{
+						Message: "Usage: /rag <query>",
+						Type:    "info",
+					},
+				})
+			}
+			return
+		}
+		
+		query := strings.Join(args, " ")
+		params, _ := json.Marshal(map[string]interface{}{
+			"query": query,
+			"k": 5,
+		})
+		r.toolExecutor.Execute(tools.ToolCall{
+			Name:  "rag_query",
+			Input: string(params),
 		})
 
 	case "/debug":

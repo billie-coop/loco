@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 
@@ -11,6 +12,9 @@ import (
 	"github.com/billie-coop/loco/internal/parser"
 	"github.com/billie-coop/loco/internal/permission"
 	"github.com/billie-coop/loco/internal/session"
+	"github.com/billie-coop/loco/internal/sidecar"
+	"github.com/billie-coop/loco/internal/sidecar/embedder"
+	"github.com/billie-coop/loco/internal/sidecar/vectordb"
 	"github.com/billie-coop/loco/internal/tools"
 	"github.com/billie-coop/loco/internal/tui/events"
 )
@@ -29,6 +33,9 @@ type App struct {
 
 	// Analysis service
 	Analysis analysis.Service
+	
+	// Sidecar/RAG service
+	Sidecar sidecar.Service
 
 	// New services we'll add
 	LLMService        *LLMService
@@ -102,6 +109,14 @@ func New(workingDir string, eventBroker *events.Broker) *App {
 
 	// Register startup scan tool
 	app.Tools.Register(tools.NewStartupScanTool(permissionService, workingDir, app.Analysis))
+	
+	// Initialize sidecar/RAG service with mock embedder for now
+	mockEmbedder := embedder.NewMockEmbedder(384) // 384 dims like all-MiniLM-L6-v2
+	memoryStore := vectordb.NewMemoryStore(mockEmbedder)
+	app.Sidecar = sidecar.NewService(workingDir, mockEmbedder, memoryStore)
+	
+	// Register RAG tool
+	app.Tools.Register(tools.NewRagTool(app.Sidecar))
 
 	// Create unified tool architecture
 	app.ToolExecutor = NewToolExecutor(app.Tools, eventBroker, app.Sessions, app.LLMService, permissionService)
@@ -253,6 +268,17 @@ func (a *App) RunStartupAnalysis() {
 		Name:  "startup_scan",
 		Input: `{}`,
 	})
+	
+	// Start sidecar/RAG service for indexing
+	if a.Sidecar != nil {
+		go func() {
+			if err := a.Sidecar.Start(context.Background()); err != nil {
+				// Log error but don't fail startup
+				// In production, use proper logger
+				_ = err
+			}
+		}()
+	}
 
 	// Conditionally auto-run analysis after startup based on config
 	if cfg := a.Config.Get(); cfg != nil && cfg.Analysis.Quick.AutoRun {
