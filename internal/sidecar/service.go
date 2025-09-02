@@ -154,11 +154,8 @@ func (s *service) Start(ctx context.Context) error {
 	}
 	s.mu.Unlock()
 	
-	// For now, just do initial indexing without file watching
-	// TODO: Integrate with proper file watcher later
-	
-	// Do initial indexing of existing files
-	go s.initialIndex(ctx)
+	// Don't do automatic indexing - user can trigger with /rag-index
+	// This prevents UI breakage from background tasks
 	
 	return nil
 }
@@ -220,9 +217,7 @@ func (s *service) chunkFile(path string, content string) []chunk {
 
 // initialIndex performs initial indexing of existing files
 func (s *service) initialIndex(ctx context.Context) {
-	fmt.Println("🔍 RAG: Starting background indexing...")
-	fmt.Println("💡 Note: For semantic search, load an embedding model in LM Studio (e.g., nomic-embed-text)")
-	
+	// TODO: Emit progress events instead of printing
 	var files []string
 	
 	// Walk the working directory
@@ -250,7 +245,7 @@ func (s *service) initialIndex(ctx context.Context) {
 	})
 	
 	if err != nil {
-		fmt.Printf("Error walking directory: %v\n", err)
+		// TODO: Log error properly
 		return
 	}
 	
@@ -264,11 +259,11 @@ func (s *service) initialIndex(ctx context.Context) {
 		
 		batch := files[i:end]
 		if err := s.UpdateFiles(ctx, batch); err != nil {
-			fmt.Printf("Failed to index batch: %v\n", err)
+			// TODO: Log error properly
 		}
 	}
 	
-	fmt.Printf("Initial indexing complete: %d files processed\n", len(files))
+	// TODO: Emit completion event with file count
 }
 
 // isBinary checks if content appears to be binary

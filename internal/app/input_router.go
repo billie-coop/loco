@@ -149,6 +149,14 @@ func (r *UserInputRouter) routeCommand(input string) {
 			Name:  "rag_query",
 			Input: string(params),
 		})
+	
+	case "/rag-index":
+		// Index files for RAG
+		params, _ := json.Marshal(map[string]interface{}{})
+		r.toolExecutor.Execute(tools.ToolCall{
+			Name:  "rag_index",
+			Input: string(params),
+		})
 
 	case "/debug":
 		// Toggle debug mode - this is UI-specific, handle via events

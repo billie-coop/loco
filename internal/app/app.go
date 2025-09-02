@@ -2,7 +2,6 @@ package app
 
 import (
 	"context"
-	"fmt"
 	"os"
 	"path/filepath"
 
@@ -111,52 +110,17 @@ func New(workingDir string, eventBroker *events.Broker) *App {
 	// Register startup scan tool
 	app.Tools.Register(tools.NewStartupScanTool(permissionService, workingDir, app.Analysis))
 	
-	// Initialize sidecar/RAG service
-	var sidecarEmbedder sidecar.Embedder
-	
-	// Choose embedder based on environment or config
-	// Priority: ONNX (fastest) > LM Studio (convenient) > Mock (testing)
-	embedderType := os.Getenv("LOCO_EMBEDDER")
-	if embedderType == "" {
-		embedderType = "lmstudio" // Default to LM Studio for now
-	}
-	
-	switch embedderType {
-	case "onnx":
-		// Pure Go ONNX embedder (fastest, ~10ms per embedding)
-		onnxEmb, err := embedder.NewONNXEmbedder(workingDir)
-		if err != nil {
-			fmt.Printf("⚠️ Failed to initialize ONNX embedder: %v\n", err)
-			fmt.Println("Falling back to LM Studio embedder...")
-			embedderType = "lmstudio"
-		} else {
-			sidecarEmbedder = onnxEmb
-			fmt.Println("✅ Using ONNX embedder (fast, pure Go)")
-		}
-		
-	case "mock":
-		// Mock embedder for testing
-		sidecarEmbedder = embedder.NewMockEmbedder(384)
-		fmt.Println("🔧 Using mock embedder (testing only)")
-	}
-	
-	// Fall back to LM Studio if needed
-	if sidecarEmbedder == nil {
-		// Get LM Studio URL from config
-		lmStudioURL := "http://localhost:1234"
-		if cfg := app.Config.Get(); cfg != nil && cfg.LMStudioURL != "" {
-			lmStudioURL = cfg.LMStudioURL
-		}
-		
-		sidecarEmbedder = embedder.NewLMStudioEmbedder(lmStudioURL)
-		fmt.Println("📡 Using LM Studio embedder (requires embedding model loaded)")
-	}
+	// Initialize sidecar/RAG service with ONNX embedder
+	// For now, using mock until hugot is added
+	// TODO: Replace with real ONNX once hugot dependency is added
+	sidecarEmbedder := embedder.NewMockEmbedder(384)
 	
 	memoryStore := vectordb.NewMemoryStore(sidecarEmbedder)
 	app.Sidecar = sidecar.NewService(workingDir, sidecarEmbedder, memoryStore)
 	
-	// Register RAG tool
+	// Register RAG tools
 	app.Tools.Register(tools.NewRagTool(app.Sidecar))
+	app.Tools.Register(tools.NewRagIndexTool(workingDir, app.Sidecar))
 
 	// Create unified tool architecture
 	app.ToolExecutor = NewToolExecutor(app.Tools, eventBroker, app.Sessions, app.LLMService, permissionService)
