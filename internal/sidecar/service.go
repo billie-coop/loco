@@ -220,6 +220,9 @@ func (s *service) chunkFile(path string, content string) []chunk {
 
 // initialIndex performs initial indexing of existing files
 func (s *service) initialIndex(ctx context.Context) {
+	fmt.Println("🔍 RAG: Starting background indexing...")
+	fmt.Println("💡 Note: For semantic search, load an embedding model in LM Studio (e.g., nomic-embed-text)")
+	
 	var files []string
 	
 	// Walk the working directory

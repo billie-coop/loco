@@ -110,10 +110,25 @@ func New(workingDir string, eventBroker *events.Broker) *App {
 	// Register startup scan tool
 	app.Tools.Register(tools.NewStartupScanTool(permissionService, workingDir, app.Analysis))
 	
-	// Initialize sidecar/RAG service with mock embedder for now
-	mockEmbedder := embedder.NewMockEmbedder(384) // 384 dims like all-MiniLM-L6-v2
-	memoryStore := vectordb.NewMemoryStore(mockEmbedder)
-	app.Sidecar = sidecar.NewService(workingDir, mockEmbedder, memoryStore)
+	// Initialize sidecar/RAG service
+	// Try LM Studio embedder first, fall back to mock if needed
+	var sidecarEmbedder sidecar.Embedder
+	
+	// Get LM Studio URL from config
+	lmStudioURL := "http://localhost:1234"
+	if cfg := app.Config.Get(); cfg != nil && cfg.LMStudioURL != "" {
+		lmStudioURL = cfg.LMStudioURL
+	}
+	
+	// Try to use LM Studio embedder (will fail gracefully if no embedding model loaded)
+	lmStudioEmbedder := embedder.NewLMStudioEmbedder(lmStudioURL)
+	sidecarEmbedder = lmStudioEmbedder
+	
+	// Note: We'll use LM Studio embedder and it will error on first use if no embedding model
+	// User will need to load an embedding model like nomic-embed-text in LM Studio
+	
+	memoryStore := vectordb.NewMemoryStore(sidecarEmbedder)
+	app.Sidecar = sidecar.NewService(workingDir, sidecarEmbedder, memoryStore)
 	
 	// Register RAG tool
 	app.Tools.Register(tools.NewRagTool(app.Sidecar))

@@ -110,6 +110,10 @@ func (r *ragTool) Run(ctx context.Context, call ToolCall) (ToolResponse, error) 
 	// Query the vector store
 	results, err := r.sidecarService.QuerySimilar(ctx, params.Query, params.K)
 	if err != nil {
+		// Check if it's an embedding model error
+		if strings.Contains(err.Error(), "404") || strings.Contains(err.Error(), "not found") {
+			return NewTextErrorResponse("⚠️ No embedding model loaded in LM Studio.\n\nTo use RAG search:\n1. Open LM Studio\n2. Load an embedding model (e.g., nomic-embed-text-v1.5)\n3. Try your search again\n\nEmbedding models are small (~300MB) and create semantic search vectors."), nil
+		}
 		return NewTextErrorResponse(fmt.Sprintf("RAG query failed: %s", err)), nil
 	}
 	
