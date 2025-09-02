@@ -1,0 +1,127 @@
+{
+  // LM Studio connection settings
+  "lm_studio_url": "http://localhost:1234", // Base URL for LM Studio API
+  "preferred_model": "auto",               // Reserved (not used yet), e.g., model-id or "auto"
+  "lm_studio_n_ctx": 8192,                  // Default context window to request (n_ctx)
+  "lm_studio_num_keep": 0,                  // Tokens to keep from system prompt (n_keep); 0 = default
+
+  // UI and debug
+  "theme": "fire",                          // UI theme name
+  "debug": true,                            // Global debug switch (per-tier debug can override)
+
+  // Tool safety and allowed list (UI tool palette)
+  "tools_enabled": true,
+  "allowed_tools": [
+    "copy",
+    "clear",
+    "help",
+    "chat"
+  ],
+
+  // Analysis configuration (tiered)
+  "analysis": {
+    // Startup scan: fast, structure-only detection (crowd + adjudication)
+    "startup": {
+      "clean": false,               // If true, purge startup scan cache before running
+      "debug": true,                // If true, write artifacts under .loco/debug/startup_scan/<timestamp>/
+      "crowd_size": 8,              // Number of parallel worker calls for startup scan
+      "autorun": true              // If false, completely skip startup scan on launch
+    },
+
+    // Quick tier: file-list only; workers output NL summaries; adjudicator produces summary.md
+    "quick": {
+      "clean": true,                 // If true, force re-run quick analysis ignoring cache
+      "debug": true,                 // If true, write artifacts under .loco/debug/quick/<timestamp>/
+      "autorun": true,               // If true, auto-run Quick after startup (or on command)
+
+      // NL worker mode (current behavior)
+      "natural_language_workers": true, // Workers output natural language summaries (no JSON)
+      "worker_summary_word_limit": 200, // Max words per worker summary
+
+      // Consensus ranking configuration (kept for compatibility; may be ignored in NL mode)
+      "workers": 5,                   // Number of worker calls
+      "worker_concurrency": 1,        // Max concurrent worker calls
+      "focuses": [                    // Per-worker focuses (rotated)
+        "entry/init",
+        "config/build",
+        "core/domain",
+        "api/handlers",
+        "tests/docs"
+      ],
+      "top_file_ranking_count": 20,   // Per-worker top-N (used only in JSON-ranking mode)
+      "final_top_k": 100,             // Final top-K (used only in JSON-ranking mode)
+      "use_model_adjudicator": true,  // If true, run adjudicator (used in both modes; output differs)
+      "max_paths_per_call": 400,      // Safety cap on paths per LLM call
+
+      // LLM safety/perf knobs
+      "max_completion_tokens_worker": 300,      // Output cap per worker (set -1 for unlimited)
+      "max_completion_tokens_adjudicator": 600, // Output cap for adjudicator (set -1 for unlimited)
+      "request_timeout_ms": 10000,              // Per-call timeout in ms for Quick tier
+      "worker_context_size": 2048,              // n_ctx for worker calls (adjudicator uses ~2x)
+
+      // Failure policy and retries
+      "strict_fail": true,            // If any worker fails, abort Quick (no adjudication)
+      "worker_retry": 1,              // Number of retries per worker on failure
+      "adjudicator_retry": 1          // Number of retries for adjudicator on failure
+    },
+
+    // Detailed tier: selective file content reads with chunking, skeptical refinement of Quick
+    "detailed": {
+      "clean": false,               // If true, force re-run detailed analysis ignoring cache
+      "debug": true,                // If true, write artifacts under .loco/debug/detailed/<timestamp>/
+      "autorun": false              // Reserved for future auto-run chaining
+    },
+
+    // Deep tier: larger-scope refinement on top of Detailed
+    "deep": {
+      "clean": false,               // If true, force re-run deep analysis ignoring cache
+      "debug": true,                // If true, write artifacts under .loco/debug/deep/<timestamp>/
+      "autorun": false              // Reserved for future auto-run chaining
+    },
+
+    // Full tier: professional documentation (placeholder)
+    "full": {
+      "clean": false,               // If true, force re-run full analysis ignoring cache
+      "debug": true,                // If true, write artifacts under .loco/debug/full/<timestamp>/
+      "autorun": false              // Reserved for future auto-run chaining
+    },
+
+    // RAG (Retrieval-Augmented Generation) configuration
+    "rag": {
+      "autoindex": true,            // If true, index files on startup (shows progress in UI)
+      
+      // Embedder selection: "mock" | "onnx" | "lmstudio"
+      // - "mock": Fast, testing only, no semantic understanding
+      // - "onnx": FASTEST (~10ms), pure Go with hugot, downloads models automatically
+      // - "lmstudio": Slower (~200ms), requires embedding model loaded in LM Studio
+      "embedder": "onnx",           // Now using ONNX since hugot is installed!
+      
+      "batch_size": 10              // Number of files to process per batch during indexing
+    }
+  },
+
+  // LLM team policies and chosen models (S/M/L mapping)
+  "llm": {
+    "smallest": { // XS/S models (used by Quick tier)
+      "model_id": "liquid/lfm2-1.2b",  // Preferred model ID for smallest slot
+      "request_timeout_ms": 30000,       // Timeout for calls using this slot
+      "max_tokens_worker": -1,           // -1 for unlimited tokens
+      "max_tokens_adjudicator": -1,      // -1 for unlimited tokens
+      "context_size": 8192               // Default n_ctx for this slot
+    },
+    "medium": {   // M models (used by Detailed)
+      "model_id": "qwen2.5-coder-7b-instruct",
+      "request_timeout_ms": 120000,
+      "max_tokens_worker": -1,
+      "max_tokens_adjudicator": -1,
+      "context_size": 8192
+    },
+    "largest": {  // L/XL models (used by Deep/Full)
+      "model_id": "openai/gpt-oss-20b",
+      "request_timeout_ms": 600000,
+      "max_tokens_worker": -1,
+      "max_tokens_adjudicator": -1,
+      "context_size": 8192
+    }
+  }
+}

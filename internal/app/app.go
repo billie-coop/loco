@@ -122,8 +122,14 @@ func New(workingDir string, eventBroker *events.Broker) *App {
 	// Create appropriate embedder
 	switch embedderType {
 	case "onnx":
-		// TODO: Implement once hugot is added
-		sidecarEmbedder = embedder.NewMockEmbedder(384)
+		// Use ONNX embedder (currently wraps mock until hugot API is figured out)
+		onnxEmb, err := embedder.NewONNXEmbedder(workingDir)
+		if err != nil {
+			// Fall back to mock if ONNX fails
+			sidecarEmbedder = embedder.NewMockEmbedder(384)
+		} else {
+			sidecarEmbedder = onnxEmb
+		}
 	case "lmstudio":
 		lmStudioURL := "http://localhost:1234"
 		if cfg := app.Config.Get(); cfg != nil && cfg.LMStudioURL != "" {

@@ -28,6 +28,8 @@ Thumbs.db
 *.log
 
 # Loco cache and project data
+!.loco/config.jsonc
+!.loco/.gitignore
 .loco/
 
 # Temporary files
