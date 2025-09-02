@@ -204,10 +204,14 @@ func (tm *ToolMessage) renderStartupScan() string {
 	var output []string
 
 	for _, line := range lines {
-		if strings.Contains(line, "Project:") ||
+		// Check for both markdown (**Field:**) and plain (Field:) formats
+		if strings.Contains(line, "Type:") ||
 			strings.Contains(line, "Language:") ||
 			strings.Contains(line, "Framework:") ||
+			strings.Contains(line, "Purpose:") ||
 			strings.Contains(line, "Files:") ||
+			strings.Contains(line, "Confidence:") ||
+			strings.Contains(line, "Iteration:") ||
 			strings.HasPrefix(line, "Args:") ||
 			strings.HasPrefix(line, "Initiator:") ||
 			strings.HasPrefix(line, "Session:") ||

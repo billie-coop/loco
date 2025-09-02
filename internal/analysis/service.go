@@ -49,6 +49,7 @@ type StartupScanResult struct {
 	Confidence  float64       `json:"confidence"` // 0-1 confidence score
 	Duration    time.Duration `json:"duration"`
 	Generated   time.Time     `json:"generated"`
+	Iteration   int           `json:"iteration"`  // Progressive enhancement iteration count
 }
 
 // Tier represents the analysis tier level.
