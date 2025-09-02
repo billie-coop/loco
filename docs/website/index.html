@@ -194,9 +194,11 @@
         <li>Multi-tier analysis system for existing codebases</li>
         <li>Local-first design with LM Studio integration</li>
         <li>Context that travels with your repository</li>
+        <li>RAG-powered semantic search (experimental)</li>
+        <li>Vector embeddings for intelligent context retrieval</li>
     </ul>
 
-    <p>It's early, but it shows how automatic context management could work in practice.</p>
+    <p>It's actively evolving, with RAG capabilities now operational and LoRA fine-tuning planned. Each experiment pushes the boundaries of what's possible with local AI.</p>
 
     <h2>Try It</h2>
     
@@ -270,17 +272,43 @@ go build && ./loco</pre>
             <li>Context that lives in your git repo, not the cloud</li>
         </ul>
 
+        <h2>Current Experiments: RAG and Beyond</h2>
+        
+        <p>We're actively exploring how to make local AI even more powerful:</p>
+        
+        <h3>Retrieval-Augmented Generation (RAG)</h3>
+        <p>We're implementing semantic search capabilities to give models better context awareness:</p>
+        <ul>
+            <li><strong>Local embeddings</strong> - Using models like nomic-embed-text for semantic understanding</li>
+            <li><strong>Smart chunking</strong> - Breaking code into meaningful segments for retrieval</li>
+            <li><strong>Vector search</strong> - Finding relevant code snippets based on meaning, not just keywords</li>
+            <li><strong>Incremental indexing</strong> - Only re-index what changed, keeping it fast</li>
+        </ul>
+        <p>This lets smaller models access exactly the context they need, when they need it - making 7B models perform like much larger ones.</p>
+        
+        <h3>Future: LoRA and Fine-Tuning</h3>
+        <p>The next frontier we're exploring:</p>
+        <ul>
+            <li><strong>Project-specific adaptations</strong> - Models that learn your coding style and patterns</li>
+            <li><strong>Domain expertise</strong> - Fine-tuning for specific frameworks or languages</li>
+            <li><strong>Incremental learning</strong> - Models that improve as they work with your codebase</li>
+            <li><strong>Local training</strong> - All adaptation happens on your machine, your data never leaves</li>
+        </ul>
+        <p>Imagine a model that not only understands your project's context but has actually learned from it - adapting to your team's conventions, architectural decisions, and coding patterns.</p>
+
         <h2>Why This Matters</h2>
         
-        <p>Cloud AI providers have massive infrastructure advantages. But Loco demonstrates that with clever orchestration, local models can achieve surprisingly sophisticated results. This isn't just about privacy or offline access - it's about understanding what's possible when we rethink AI assistance from first principles.</p>
+        <p>Cloud AI providers have massive infrastructure advantages. But Loco demonstrates that with clever orchestration, local models can achieve surprisingly sophisticated results. RAG makes small models smarter. LoRA will make them personal. Together, they challenge the assumption that powerful AI requires cloud infrastructure.</p>
         
-        <p>Every technique in Loco is an experiment: Can we replicate cloud-scale AI capabilities using only what runs on a developer's machine? The answer, increasingly, is yes.</p>
+        <p>Every technique in Loco is an experiment: Can we replicate cloud-scale AI capabilities using only what runs on a developer's machine? With RAG operational and LoRA on the horizon, the answer is becoming a resounding yes.</p>
 
         <h2>Join the Experiment</h2>
         
         <p>Loco is open source and actively exploring new ideas:</p>
         
         <ul>
+            <li>RAG implementation and optimization (in progress)</li>
+            <li>LoRA fine-tuning infrastructure (coming soon)</li>
             <li>Better model orchestration strategies</li>
             <li>New specialized agents for different domains</li>
             <li>Improved caching and incremental analysis</li>
