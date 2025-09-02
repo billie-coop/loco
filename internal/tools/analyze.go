@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/billie-coop/loco/internal/analysis"
+	"github.com/billie-coop/loco/internal/config"
 	"github.com/billie-coop/loco/internal/permission"
 )
 
@@ -28,19 +29,19 @@ type AnalyzePermissionsParams struct {
 
 // AnalyzeResponseMetadata contains metadata about the analysis operation.
 type AnalyzeResponseMetadata struct {
-	Tier         string        `json:"tier"`
-	ProjectPath  string        `json:"project_path"`
-	Duration     time.Duration `json:"duration"`
-	FileCount    int           `json:"file_count,omitempty"`
-	CacheHit     bool          `json:"cache_hit"`
-	KnowledgeFiles []string    `json:"knowledge_files"`
+	Tier           string        `json:"tier"`
+	ProjectPath    string        `json:"project_path"`
+	Duration       time.Duration `json:"duration"`
+	FileCount      int           `json:"file_count,omitempty"`
+	CacheHit       bool          `json:"cache_hit"`
+	KnowledgeFiles []string      `json:"knowledge_files"`
 }
 
 // analyzeTool implements the progressive analysis tool.
 type analyzeTool struct {
-	workingDir       string
-	permissions      permission.Service
-	analysisService  analysis.Service
+	workingDir      string
+	permissions     permission.Service
+	analysisService analysis.Service
 }
 
 const (
@@ -68,7 +69,7 @@ ANALYSIS TIERS:
 - Instant overview for rapid understanding
 - Uses ensemble consensus from 10 parallel analyses
 
-📊 DETAILED (S→M models, 30-60 seconds)  
+📊 DETAILED (S→M models, 30-60 seconds)
 - Reads key file contents
 - Comprehensive architecture analysis
 - Generates 4 knowledge documents
@@ -88,7 +89,7 @@ ANALYSIS TIERS:
 
 KNOWLEDGE FILES GENERATED:
 - structure.md - Code organization and architecture
-- patterns.md - Development patterns and conventions  
+- patterns.md - Development patterns and conventions
 - context.md - Project purpose and business logic
 - overview.md - High-level summary and quick start
 
@@ -172,54 +173,29 @@ func (a *analyzeTool) Run(ctx context.Context, call ToolCall) (ToolResponse, err
 		projectPath = params.Project
 	}
 
-	// Check if this is a cascaded call (from a previous tier)
-	// Cascaded calls inherit permission from the initial request
-	isCascade := false
-	if initiator, ok := ctx.Value(InitiatorKey).(string); ok && initiator == "system" {
-		// System-initiated calls (including cascades) bypass permission
-		isCascade = true
-	}
-	
-	// Request permission for analysis (unless it's a cascade)
-	if !isCascade {
-		sessionID, messageID := GetContextValues(ctx)
-		// Use defaults if not available (e.g., on startup)
-		if sessionID == "" {
-			sessionID = "default"
-		}
-		if messageID == "" {
-			messageID = "analyze-startup"
-		}
-
-		// Create helpful description based on tier
-		description := ""
-		switch params.Tier {
-		case "quick":
-			description = "Loco will perform a quick analysis of your project structure to understand the codebase layout. This takes 2-3 seconds."
-		case "detailed":
-			description = "Loco will read key files to understand your project's architecture and patterns. This takes 30-60 seconds."
-		case "deep":
-			description = "Loco will perform deep analysis to understand complex patterns and relationships. This takes 2-5 minutes."
-		default:
-			description = fmt.Sprintf("Analyze project using %s tier: %s", params.Tier, projectPath)
-		}
-
-		p := a.permissions.Request(
-			permission.CreatePermissionRequest{
-				SessionID:   sessionID,
-				Path:        projectPath,
-				ToolCallID:  call.ID,
-				ToolName:    AnalyzeToolName,
-				Action:      "analyze",
-				Description: description,
-				Params: AnalyzePermissionsParams{
-					Tier:    params.Tier,
-					Project: params.Project,
-				},
-			},
-		)
-		if !p {
-			return ToolResponse{}, permission.ErrorPermissionDenied
+	// Apply per-tier clean flag from config (forces recompute)
+	if !params.Force {
+		cfgMgr := config.NewManager(projectPath)
+		_ = cfgMgr.Load()
+		if cfg := cfgMgr.Get(); cfg != nil {
+			switch params.Tier {
+			case "quick":
+				if cfg.Analysis.Quick.Clean {
+					params.Force = true
+				}
+			case "detailed":
+				if cfg.Analysis.Detailed.Clean {
+					params.Force = true
+				}
+			case "deep":
+				if cfg.Analysis.Deep.Clean {
+					params.Force = true
+				}
+			case "full":
+				if cfg.Analysis.Full.Clean {
+					params.Force = true
+				}
+			}
 		}
 	}
 
@@ -260,19 +236,19 @@ func (a *analyzeTool) Run(ctx context.Context, call ToolCall) (ToolResponse, err
 // formatAnalysisResult formats the analysis result for display.
 func (a *analyzeTool) formatAnalysisResult(result analysis.Analysis, cacheHit bool) ToolResponse {
 	var response strings.Builder
-	
+
 	// Header with tier and timing
 	tierEmoji := map[analysis.Tier]string{
 		"quick": "⚡", "detailed": "📊", "deep": "💎", "full": "🚀",
 	}
-	
+
 	emoji := tierEmoji[result.GetTier()]
 	if emoji == "" {
 		emoji = "🔍"
 	}
-	
+
 	response.WriteString(fmt.Sprintf("%s **%s Analysis Complete**\n\n", emoji, strings.Title(string(result.GetTier()))))
-	
+
 	if cacheHit {
 		response.WriteString("📋 *Used cached results*\n")
 	} else {
@@ -322,7 +298,7 @@ func (a *analyzeTool) formatAnalysisResult(result analysis.Analysis, cacheHit bo
 	// Create metadata
 	var fileCount int
 	var knowledgeFileNames []string
-	
+
 	// Extract file count based on analysis type
 	switch typed := result.(type) {
 	case *analysis.QuickAnalysis:
@@ -334,7 +310,7 @@ func (a *analyzeTool) formatAnalysisResult(result analysis.Analysis, cacheHit bo
 	case *analysis.FullAnalysis:
 		fileCount = typed.FileCount
 	}
-	
+
 	for filename := range knowledgeFiles {
 		knowledgeFileNames = append(knowledgeFileNames, filename)
 	}

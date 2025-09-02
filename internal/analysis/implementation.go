@@ -55,6 +55,11 @@ func (s *service) QuickAnalyze(ctx context.Context, projectPath string) (*QuickA
 				}
 			}
 		}
+	} else {
+		// Purge quick cache and knowledge when clean is set
+		cacheFile := s.getCachePath(projectPath, TierQuick)
+		_ = os.Remove(cacheFile)
+		_ = os.RemoveAll(filepath.Join(projectPath, s.cachePath, "knowledge", string(TierQuick)))
 	}
 
 	// Perform new analysis
@@ -68,10 +73,10 @@ func (s *service) QuickAnalyze(ctx context.Context, projectPath string) (*QuickA
 	// Progress: discovered file list
 	ReportProgress(ctx, Progress{Phase: string(TierQuick), TotalFiles: len(files), CompletedFiles: 0, CurrentFile: "discovered files"})
 
-	// Step 2: Crowd ranking + adjudication (no file contents)
+	// Step 2: Summaries + adjudication (no file contents)
 	consensus, err := s.consensusRankFiles(ctx, projectPath, files)
 	if err != nil {
-		return nil, fmt.Errorf("failed to compute consensus ranking: %w", err)
+		return nil, fmt.Errorf("failed to adjudicate worker summaries: %w", err)
 	}
 	// Progress: show worker-level completion for quick tier
 	qcCfg := config.NewManager(projectPath)
@@ -79,14 +84,7 @@ func (s *service) QuickAnalyze(ctx context.Context, projectPath string) (*QuickA
 	qc := qcCfg.Get().Analysis.Quick
 	ReportProgress(ctx, Progress{Phase: string(TierQuick), TotalFiles: max(1, qc.Workers), CompletedFiles: max(1, qc.Workers), CurrentFile: "adjudication complete"})
 
-	// Persist importance to canonical summaries (no content fields for quick)
-	fileSummaries := &FileAnalysisResult{Files: make([]FileSummary, 0, len(consensus.Rankings)), TotalFiles: len(files), Generated: time.Now().Format(time.RFC3339)}
-	for _, r := range consensus.Rankings {
-		fileSummaries.Files = append(fileSummaries.Files, FileSummary{Path: r.Path, Importance: int(r.Importance + 0.5), Summary: r.Reason, FileType: classifyByExt(r.Path)})
-	}
-	_ = s.updateCanonicalSummaries(projectPath, TierQuick, fileSummaries)
-
-	// Step 3: Generate quick knowledge from compact ranking view
+	// Step 3: Generate quick knowledge: single summary.md
 	knowledgeFiles, err := s.generateQuickKnowledge(ctx, projectPath, consensus)
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate quick knowledge: %w", err)

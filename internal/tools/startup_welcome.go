@@ -72,15 +72,6 @@ func (t *startupWelcomeTool) Run(ctx context.Context, call ToolCall) (ToolRespon
 					sb.WriteString(fmt.Sprintf("  - %s: %d\n", size, n))
 				}
 			}
-			// Show up to 5 example IDs
-			limit := 5
-			if len(models) < limit {
-				limit = len(models)
-			}
-			sb.WriteString("  e.g.\n")
-			for i := 0; i < limit; i++ {
-				sb.WriteString("    • " + models[i].ID + "\n")
-			}
 			sb.WriteString("\n")
 		} else {
 			sb.WriteString("LM Studio connected (no models listed)\n\n")

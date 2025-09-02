@@ -1,6 +1,7 @@
 package app
 
 import (
+	"os"
 	"path/filepath"
 
 	"github.com/billie-coop/loco/internal/analysis"
@@ -166,7 +167,13 @@ func (a *App) InitLLMFromConfig() error {
 
 	// Create team clients for different model sizes
 	if models, err := client.GetModels(); err == nil && len(models) > 0 {
-		team := llm.GetDefaultTeam(models)
+		// Build team from config.llm model IDs if provided, otherwise auto
+		var team *llm.ModelTeam
+		if cfg := a.Config.Get(); cfg != nil {
+			team = llm.BuildTeamFromConfig(cfg.LLM.Smallest.ModelID, cfg.LLM.Medium.ModelID, cfg.LLM.Largest.ModelID, models)
+		} else {
+			team = llm.GetDefaultTeam(models)
+		}
 		if teamClients, err := llm.NewTeamClients(team); err == nil {
 			a.TeamClients = teamClients
 
@@ -174,17 +181,30 @@ func (a *App) InitLLMFromConfig() error {
 			if cfg := a.Config.Get(); cfg != nil {
 				if c, ok := a.TeamClients.Small.(*llm.LMStudioClient); ok {
 					c.SetEndpoint(cfg.LMStudioURL)
-					c.SetContextSize(cfg.LMStudioContextSize)
+					// Use policy context if provided, else global
+					if cfg.LLM.Smallest.ContextSize > 0 {
+						c.SetContextSize(cfg.LLM.Smallest.ContextSize)
+					} else {
+						c.SetContextSize(cfg.LMStudioContextSize)
+					}
 					c.SetNumKeep(cfg.LMStudioNumKeep)
 				}
 				if c, ok := a.TeamClients.Medium.(*llm.LMStudioClient); ok {
 					c.SetEndpoint(cfg.LMStudioURL)
-					c.SetContextSize(cfg.LMStudioContextSize)
+					if cfg.LLM.Medium.ContextSize > 0 {
+						c.SetContextSize(cfg.LLM.Medium.ContextSize)
+					} else {
+						c.SetContextSize(cfg.LMStudioContextSize)
+					}
 					c.SetNumKeep(cfg.LMStudioNumKeep)
 				}
 				if c, ok := a.TeamClients.Large.(*llm.LMStudioClient); ok {
 					c.SetEndpoint(cfg.LMStudioURL)
-					c.SetContextSize(cfg.LMStudioContextSize)
+					if cfg.LLM.Largest.ContextSize > 0 {
+						c.SetContextSize(cfg.LLM.Largest.ContextSize)
+					} else {
+						c.SetContextSize(cfg.LMStudioContextSize)
+					}
 					c.SetNumKeep(cfg.LMStudioNumKeep)
 				}
 			}
@@ -210,6 +230,14 @@ func (a *App) RunStartupAnalysis() {
 		return
 	}
 
+	// Config/environment gate: allow skipping startup scan entirely
+	if cfg := a.Config.Get(); cfg != nil {
+		if os.Getenv("LOCO_DISABLE_STARTUP_SCAN") == "true" || !cfg.Analysis.Startup.Autorun {
+			// Respect config: do nothing when disabled
+			return
+		}
+	}
+
 	// First show welcome banner (system-initiated tool card)
 	a.ToolExecutor.ExecuteSystem(tools.ToolCall{
 		Name:  tools.StartupWelcomeToolName,
@@ -220,9 +248,6 @@ func (a *App) RunStartupAnalysis() {
 	if a.Tools != nil && a.permissionServiceInternal != nil && a.Analysis != nil {
 		a.Tools.Replace(tools.NewStartupScanTool(a.permissionServiceInternal, a.workingDir, a.Analysis))
 	}
-	// Pass config-driven crowd size into startup tool by adjusting analysis service behavior is not required;
-	// startup tool will read it directly via analysis service when running.
-
 	// Then run startup scan
 	a.ToolExecutor.ExecuteSystem(tools.ToolCall{
 		Name:  "startup_scan",

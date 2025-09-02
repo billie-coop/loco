@@ -35,7 +35,8 @@
       "Bash(tree:*)",
       "Bash(touch:*)",
       "Bash(go list:*)",
-      "WebFetch(domain:swimm.io)"
+      "WebFetch(domain:swimm.io)",
+      "Bash(git log:*)"
     ],
     "deny": []
   }

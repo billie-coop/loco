@@ -110,13 +110,16 @@ func (c *LMStudioClient) CompleteWithOptions(ctx context.Context, messages []Mes
 		payload["model"] = c.model
 	}
 
-	// Add context window and n_keep (LM Studio / llama.cpp style)
+	// Add context window (LM Studio / llama.cpp style) only when set
 	if opts.ContextSize > 0 {
 		payload["n_ctx"] = opts.ContextSize
 	} else if c.contextSize > 0 {
 		payload["n_ctx"] = c.contextSize
 	}
-	payload["n_keep"] = c.numKeep
+	// Include n_keep only when > 0
+	if c.numKeep > 0 {
+		payload["n_keep"] = c.numKeep
+	}
 
 	body, _ := json.Marshal(payload)
 
@@ -163,8 +166,12 @@ func (c *LMStudioClient) Stream(ctx context.Context, messages []Message, onChunk
 	if c.model != "" {
 		payload["model"] = c.model
 	}
-	payload["n_ctx"] = c.contextSize
-	payload["n_keep"] = c.numKeep
+	if c.contextSize > 0 {
+		payload["n_ctx"] = c.contextSize
+	}
+	if c.numKeep > 0 {
+		payload["n_keep"] = c.numKeep
+	}
 
 	body, _ := json.Marshal(payload)
 

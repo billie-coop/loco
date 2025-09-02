@@ -28,6 +28,9 @@ type ToolExecutor struct {
 	activeMu     sync.Mutex
 	activeName   string
 	activeCancel context.CancelFunc
+
+	// Model team selection (for display in welcome tool)
+	teamClients *llm.TeamClients
 }
 
 // NewToolExecutor creates a new tool executor.
@@ -45,6 +48,18 @@ func NewToolExecutor(
 		llmService:        llmService,
 		permissionService: permissionService,
 	}
+}
+
+// SetTeamClients sets the active team clients (used for display)
+func (e *ToolExecutor) SetTeamClients(tc *llm.TeamClients) {
+	e.teamClients = tc
+}
+
+// IsBusy reports whether a tool is currently running (used for scheduling)
+func (e *ToolExecutor) IsBusy() bool {
+	e.activeMu.Lock()
+	defer e.activeMu.Unlock()
+	return e.activeCancel != nil
 }
 
 // Execute runs a tool and handles the result (user-initiated).
@@ -124,15 +139,19 @@ func (e *ToolExecutor) executeWithContext(call tools.ToolCall, initiator string)
 		}
 	}
 
-	// If we have team clients, pass selected team into context so welcome tool can display
-	if e.llmService != nil {
-		// Try to access App via llmService? Not directly; but team clients are on sessions? No.
-		// As a simple pass-through, attach a best-effort pointer if LLMService's client has a model set.
-		if e.llmService != nil && e.llmService.client != nil {
-			if lm, ok := e.llmService.client.(*llm.LMStudioClient); ok {
-				_ = lm // nothing to add here; team info is not available from service
-			}
+	// If welcome tool and we have team clients, attach selected models
+	if call.Name == tools.StartupWelcomeToolName && e.teamClients != nil {
+		team := &llm.ModelTeam{Name: "Active"}
+		if c, ok := e.teamClients.Small.(*llm.LMStudioClient); ok {
+			team.Small = c.CurrentModel()
 		}
+		if c, ok := e.teamClients.Medium.(*llm.LMStudioClient); ok {
+			team.Medium = c.CurrentModel()
+		}
+		if c, ok := e.teamClients.Large.(*llm.LMStudioClient); ok {
+			team.Large = c.CurrentModel()
+		}
+		ctx = context.WithValue(ctx, "model_team", team)
 	}
 
 	// If analyze tool, wrap context with progress publisher

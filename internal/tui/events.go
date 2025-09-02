@@ -89,7 +89,7 @@ func (m *Model) handleEvent(event events.Event) (tea.Model, tea.Cmd) {
 
 			// Show error in status
 			m.showStatus("❌ " + payload.Message)
-			m.sidebar.SetError(fmt.Errorf(payload.Message))
+			m.sidebar.SetError(fmt.Errorf("%s", payload.Message))
 
 			// Optionally add error as system message
 			errorMsg := llm.Message{
@@ -143,7 +143,7 @@ func (m *Model) handleEvent(event events.Event) (tea.Model, tea.Cmd) {
 			} else {
 				// Non-tool system message: append normally
 				m.messages.Append(msg)
-				m.syncMessagesToComponents()
+				m.syncStateToComponents()
 				// Save to session
 				if m.app.Sessions != nil {
 					if err := m.app.Sessions.AddMessage(msg); err != nil {
@@ -353,6 +353,24 @@ func (m *Model) handleEvent(event events.Event) (tea.Model, tea.Cmd) {
 						client.SetEndpoint(settings.APIEndpoint)
 						client.SetContextSize(settings.ContextSize)
 						client.SetNumKeep(settings.NumKeep)
+					}
+					// Also apply to team clients if present
+					if m.app.TeamClients != nil {
+						if c, ok := m.app.TeamClients.Small.(*llm.LMStudioClient); ok {
+							c.SetEndpoint(settings.APIEndpoint)
+							c.SetContextSize(settings.ContextSize)
+							c.SetNumKeep(settings.NumKeep)
+						}
+						if c, ok := m.app.TeamClients.Medium.(*llm.LMStudioClient); ok {
+							c.SetEndpoint(settings.APIEndpoint)
+							c.SetContextSize(settings.ContextSize)
+							c.SetNumKeep(settings.NumKeep)
+						}
+						if c, ok := m.app.TeamClients.Large.(*llm.LMStudioClient); ok {
+							c.SetEndpoint(settings.APIEndpoint)
+							c.SetContextSize(settings.ContextSize)
+							c.SetNumKeep(settings.NumKeep)
+						}
 					}
 					m.showStatus("Settings applied")
 				}

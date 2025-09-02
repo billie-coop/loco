@@ -13,10 +13,10 @@ import (
 type BaseTool interface {
 	// Name returns the tool name used in function calls
 	Name() string
-	
+
 	// Info returns OpenAI-compatible tool information
 	Info() ToolInfo
-	
+
 	// Run executes the tool with given parameters
 	Run(ctx context.Context, call ToolCall) (ToolResponse, error)
 }
@@ -65,12 +65,12 @@ func WithResponseMetadata(response ToolResponse, metadata any) ToolResponse {
 	if err != nil {
 		return response
 	}
-	
+
 	var metadataMap map[string]any
 	if err := json.Unmarshal(metadataJSON, &metadataMap); err != nil {
 		return response
 	}
-	
+
 	response.Metadata = metadataMap
 	return response
 }
@@ -143,6 +143,11 @@ func (r *Registry) Register(tool BaseTool) error {
 	return nil
 }
 
+// Replace swaps in a tool implementation, overwriting any existing tool of the same name.
+func (r *Registry) Replace(tool BaseTool) {
+	r.tools[tool.Name()] = tool
+}
+
 // Get retrieves a tool by name.
 func (r *Registry) Get(name string) (BaseTool, bool) {
 	tool, exists := r.tools[name]
@@ -170,19 +175,19 @@ func (r *Registry) GetOpenAITools() []map[string]any {
 // CreateDefaultRegistry creates a registry with all default tools.
 func CreateDefaultRegistry(permissionService permission.Service, workingDir string, analysisService interface{}) *Registry {
 	registry := NewRegistry()
-	
+
 	// Register all the core tools
 	registry.Register(NewBashTool(permissionService, workingDir))
 	registry.Register(NewViewTool(permissionService, workingDir))
 	registry.Register(NewEditTool(permissionService, workingDir))
 	registry.Register(NewWriteTool(permissionService, workingDir))
-	
+
 	// Register analysis tool if service is provided
 	if analysisService != nil {
 		// Type assert to analysis.Service when available
 		// For now, we'll skip this since we need to set up the service
 		// registry.Register(NewAnalyzeTool(permissionService, workingDir, analysisService))
 	}
-	
+
 	return registry
 }

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -136,12 +137,17 @@ func (s *service) generateKnowledgeDocuments(ctx context.Context, projectPath st
 
 	knowledgeFiles := make(map[string]string)
 
-	// Convert file summaries to string for prompts
-	summariesJSON, _ := json.MarshalIndent(fileSummaries, "", "  ")
-	summariesStr := string(summariesJSON)
+	// Build compact dataset: only relative path and summary, drop empties
+	maxN := 500
+	if tier == TierQuick {
+		maxN = 250
+	}
+	compact := buildCompactSummaries(fileSummaries, maxN)
+	compactJSON, _ := json.Marshal(compact)
+	compactStr := string(compactJSON)
 
 	// Step 1: Generate structure.md (runs first)
-	structureContent, err := s.generateStructureDoc(ctx, summariesStr)
+	structureContent, err := s.generateStructureDoc(ctx, compactStr)
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate structure.md: %w", err)
 	}
@@ -156,12 +162,12 @@ func (s *service) generateKnowledgeDocuments(ctx context.Context, projectPath st
 
 	go func() {
 		defer wg.Done()
-		patternsContent, patternsErr = s.generatePatternsDoc(ctx, summariesStr, structureContent)
+		patternsContent, patternsErr = s.generatePatternsDoc(ctx, compactStr, structureContent)
 	}()
 
 	go func() {
 		defer wg.Done()
-		contextContent, contextErr = s.generateContextDoc(ctx, summariesStr, structureContent)
+		contextContent, contextErr = s.generateContextDoc(ctx, compactStr, structureContent)
 	}()
 
 	wg.Wait()
@@ -177,7 +183,7 @@ func (s *service) generateKnowledgeDocuments(ctx context.Context, projectPath st
 	knowledgeFiles["context.md"] = contextContent
 
 	// Step 3: Generate overview.md (runs last, uses all previous)
-	overviewContent, err := s.generateOverviewDoc(ctx, summariesStr, structureContent, patternsContent, contextContent)
+	overviewContent, err := s.generateOverviewDoc(ctx, compactStr, structureContent, patternsContent, contextContent)
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate overview.md: %w", err)
 	}
@@ -187,10 +193,10 @@ func (s *service) generateKnowledgeDocuments(ctx context.Context, projectPath st
 }
 
 // generateStructureDoc creates the structure.md document.
-func (s *service) generateStructureDoc(ctx context.Context, fileSummaries string) (string, error) {
+func (s *service) generateStructureDoc(ctx context.Context, compactSummaries string) (string, error) {
 	prompt := fmt.Sprintf(`Analyze this project's file structure and create a comprehensive structure.md document.
 
-File Analysis:
+File Summaries (path + summary only):
 %s
 
 Create a markdown document that covers:
@@ -200,7 +206,7 @@ Create a markdown document that covers:
 4. Entry points and main components
 5. Configuration files and their purposes
 
-Format as a proper markdown document with sections and bullet points.`, fileSummaries)
+Format as a proper markdown document with sections and bullet points.`, compactSummaries)
 
 	messages := []llm.Message{
 		{
@@ -213,14 +219,14 @@ Format as a proper markdown document with sections and bullet points.`, fileSumm
 		},
 	}
 
-	return s.llmClient.Complete(ctx, messages)
+	return s.completeWithContext(ctx, messages, 16384)
 }
 
 // generatePatternsDoc creates the patterns.md document.
-func (s *service) generatePatternsDoc(ctx context.Context, fileSummaries, structureDoc string) (string, error) {
+func (s *service) generatePatternsDoc(ctx context.Context, compactSummaries, structureDoc string) (string, error) {
 	prompt := fmt.Sprintf(`Analyze this project's development patterns and create a patterns.md document.
 
-File Analysis:
+File Summaries (path + summary only):
 %s
 
 Project Structure:
@@ -234,7 +240,7 @@ Create a markdown document that covers:
 5. Testing patterns
 6. Error handling patterns
 
-Format as a proper markdown document with sections and code examples where relevant.`, fileSummaries, structureDoc)
+Format as a proper markdown document with sections and code examples where relevant.`, compactSummaries, structureDoc)
 
 	messages := []llm.Message{
 		{
@@ -247,14 +253,14 @@ Format as a proper markdown document with sections and code examples where relev
 		},
 	}
 
-	return s.llmClient.Complete(ctx, messages)
+	return s.completeWithContext(ctx, messages, 16384)
 }
 
 // generateContextDoc creates the context.md document.
-func (s *service) generateContextDoc(ctx context.Context, fileSummaries, structureDoc string) (string, error) {
+func (s *service) generateContextDoc(ctx context.Context, compactSummaries, structureDoc string) (string, error) {
 	prompt := fmt.Sprintf(`Analyze this project's purpose and context to create a context.md document.
 
-File Analysis:
+File Summaries (path + summary only):
 %s
 
 Project Structure:
@@ -268,7 +274,7 @@ Create a markdown document that covers:
 5. Target users/audience
 6. Integration points
 
-Format as a proper markdown document with clear explanations.`, fileSummaries, structureDoc)
+Format as a proper markdown document with clear explanations.`, compactSummaries, structureDoc)
 
 	messages := []llm.Message{
 		{
@@ -281,15 +287,15 @@ Format as a proper markdown document with clear explanations.`, fileSummaries, s
 		},
 	}
 
-	return s.llmClient.Complete(ctx, messages)
+	return s.completeWithContext(ctx, messages, 16384)
 }
 
 // generateOverviewDoc creates the overview.md document.
-func (s *service) generateOverviewDoc(ctx context.Context, fileSummaries, structureDoc, patternsDoc, contextDoc string) (string, error) {
+func (s *service) generateOverviewDoc(ctx context.Context, compactSummaries, structureDoc, patternsDoc, contextDoc string) (string, error) {
 	prompt := fmt.Sprintf(`Create a comprehensive overview.md document that summarizes this entire project.
 
 You have access to:
-1. File summaries
+1. Compact file summaries (path + summary only)
 2. Structure documentation
 3. Patterns documentation
 4. Context documentation
@@ -324,7 +330,49 @@ This should be the go-to document for understanding the project quickly.`, struc
 		},
 	}
 
+	return s.completeWithContext(ctx, messages, 16384)
+}
+
+// completeWithContext tries to request a larger context window when supported.
+func (s *service) completeWithContext(ctx context.Context, messages []llm.Message, contextSize int) (string, error) {
+	if lm, ok := s.llmClient.(*llm.LMStudioClient); ok {
+		opts := llm.DefaultCompleteOptions()
+		if contextSize > 0 {
+			opts.ContextSize = contextSize
+		}
+		return lm.CompleteWithOptions(ctx, messages, opts)
+	}
 	return s.llmClient.Complete(ctx, messages)
+}
+
+// buildCompactSummaries selects up to maxN entries as {path, summary}, prioritizing non-empty summaries.
+func buildCompactSummaries(fileSummaries *FileAnalysisResult, maxN int) []map[string]string {
+	type pair struct{ Path, Summary string }
+	pairs := make([]pair, 0, len(fileSummaries.Files))
+	for _, f := range fileSummaries.Files {
+		p := pair{Path: f.Path, Summary: strings.TrimSpace(f.Summary)}
+		pairs = append(pairs, p)
+	}
+	// Prioritize non-empty summaries
+	sort.SliceStable(pairs, func(i, j int) bool {
+		iEmpty := pairs[i].Summary == ""
+		jEmpty := pairs[j].Summary == ""
+		if iEmpty != jEmpty {
+			return !iEmpty // non-empty before empty
+		}
+		return pairs[i].Path < pairs[j].Path
+	})
+	if maxN > 0 && len(pairs) > maxN {
+		pairs = pairs[:maxN]
+	}
+	out := make([]map[string]string, 0, len(pairs))
+	for _, p := range pairs {
+		if p.Summary == "" {
+			continue // drop empties to save space
+		}
+		out = append(out, map[string]string{"path": p.Path, "summary": p.Summary})
+	}
+	return out
 }
 
 // saveKnowledgeFiles saves knowledge documents to disk.

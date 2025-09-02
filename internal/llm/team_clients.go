@@ -36,6 +36,48 @@ func NewTeamClients(team *ModelTeam) (*TeamClients, error) {
 	}, nil
 }
 
+// BuildTeamFromConfig builds a ModelTeam from Config LLM policies (model IDs may be empty)
+func BuildTeamFromConfig(cfgSmall, cfgMedium, cfgLarge string, available []Model) *ModelTeam {
+	team := &ModelTeam{Name: "Config Team"}
+	if cfgSmall != "" {
+		team.Small = cfgSmall
+	}
+	if cfgMedium != "" {
+		team.Medium = cfgMedium
+	}
+	if cfgLarge != "" {
+		team.Large = cfgLarge
+	}
+	// If any slot empty, pick by size categories
+	registry := GetModelRegistry()
+	if team.Small == "" {
+		// prefer XS/S
+		candidates := registry.GetModelsForTeamSelection(available, SizeXS)
+		if len(candidates) == 0 {
+			candidates = registry.GetModelsForTeamSelection(available, SizeS)
+		}
+		if len(candidates) > 0 {
+			team.Small = candidates[0].ID
+		}
+	}
+	if team.Medium == "" {
+		candidates := registry.GetModelsForTeamSelection(available, SizeM)
+		if len(candidates) > 0 {
+			team.Medium = candidates[0].ID
+		}
+	}
+	if team.Large == "" {
+		candidates := registry.GetModelsForTeamSelection(available, SizeL)
+		if len(candidates) == 0 {
+			candidates = registry.GetModelsForTeamSelection(available, SizeXL)
+		}
+		if len(candidates) > 0 {
+			team.Large = candidates[0].ID
+		}
+	}
+	return team
+}
+
 // ModelTeam represents a team of models for different analysis tiers
 type ModelTeam struct {
 	Name   string `json:"name"`   // Team name (e.g., "Default", "Fast", "Quality")
@@ -59,14 +101,14 @@ func GetDefaultTeam(models []Model) *ModelTeam {
 	// Select smallest available model (prefer LFM2 if available, then XS, then S)
 	foundLFM2 := false
 	for _, model := range models {
-		if strings.Contains(strings.ToLower(model.ID), "lfm2") || 
-		   strings.Contains(strings.ToLower(model.ID), "lfm-2") {
+		if strings.Contains(strings.ToLower(model.ID), "lfm2") ||
+			strings.Contains(strings.ToLower(model.ID), "lfm-2") {
 			team.Small = model.ID
 			foundLFM2 = true
 			break
 		}
 	}
-	
+
 	if !foundLFM2 {
 		if xsModels, ok := modelsBySize[SizeXS]; ok && len(xsModels) > 0 {
 			team.Small = xsModels[0].ID
@@ -135,7 +177,7 @@ func (tc *TeamClients) HealthCheck() error {
 // CompleteWithSize routes completion to appropriate model based on size
 func (tc *TeamClients) CompleteWithSize(ctx context.Context, messages []Message, size ModelSize) (string, error) {
 	var client Client
-	
+
 	switch size {
 	case SizeXS, SizeS:
 		client = tc.Small

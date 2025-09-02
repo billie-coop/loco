@@ -20,6 +20,7 @@ type AnalysisStartupConfig struct {
 	Clean     bool `json:"clean"`
 	Debug     bool `json:"debug"`
 	CrowdSize int  `json:"crowd_size"`
+	Autorun   bool `json:"autorun"`
 }
 
 type AnalysisQuickConfig struct {
@@ -37,6 +38,14 @@ type AnalysisQuickConfig struct {
 	MaxCompletionTokensAdjudicator int      `json:"max_completion_tokens_adjudicator"`
 	RequestTimeoutMs               int      `json:"request_timeout_ms"`
 	WorkerContextSize              int      `json:"worker_context_size"`
+
+	StrictFail       bool `json:"strict_fail"`
+	WorkerRetry      int  `json:"worker_retry"`
+	AdjudicatorRetry int  `json:"adjudicator_retry"`
+
+	// Natural language worker mode (experimental)
+	NaturalLanguageWorkers bool `json:"natural_language_workers"`
+	WorkerSummaryWordLimit int  `json:"worker_summary_word_limit"`
 }
 
 type AnalysisConfig struct {
@@ -46,6 +55,20 @@ type AnalysisConfig struct {
 	Deep     TierConfig            `json:"deep"`
 	Full     TierConfig            `json:"full"`
 	// Future: additional per-tier settings can be added here
+}
+
+type LLMPolicy struct {
+	ModelID              string `json:"model_id"`
+	RequestTimeoutMs     int    `json:"request_timeout_ms"`
+	MaxTokensWorker      int    `json:"max_tokens_worker"`
+	MaxTokensAdjudicator int    `json:"max_tokens_adjudicator"`
+	ContextSize          int    `json:"context_size"`
+}
+
+type LLMConfig struct {
+	Smallest LLMPolicy `json:"smallest"` // XS/S
+	Medium   LLMPolicy `json:"medium"`   // M
+	Largest  LLMPolicy `json:"largest"`  // L/XL
 }
 
 // Config represents the Loco configuration
@@ -64,6 +87,9 @@ type Config struct {
 	ToolsEnabled bool     `json:"tools_enabled"`
 	AllowedTools []string `json:"allowed_tools"`
 
+	// LLM size and model policies (t-shirt S/M/L)
+	LLM LLMConfig `json:"llm"`
+
 	// Analysis settings (nested)
 	Analysis AnalysisConfig `json:"analysis"`
 }
@@ -79,8 +105,13 @@ func DefaultConfig() *Config {
 		Debug:               false,
 		ToolsEnabled:        true,
 		AllowedTools:        []string{"copy", "clear", "help", "chat"}, // Safe tools allowed by default
+		LLM: LLMConfig{
+			Smallest: LLMPolicy{ModelID: "", RequestTimeoutMs: 30000, MaxTokensWorker: -1, MaxTokensAdjudicator: -1, ContextSize: 8192},
+			Medium:   LLMPolicy{ModelID: "", RequestTimeoutMs: 120000, MaxTokensWorker: -1, MaxTokensAdjudicator: -1, ContextSize: 8192},
+			Largest:  LLMPolicy{ModelID: "", RequestTimeoutMs: 600000, MaxTokensWorker: -1, MaxTokensAdjudicator: -1, ContextSize: 8192},
+		},
 		Analysis: AnalysisConfig{
-			Startup: AnalysisStartupConfig{Clean: false, Debug: false, CrowdSize: 10},
+			Startup: AnalysisStartupConfig{Clean: false, Debug: false, CrowdSize: 10, Autorun: false},
 			Quick: AnalysisQuickConfig{
 				Clean:                          false,
 				Debug:                          false,
@@ -96,6 +127,11 @@ func DefaultConfig() *Config {
 				MaxCompletionTokensAdjudicator: 600,
 				RequestTimeoutMs:               10000,
 				WorkerContextSize:              2048,
+				StrictFail:                     true,
+				WorkerRetry:                    1,
+				AdjudicatorRetry:               1,
+				NaturalLanguageWorkers:         false,
+				WorkerSummaryWordLimit:         200,
 			},
 			Detailed: TierConfig{Clean: false, Debug: false, AutoRun: false},
 			Deep:     TierConfig{Clean: false, Debug: false, AutoRun: false},
@@ -174,6 +210,10 @@ func (m *Manager) Load() error {
 	if cfg.Analysis.Startup.CrowdSize == 0 {
 		cfg.Analysis.Startup.CrowdSize = m.config.Analysis.Startup.CrowdSize
 	}
+	// Backfill missing Autorun field for startup
+	if !cfg.Analysis.Startup.Autorun && !m.config.Analysis.Startup.Autorun {
+		// leave false by default; nothing to copy
+	}
 	if cfg.Analysis.Quick.Workers == 0 {
 		cfg.Analysis.Quick.Workers = m.config.Analysis.Quick.Workers
 	}
@@ -201,8 +241,57 @@ func (m *Manager) Load() error {
 	if cfg.Analysis.Quick.WorkerContextSize == 0 {
 		cfg.Analysis.Quick.WorkerContextSize = m.config.Analysis.Quick.WorkerContextSize
 	}
+	if cfg.Analysis.Quick.WorkerRetry == 0 {
+		cfg.Analysis.Quick.WorkerRetry = m.config.Analysis.Quick.WorkerRetry
+	}
+	if cfg.Analysis.Quick.AdjudicatorRetry == 0 {
+		cfg.Analysis.Quick.AdjudicatorRetry = m.config.Analysis.Quick.AdjudicatorRetry
+	}
+	if !cfg.Analysis.Quick.StrictFail {
+		cfg.Analysis.Quick.StrictFail = m.config.Analysis.Quick.StrictFail
+	}
 	if len(cfg.Analysis.Quick.Focuses) == 0 {
 		cfg.Analysis.Quick.Focuses = append([]string{}, m.config.Analysis.Quick.Focuses...)
+	}
+	if cfg.Analysis.Quick.WorkerSummaryWordLimit == 0 {
+		cfg.Analysis.Quick.WorkerSummaryWordLimit = m.config.Analysis.Quick.WorkerSummaryWordLimit
+	}
+	// Ensure LLM policies are filled
+	if cfg.LLM.Smallest.RequestTimeoutMs == 0 {
+		cfg.LLM.Smallest.RequestTimeoutMs = m.config.LLM.Smallest.RequestTimeoutMs
+	}
+	if cfg.LLM.Smallest.MaxTokensWorker == 0 {
+		cfg.LLM.Smallest.MaxTokensWorker = m.config.LLM.Smallest.MaxTokensWorker
+	}
+	if cfg.LLM.Smallest.MaxTokensAdjudicator == 0 {
+		cfg.LLM.Smallest.MaxTokensAdjudicator = m.config.LLM.Smallest.MaxTokensAdjudicator
+	}
+	if cfg.LLM.Smallest.ContextSize == 0 {
+		cfg.LLM.Smallest.ContextSize = m.config.LLM.Smallest.ContextSize
+	}
+	if cfg.LLM.Medium.RequestTimeoutMs == 0 {
+		cfg.LLM.Medium.RequestTimeoutMs = m.config.LLM.Medium.RequestTimeoutMs
+	}
+	if cfg.LLM.Medium.MaxTokensWorker == 0 {
+		cfg.LLM.Medium.MaxTokensWorker = m.config.LLM.Medium.MaxTokensWorker
+	}
+	if cfg.LLM.Medium.MaxTokensAdjudicator == 0 {
+		cfg.LLM.Medium.MaxTokensAdjudicator = m.config.LLM.Medium.MaxTokensAdjudicator
+	}
+	if cfg.LLM.Medium.ContextSize == 0 {
+		cfg.LLM.Medium.ContextSize = m.config.LLM.Medium.ContextSize
+	}
+	if cfg.LLM.Largest.RequestTimeoutMs == 0 {
+		cfg.LLM.Largest.RequestTimeoutMs = m.config.LLM.Largest.RequestTimeoutMs
+	}
+	if cfg.LLM.Largest.MaxTokensWorker == 0 {
+		cfg.LLM.Largest.MaxTokensWorker = m.config.LLM.Largest.MaxTokensWorker
+	}
+	if cfg.LLM.Largest.MaxTokensAdjudicator == 0 {
+		cfg.LLM.Largest.MaxTokensAdjudicator = m.config.LLM.Largest.MaxTokensAdjudicator
+	}
+	if cfg.LLM.Largest.ContextSize == 0 {
+		cfg.LLM.Largest.ContextSize = m.config.LLM.Largest.ContextSize
 	}
 
 	m.config = &cfg
@@ -257,6 +346,8 @@ func (m *Manager) Set(key, value string) error {
 		if n > 0 {
 			m.config.Analysis.Startup.CrowdSize = n
 		}
+	case "analysis.startup.autorun":
+		m.config.Analysis.Startup.Autorun = value == "true"
 	case "analysis.quick.clean":
 		m.config.Analysis.Quick.Clean = value == "true"
 	case "analysis.quick.debug":
@@ -298,15 +389,11 @@ func (m *Manager) Set(key, value string) error {
 	case "analysis.quick.max_completion_tokens_worker":
 		var n int
 		_, _ = fmt.Sscanf(value, "%d", &n)
-		if n > 0 {
-			m.config.Analysis.Quick.MaxCompletionTokensWorker = n
-		}
+		m.config.Analysis.Quick.MaxCompletionTokensWorker = n
 	case "analysis.quick.max_completion_tokens_adjudicator":
 		var n int
 		_, _ = fmt.Sscanf(value, "%d", &n)
-		if n > 0 {
-			m.config.Analysis.Quick.MaxCompletionTokensAdjudicator = n
-		}
+		m.config.Analysis.Quick.MaxCompletionTokensAdjudicator = n
 	case "analysis.quick.request_timeout_ms":
 		var n int
 		_, _ = fmt.Sscanf(value, "%d", &n)
@@ -332,6 +419,24 @@ func (m *Manager) Set(key, value string) error {
 		if len(out) > 0 {
 			m.config.Analysis.Quick.Focuses = out
 		}
+	case "analysis.quick.strict_fail":
+		m.config.Analysis.Quick.StrictFail = value == "true"
+	case "analysis.quick.worker_retry":
+		var n int
+		_, _ = fmt.Sscanf(value, "%d", &n)
+		m.config.Analysis.Quick.WorkerRetry = n
+	case "analysis.quick.adjudicator_retry":
+		var n int
+		_, _ = fmt.Sscanf(value, "%d", &n)
+		m.config.Analysis.Quick.AdjudicatorRetry = n
+	case "analysis.quick.natural_language_workers":
+		m.config.Analysis.Quick.NaturalLanguageWorkers = value == "true"
+	case "analysis.quick.worker_summary_word_limit":
+		var n int
+		_, _ = fmt.Sscanf(value, "%d", &n)
+		if n > 0 {
+			m.config.Analysis.Quick.WorkerSummaryWordLimit = n
+		}
 	case "analysis.detailed.clean":
 		m.config.Analysis.Detailed.Clean = value == "true"
 	case "analysis.detailed.debug":
@@ -351,9 +456,8 @@ func (m *Manager) Set(key, value string) error {
 	case "analysis.full.autorun":
 		m.config.Analysis.Full.AutoRun = value == "true"
 	default:
-		return fmt.Errorf("unknown config key: %s", key)
+		// Unknown key; ignore or handle elsewhere
 	}
-
 	return m.Save()
 }
 
