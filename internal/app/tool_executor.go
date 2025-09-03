@@ -177,9 +177,15 @@ func (e *ToolExecutor) executeWithContext(call tools.ToolCall, initiator string)
 	}
 
 	if call.Name == "startup_scan" {
-		// Handle startup scan specially - run it asynchronously
-		e.handleStartupScanAsync(call, ctx, initiator)
-		return
+		// During system startup, run synchronously to avoid conflicts with RAG indexing
+		// For user-initiated calls, run async
+		if initiator == "system" {
+			// Run synchronously during startup - continue to normal sync execution below
+		} else {
+			// Handle startup scan asynchronously for user calls
+			e.handleStartupScanAsync(call, ctx, initiator)
+			return
+		}
 	}
 
 	// For synchronous tools, set up cancelable context and track active job
