@@ -125,80 +125,81 @@
 </head>
 <body>
     <h1>DDAID: Documentation-Driven AI Development</h1>
-    <div class="subtitle">automatic context management for AI coding assistants</div>
+    <div class="subtitle">turning AI assistants into reliable collaborators, not vibe-based coders</div>
 
-    <p>Modern AI coding assistants already maintain context - through files like <code>CLAUDE.md</code>, project scanning, and conversation memory. The problem isn't that context doesn't exist. The problem is that context management is manual, fragmented, and doesn't scale.</p>
+    <p>You're already managing context for AI assistants - through <code>CLAUDE.md</code> files, project docs, manual reminders. DDAID isn't a revolution; it's an evolution of what you're doing now. The difference? Your context stays alive, synced, and actually works at scale.</p>
 
-    <h2>The Context Management Problem</h2>
+    <h2>The Problem: AI with Daily Amnesia</h2>
     
-    <p>Current approaches to AI context have significant limitations:</p>
+    <p>Working with AI assistants today is like collaborating with a brilliant junior developer who forgets everything overnight. Every morning, you re-explain your architecture, your decisions, your patterns. The context you carefully documented last week? Already stale.</p>
     
     <ul>
-        <li><strong>Manual maintenance</strong> - You have to remember to update context files</li>
-        <li><strong>Scattered formats</strong> - Each tool has its own way of storing context</li>
-        <li><strong>Stale information</strong> - Context doesn't update when code changes</li>
-        <li><strong>No cross-tool sharing</strong> - Claude can't use Copilot's understanding</li>
-        <li><strong>Doesn't scale</strong> - Works for small projects, breaks down for large ones</li>
+        <li><strong>Constant repetition</strong> - "We use PostgreSQL, not MongoDB. Yes, again."</li>
+        <li><strong>Context drift</strong> - Your docs say one thing, your code does another</li>
+        <li><strong>Fragmented knowledge</strong> - Claude.md here, README there, scattered everywhere</li>
+        <li><strong>No memory between tools</strong> - Claude can't learn from Copilot's understanding</li>
+        <li><strong>Breaks at scale</strong> - Works for toy projects, fails on real codebases</li>
     </ul>
 
-    <p>This leads to a familiar cycle: you carefully set up context files, they work great for a week, then slowly drift out of sync with reality until you're explaining the same things over and over again.</p>
+    <p>You know the cycle: spend an hour setting up context, get amazing results for a week, then watch it slowly decay until you're back to square one, explaining basic project structure to an AI that should already know.</p>
 
-    <h2>What DDAID Actually Does</h2>
+    <h2>The Solution: Context That Stays Alive</h2>
     
-    <p>DDAID takes the ad-hoc context management that already exists and makes it systematic:</p>
+    <p>DDAID doesn't replace your documentation - it defers to it. Your architectural decisions, your coding standards, your patterns remain the source of truth. DDAID just keeps them alive and in sync.</p>
     
     <div class="box">
-        <p><strong>Current state:</strong> Manual context files + project scanning + hope</p>
-        <p><strong>DDAID approach:</strong> Automatic updates + standardized format + git integration</p>
+        <p><strong>Without DDAID:</strong> AI is a junior dev with daily amnesia</p>
+        <p><strong>With DDAID:</strong> They still forget, but show up having read yesterday's notes</p>
     </div>
 
-    <p>It's not about giving AI memory - it's about making that memory manageable.</p>
+    <p>The key insight: documentation becomes the shared language between human and AI. You write it once, maintain it naturally through git, and every AI assistant speaks it fluently.</p>
 
-    <h2>Technical Approach</h2>
+    <h2>Philosophy: Collaboration, Not Replacement</h2>
     
-    <h3>Automatic Updates</h3>
-    <p>When code changes, context updates. No more remembering to edit <code>ARCHITECTURE.md</code> after a refactor. Git integration detects changes and updates relevant context automatically.</p>
+    <p>DDAID treats AI as a collaborator, not a magical replacement for developers. The human remains in charge of architecture, decisions, and judgment. The AI handles the repetitive work of keeping context synchronized.</p>
     
-    <h3>Specialized Agents</h3>
-    <p>Different aspects require different context management:</p>
-    <ul>
-        <li>Architecture context tracks structural decisions</li>
-        <li>API context maintains endpoint documentation</li>
-        <li>Security context documents auth patterns</li>
-        <li>Performance context captures optimization choices</li>
-    </ul>
+    <p>It's tunable and correctable - you can edit any documentation directly, and DDAID maintains it going forward. No black box, no mystery. Just reliable collaboration based on shared understanding.</p>
+
+    <h2>How It Works</h2>
     
-    <h3>Standardized Format</h3>
-    <p>One context format that works across AI tools. Your architectural decisions work the same in Claude, ChatGPT, or local models.</p>
+    <p><strong>Git-driven updates:</strong> When code changes, documentation updates automatically. No more stale ARCHITECTURE.md files.</p>
+    
+    <p><strong>Specialized agents:</strong> Different contexts for different concerns - architecture, API, security, performance. Each maintained by focused agents.</p>
+    
+    <p><strong>Universal format:</strong> One context standard that works across all AI tools. Your docs work the same in Claude, ChatGPT, or local models.</p>
+    
+    <p><strong>Human override:</strong> Edit docs anytime. DDAID defers to your changes and maintains them going forward.</p>
 
     <h2>Why This Matters</h2>
     
-    <p>The difference between theory and practice:</p>
+    <p><strong>Less repetition:</strong> Stop explaining the same architectural decisions every session.</p>
     
-    <p><strong>In theory:</strong> AI assistants read your project and understand it.</p>
+    <p><strong>Less drift:</strong> Documentation stays synced with code automatically.</p>
     
-    <p><strong>In practice:</strong> You're constantly reminding them about decisions made last month, explaining why you chose PostgreSQL over MongoDB (again), and dealing with suggestions that conflict with established patterns.</p>
+    <p><strong>More reliable collaboration:</strong> AI suggestions align with your established patterns.</p>
     
-    <p>DDAID acknowledges that context already exists - it just makes it actually work at scale.</p>
+    <p><strong>Scales beyond toys:</strong> Works on real codebases, not just weekend projects.</p>
+    
+    <p><strong>You stay in control:</strong> Architecture and decisions remain human-driven. AI handles the maintenance.</p>
 
     <blockquote>
-        Good context management is invisible. You only notice it when it's broken.
+        Documentation becomes the shared language between human and AI. Write it once, maintain it naturally, speak it everywhere.
     </blockquote>
 
-    <h2>Implementation Status</h2>
+    <h2>Proof It Works: Loco</h2>
     
-    <p>The reference implementation (Loco) demonstrates these concepts with:</p>
+    <p>Loco is our reference implementation - proving DDAID works entirely offline with local models:</p>
     
     <ul>
-        <li>Git-based change detection for incremental updates</li>
-        <li>Multi-tier analysis system for existing codebases</li>
-        <li>Local-first design with LM Studio integration</li>
-        <li>Context that travels with your repository</li>
-        <li>RAG-powered semantic search (experimental)</li>
-        <li>Vector embeddings for intelligent context retrieval</li>
+        <li>Git-driven context updates that actually work</li>
+        <li>Multi-tier analysis using different model sizes efficiently</li>
+        <li>100% local with LM Studio - your code never leaves your machine</li>
+        <li>Context lives in <code>.loco/</code> and travels with your repo</li>
+        <li>RAG for semantic search (experimental)</li>
+        <li>LoRA fine-tuning coming - models that learn your patterns</li>
     </ul>
 
-    <p>It's actively evolving, with RAG capabilities now operational and LoRA fine-tuning planned. Each experiment pushes the boundaries of what's possible with local AI.</p>
+    <p>Not vaporware. Not hype. Working code you can run today.</p>
 
     <h2>Try It</h2>
     
