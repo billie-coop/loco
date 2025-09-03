@@ -196,7 +196,7 @@ func (a *App) SetLLMClient(client llm.Client) {
 	if a.Tools != nil {
 		if lm, ok := client.(*llm.LMStudioClient); ok {
 			// Ensure settings already applied above
-			a.Tools.Replace(tools.NewStartupWelcomeTool(a.permissionServiceInternal, lm))
+			a.Tools.Replace(tools.NewStartupWelcomeTool(a.permissionServiceInternal, lm, a.Config))
 		}
 	}
 }

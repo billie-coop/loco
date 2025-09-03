@@ -27,6 +27,12 @@ type ModelInfo struct {
 func DetectModelSize(modelID string) ModelSize {
 	lower := strings.ToLower(modelID)
 
+	// Check for embedding models first
+	if strings.Contains(lower, "embed") || strings.Contains(lower, "e5-") || 
+		strings.Contains(lower, "bge-") || strings.Contains(lower, "gte-") {
+		return SizeSpecial
+	}
+
 	// Check for explicit size indicators
 	// XS models (< 2B)
 	if strings.Contains(lower, "0.5b") || strings.Contains(lower, "500m") ||

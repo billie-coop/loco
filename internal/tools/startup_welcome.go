@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/billie-coop/loco/internal/config"
 	"github.com/billie-coop/loco/internal/llm"
 	"github.com/billie-coop/loco/internal/permission"
 	"github.com/billie-coop/loco/internal/ui"
@@ -16,8 +17,9 @@ import (
 // Description: Prints ASCII banner, current model info, and quick commands
 
 type startupWelcomeTool struct {
-	permissions permission.Service
-	client      *llm.LMStudioClient
+	permissions   permission.Service
+	client        *llm.LMStudioClient
+	configManager *config.Manager
 }
 
 const (
@@ -26,10 +28,11 @@ const (
 )
 
 // NewStartupWelcomeTool creates a new instance
-func NewStartupWelcomeTool(permissions permission.Service, client *llm.LMStudioClient) BaseTool {
+func NewStartupWelcomeTool(permissions permission.Service, client *llm.LMStudioClient, configManager *config.Manager) BaseTool {
 	return &startupWelcomeTool{
-		permissions: permissions,
-		client:      client,
+		permissions:   permissions,
+		client:        client,
+		configManager: configManager,
 	}
 }
 
@@ -89,7 +92,15 @@ func (t *startupWelcomeTool) Run(ctx context.Context, call ToolCall) (ToolRespon
 		sb.WriteString("Selected models (team):\n")
 		sb.WriteString(fmt.Sprintf("  Small:  %s\n", team.Small))
 		sb.WriteString(fmt.Sprintf("  Medium: %s\n", team.Medium))
-		sb.WriteString(fmt.Sprintf("  Large:  %s\n\n", team.Large))
+		sb.WriteString(fmt.Sprintf("  Large:  %s\n", team.Large))
+		
+		// Show selected embedding model from config
+		if t.configManager != nil {
+			if cfg := t.configManager.Get(); cfg != nil && cfg.Analysis.RAG.EmbeddingModel != "" {
+				sb.WriteString(fmt.Sprintf("  Embedding: %s\n", cfg.Analysis.RAG.EmbeddingModel))
+			}
+		}
+		sb.WriteString("\n")
 	}
 	if currentModel := t.client.CurrentModel(); currentModel != "" {
 		sb.WriteString(fmt.Sprintf("Preferred model: %s\n\n", currentModel))
