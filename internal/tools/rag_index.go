@@ -12,14 +12,17 @@ import (
 	"time"
 
 	"github.com/billie-coop/loco/internal/config"
+	"github.com/billie-coop/loco/internal/files"
 	"github.com/billie-coop/loco/internal/llm"
 	"github.com/billie-coop/loco/internal/sidecar"
 )
 
 // RagIndexParams represents parameters for RAG indexing
 type RagIndexParams struct {
-	Path  string `json:"path,omitempty"`  // Specific path to index
-	Force bool   `json:"force,omitempty"` // Force re-indexing
+	Path         string   `json:"path,omitempty"`          // Specific path to index
+	Force        bool     `json:"force,omitempty"`         // Force re-indexing
+	Trigger      string   `json:"trigger,omitempty"`       // What triggered this indexing (user, file-watch, system)
+	ChangedFiles []string `json:"changed_files,omitempty"` // List of files that changed (for file-watch triggers)
 }
 
 
@@ -92,7 +95,7 @@ func (r *ragIndexTool) Info() ToolInfo {
 func (r *ragIndexTool) computeDirectoryHash(path string) (string, error) {
 	h := sha256.New()
 	
-	var files []string
+	var fileList []string
 	err := filepath.Walk(path, func(filePath string, info os.FileInfo, err error) error {
 		if err != nil {
 			return nil // Skip errors
@@ -106,14 +109,13 @@ func (r *ragIndexTool) computeDirectoryHash(path string) (string, error) {
 			return nil
 		}
 		
-		// Skip non-code files
-		ext := filepath.Ext(filePath)
-		if !isIndexableExtension(ext) {
+		// Skip non-indexable files
+		if !files.IsIndexable(filePath) {
 			return nil
 		}
 		
 		relPath, _ := filepath.Rel(path, filePath)
-		files = append(files, relPath)
+		fileList = append(fileList, relPath)
 		return nil
 	})
 	
@@ -122,10 +124,10 @@ func (r *ragIndexTool) computeDirectoryHash(path string) (string, error) {
 	}
 	
 	// Sort files for consistent hashing
-	sort.Strings(files)
+	sort.Strings(fileList)
 	
 	// Hash each file's path and content
-	for _, file := range files {
+	for _, file := range fileList {
 		fullPath := filepath.Join(path, file)
 		
 		// Include file path in hash
@@ -228,7 +230,7 @@ func (r *ragIndexTool) Run(ctx context.Context, call ToolCall) (ToolResponse, er
 	}
 	
 	// Collect files to index
-	var files []string
+	var filesToScan []string
 	err = filepath.Walk(indexPath, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return nil // Skip errors
@@ -244,9 +246,8 @@ func (r *ragIndexTool) Run(ctx context.Context, call ToolCall) (ToolResponse, er
 		}
 		
 		// Check if file should be indexed
-		ext := filepath.Ext(path)
-		if isIndexableExtension(ext) {
-			files = append(files, path)
+		if files.IsIndexable(path) {
+			filesToScan = append(filesToScan, path)
 		}
 		
 		return nil
@@ -268,7 +269,7 @@ func (r *ragIndexTool) Run(ctx context.Context, call ToolCall) (ToolResponse, er
 	var filesToIndex []string
 	var retryCount int
 	if !params.Force {
-		for _, file := range files {
+		for _, file := range filesToScan {
 			fileState, exists := prevState.FileStates[file]
 			// Re-index if: not indexed before, failed last time, or file changed
 			if !exists || !fileState.Success || fileHashChanged(file, fileState.Hash) {
@@ -280,13 +281,36 @@ func (r *ragIndexTool) Run(ctx context.Context, call ToolCall) (ToolResponse, er
 			}
 		}
 	} else {
-		filesToIndex = files
+		filesToIndex = filesToScan
 	}
 	
-	// Show progress
-	response := fmt.Sprintf("🔍 **RAG Indexing**\n\n")
+	// Detect trigger context from initiator or params
+	trigger := params.Trigger
+	if trigger == "" {
+		// Fall back to context initiator
+		if initiator := ctx.Value(InitiatorKey); initiator != nil {
+			if initiatorStr, ok := initiator.(string); ok {
+				trigger = initiatorStr
+			}
+		}
+	}
+	
+	// Show progress with context-aware messaging
+	var response string
+	switch trigger {
+	case "file-watch":
+		response = "🔄 **Auto-Indexing** (triggered by file changes)\n\n"
+		if len(params.ChangedFiles) > 0 {
+			response += fmt.Sprintf("**Changed files:** %s\n", strings.Join(params.ChangedFiles, ", "))
+		}
+	case "system":
+		response = "🚀 **RAG Indexing** (startup)\n\n"
+	default:
+		response = "🔍 **RAG Indexing**\n\n"
+	}
+	
 	response += fmt.Sprintf("**Path:** %s\n", indexPath)
-	response += fmt.Sprintf("**Total files:** %d\n", len(files))
+	response += fmt.Sprintf("**Total files:** %d\n", len(filesToScan))
 	response += fmt.Sprintf("**To index:** %d\n", len(filesToIndex))
 	if retryCount > 0 {
 		response += fmt.Sprintf("**Retrying:** %d failed files\n", retryCount)
@@ -295,7 +319,7 @@ func (r *ragIndexTool) Run(ctx context.Context, call ToolCall) (ToolResponse, er
 	
 	if len(filesToIndex) == 0 {
 		response += "*All files already indexed*\n"
-		publishProgress("Complete", len(files), len(files), "")
+		publishProgress("Complete", len(filesToScan), len(filesToScan), "")
 		return NewTextResponse(response), nil
 	}
 	
@@ -306,7 +330,11 @@ func (r *ragIndexTool) Run(ctx context.Context, call ToolCall) (ToolResponse, er
 	// This happens whenever we're about to index files (not just first run)
 	// because LM Studio's embedding model needs time to load after being idle
 	if len(filesToIndex) > 0 {
-		response += "⏳ Warming up embedding model...\n"
+		if trigger == "file-watch" {
+			response += "⏳ Loading embedding model for auto-indexing...\n"
+		} else {
+			response += "⏳ Warming up embedding model...\n"
+		}
 		publishProgress("Warming up", len(filesToIndex), 0, "Loading embedding model...")
 		time.Sleep(3 * time.Second) // Give LM Studio more time to load the model
 	}
@@ -388,14 +416,14 @@ func (r *ragIndexTool) Run(ctx context.Context, call ToolCall) (ToolResponse, er
 	publishProgress("Complete", len(filesToIndex), indexed, fmt.Sprintf("%d indexed, %d failed", indexed, failed))
 	
 	response += fmt.Sprintf("\n**Complete!**\n")
-	response += fmt.Sprintf("- Total files: %d\n", len(files))
+	response += fmt.Sprintf("- Total files: %d\n", len(filesToScan))
 	response += fmt.Sprintf("- Processed: %d files\n", len(filesToIndex))
 	response += fmt.Sprintf("- Indexed: %d files\n", indexed)
 	if failed > 0 {
 		response += fmt.Sprintf("- Failed: %d files\n", failed)
 	}
-	if len(files) > len(filesToIndex) {
-		response += fmt.Sprintf("- Skipped: %d files (already indexed)\n", len(files)-len(filesToIndex))
+	if len(filesToScan) > len(filesToIndex) {
+		response += fmt.Sprintf("- Skipped: %d files (already indexed)\n", len(filesToScan)-len(filesToIndex))
 	}
 	response += fmt.Sprintf("- Content hash: %s\n", currentHash[:12]+"...")
 	response += fmt.Sprintf("\nUse `/rag <query>` to search\n")
@@ -422,21 +450,3 @@ func computeFileHash(filePath string) string {
 	return fmt.Sprintf("%x", h.Sum(nil))
 }
 
-// isIndexableExtension checks if a file extension should be indexed
-func isIndexableExtension(ext string) bool {
-	indexable := []string{
-		".go", ".js", ".jsx", ".ts", ".tsx", ".py", ".rs",
-		".java", ".c", ".h", ".cpp", ".cc", ".hpp",
-		".md", ".yaml", ".yml", ".json", ".toml",
-		".sh", ".bash", ".zsh", ".fish",
-		".vim", ".lua", ".rb", ".php",
-	}
-	
-	ext = strings.ToLower(ext)
-	for _, e := range indexable {
-		if ext == e {
-			return true
-		}
-	}
-	return false
-}

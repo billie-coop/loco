@@ -2,6 +2,7 @@ package sidecar
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -9,6 +10,28 @@ import (
 	"sync"
 	"time"
 
+	"github.com/billie-coop/loco/internal/files"
+)
+
+// FileWatcher interface for decoupling
+type FileWatcher interface {
+	Subscribe(callback func(FileChangeEvent))
+}
+
+
+// FileChangeEvent from watcher package (to avoid circular import)
+type FileChangeEvent struct {
+	Paths []string
+	Type  ChangeType
+}
+
+type ChangeType int
+
+const (
+	ChangeModified ChangeType = iota
+	ChangeCreated
+	ChangeDeleted
+	ChangeRenamed
 )
 
 // service implements the Service interface.
@@ -16,6 +39,11 @@ type service struct {
 	workingDir  string
 	embedder    Embedder
 	vectorStore VectorStore
+	
+	// File watching
+	fileWatcher FileWatcher
+	autoIndexOnChange bool
+	toolExecutor ToolExecutor // For triggering auto-indexing via tool system
 	
 	mu          sync.RWMutex
 	processing  map[string]bool // Track files being processed
@@ -33,6 +61,24 @@ func NewService(workingDir string, embedder Embedder, store VectorStore) Service
 		processing:  make(map[string]bool),
 		stopCh:      make(chan struct{}),
 	}
+}
+
+// NewServiceWithWatcher creates a new sidecar service with file watching.
+func NewServiceWithWatcher(workingDir string, embedder Embedder, store VectorStore, watcher FileWatcher, autoIndexOnChange bool) Service {
+	return &service{
+		workingDir:        workingDir,
+		embedder:          embedder,
+		vectorStore:       store,
+		fileWatcher:       watcher,
+		autoIndexOnChange: autoIndexOnChange,
+		processing:        make(map[string]bool),
+		stopCh:            make(chan struct{}),
+	}
+}
+
+// SetToolExecutor sets the tool executor for auto-indexing
+func (s *service) SetToolExecutor(executor ToolExecutor) {
+	s.toolExecutor = executor
 }
 
 // UpdateFile processes and stores embeddings for a file.
@@ -158,10 +204,61 @@ func (s *service) Start(ctx context.Context) error {
 	}
 	s.mu.Unlock()
 	
-	// Don't do automatic indexing - user can trigger with /rag-index
-	// This prevents UI breakage from background tasks
+	// Subscribe to file change events if watcher is available and auto-indexing is enabled
+	if s.fileWatcher != nil && s.autoIndexOnChange {
+		s.fileWatcher.Subscribe(s.onFileChange)
+	}
 	
 	return nil
+}
+
+// onFileChange handles file change events from the file watcher
+func (s *service) onFileChange(event FileChangeEvent) {
+	// Filter to only indexable files using centralized rules
+	var indexablePaths []string
+	for _, path := range event.Paths {
+		if files.IsIndexable(path) {
+			indexablePaths = append(indexablePaths, path)
+		}
+	}
+	
+	// If no indexable files, nothing to do
+	if len(indexablePaths) == 0 {
+		return
+	}
+	
+	// Use tool executor if available, otherwise fallback to direct indexing
+	if s.toolExecutor != nil {
+		// Create JSON input with the list of changed files
+		pathsJSON := make([]string, len(indexablePaths))
+		for i, path := range indexablePaths {
+			// Convert to relative paths for display
+			if relPath := strings.TrimPrefix(path, s.workingDir+"/"); relPath != path {
+				pathsJSON[i] = relPath
+			} else {
+				pathsJSON[i] = path
+			}
+		}
+		
+		input := fmt.Sprintf(`{"trigger": "file-watch", "changed_files": %s}`, toJSON(pathsJSON))
+		
+		// Trigger RAG indexing via tool system
+		s.toolExecutor.ExecuteFileWatch(ToolCall{
+			Name:  "rag_index", 
+			Input: input,
+		})
+	} else {
+		// Fallback to direct indexing for backward compatibility
+		go func() {
+			ctx := context.Background()
+			for _, path := range indexablePaths {
+				if err := s.UpdateFile(ctx, path); err != nil {
+					// Fail silently to avoid UI spam
+					_ = err
+				}
+			}
+		}()
+	}
 }
 
 // Stop stops watching and cleanup.
@@ -317,4 +414,13 @@ func min(a, b int) int {
 		return a
 	}
 	return b
+}
+
+// toJSON converts a value to JSON string
+func toJSON(v interface{}) string {
+	data, err := json.Marshal(v)
+	if err != nil {
+		return "[]" // Fallback to empty array
+	}
+	return string(data)
 }

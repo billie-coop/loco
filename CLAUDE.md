@@ -164,7 +164,7 @@ Agent Call → ToolCall → ToolExecutor → Tool → Result
 
 3. **Sidebar** - For persistent info:
    - Model information
-   - Session details  
+   - Session details
    - Project summary
 
 ### Architecture Rules:

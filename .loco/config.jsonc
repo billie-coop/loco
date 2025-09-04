@@ -89,6 +89,8 @@
     // RAG (Retrieval-Augmented Generation) configuration
     "rag": {
       "autoindex": true,            // If true, index files on startup (shows progress in UI)
+      "autoindex_on_change": true,  // If true, automatically re-index files when they change
+      "debounce_delay_ms": 2000,    // Wait 2 seconds after file changes before indexing
       
       // Embedder selection: "mock" | "lmstudio"
       // - "mock": Fast, testing only, no semantic understanding
@@ -101,7 +103,10 @@
       // Common options: 
       // - "text-embedding-nomic-embed-text-v1.5@q8_0" (8-bit, highest quality)
       // - "text-embedding-nomic-embed-text-v1.5@q4_k_m" (4-bit, faster/smaller)
-      "embedding_model": "text-embedding-nomic-embed-text-v1.5@q8_0"
+      "embedding_model": "text-embedding-nomic-embed-text-v1.5@q8_0",
+      
+      // Database configuration
+      "database_path": "vectors.db" // SQLite database path (relative to .loco directory)
     }
   },
 

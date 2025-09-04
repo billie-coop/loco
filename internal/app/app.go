@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"path/filepath"
+	"time"
 
 	"github.com/billie-coop/loco/internal/analysis"
 	"github.com/billie-coop/loco/internal/config"
@@ -16,6 +17,7 @@ import (
 	"github.com/billie-coop/loco/internal/sidecar/vectordb"
 	"github.com/billie-coop/loco/internal/tools"
 	"github.com/billie-coop/loco/internal/tui/events"
+	"github.com/billie-coop/loco/internal/watcher"
 )
 
 // App holds all the core services and business logic
@@ -35,6 +37,9 @@ type App struct {
 	
 	// Sidecar/RAG service
 	Sidecar sidecar.Service
+	
+	// File watcher service
+	FileWatcher *watcher.FileWatcher
 
 	// New services we'll add
 	LLMService        *LLMService
@@ -51,6 +56,52 @@ type App struct {
 	// Internal references for re-initialization
 	permissionServiceInternal permission.Service
 	workingDir                string
+}
+
+// fileWatcherAdapter adapts watcher.FileWatcher to sidecar.FileWatcher interface
+type fileWatcherAdapter struct {
+	watcher *watcher.FileWatcher
+}
+
+// Subscribe adapts the subscription to convert between event types
+func (fwa *fileWatcherAdapter) Subscribe(callback func(sidecar.FileChangeEvent)) {
+	fwa.watcher.Subscribe(func(event watcher.FileChangeEvent) {
+		// Convert watcher.ChangeType to sidecar.ChangeType
+		var sidecarType sidecar.ChangeType
+		switch event.Type {
+		case watcher.ChangeModified:
+			sidecarType = sidecar.ChangeModified
+		case watcher.ChangeCreated:
+			sidecarType = sidecar.ChangeCreated
+		case watcher.ChangeDeleted:
+			sidecarType = sidecar.ChangeDeleted
+		case watcher.ChangeRenamed:
+			sidecarType = sidecar.ChangeRenamed
+		}
+		
+		// Convert to sidecar event type
+		sidecarEvent := sidecar.FileChangeEvent{
+			Paths: event.Paths,
+			Type:  sidecarType,
+		}
+		
+		callback(sidecarEvent)
+	})
+}
+
+// toolExecutorAdapter adapts app.ToolExecutor to sidecar.ToolExecutor interface
+type toolExecutorAdapter struct {
+	executor *ToolExecutor
+}
+
+// ExecuteFileWatch adapts the tool call to the app's tool system
+func (tea *toolExecutorAdapter) ExecuteFileWatch(call sidecar.ToolCall) {
+	// Convert sidecar.ToolCall to tools.ToolCall
+	appToolCall := tools.ToolCall{
+		Name:  call.Name,
+		Input: call.Input,
+	}
+	tea.executor.ExecuteFileWatch(appToolCall)
 }
 
 // New creates a new app with all services initialized
@@ -167,7 +218,30 @@ func New(workingDir string, eventBroker *events.Broker) *App {
 		panic("Failed to create SQLite vector store: " + err.Error()) // Fail fast if SQLite can't be created
 	}
 	
-	app.Sidecar = sidecar.NewService(workingDir, sidecarEmbedder, vectorStore)
+	// Create file watcher based on config
+	var fileWatcher *watcher.FileWatcher
+	autoIndexOnChange := false
+	debounceDelay := 2 * time.Second
+	
+	if cfg := app.Config.Get(); cfg != nil {
+		autoIndexOnChange = cfg.Analysis.RAG.AutoIndexOnChange
+		if cfg.Analysis.RAG.DebounceDelayMs > 0 {
+			debounceDelay = time.Duration(cfg.Analysis.RAG.DebounceDelayMs) * time.Millisecond
+		}
+	}
+	
+	// Create file watcher (no callback needed - services subscribe to events)
+	fileWatcher = watcher.NewWatcher(debounceDelay, nil)
+	app.FileWatcher = fileWatcher
+	
+	// Create sidecar service with file watcher integration
+	if autoIndexOnChange && fileWatcher != nil {
+		// Create adapter to bridge between watcher and sidecar interfaces
+		watcherAdapter := &fileWatcherAdapter{watcher: fileWatcher}
+		app.Sidecar = sidecar.NewServiceWithWatcher(workingDir, sidecarEmbedder, vectorStore, watcherAdapter, true)
+	} else {
+		app.Sidecar = sidecar.NewService(workingDir, sidecarEmbedder, vectorStore)
+	}
 	
 	// Register RAG tools
 	app.Tools.Register(tools.NewRagTool(app.Sidecar))
@@ -176,6 +250,12 @@ func New(workingDir string, eventBroker *events.Broker) *App {
 	// Create unified tool architecture
 	app.ToolExecutor = NewToolExecutor(app.Tools, eventBroker, app.Sessions, app.LLMService, permissionService)
 	app.InputRouter = NewUserInputRouter(app.ToolExecutor)
+
+	// Wire ToolExecutor to sidecar service for auto-indexing
+	if app.Sidecar != nil && app.ToolExecutor != nil {
+		executorAdapter := &toolExecutorAdapter{executor: app.ToolExecutor}
+		app.Sidecar.SetToolExecutor(executorAdapter)
+	}
 
 	return app
 }
@@ -294,6 +374,19 @@ func (a *App) InitLLMFromConfig() error {
 	return nil
 }
 
+// Cleanup stops all services gracefully
+func (a *App) Cleanup() {
+	// Stop file watcher
+	if a.FileWatcher != nil {
+		a.FileWatcher.Stop()
+	}
+	
+	// Stop sidecar service
+	if a.Sidecar != nil {
+		a.Sidecar.Stop()
+	}
+}
+
 // RunStartupAnalysis triggers startup tools and analysis.
 func (a *App) RunStartupAnalysis() {
 	if a.ToolExecutor == nil {
@@ -307,6 +400,19 @@ func (a *App) RunStartupAnalysis() {
 		Name:  tools.StartupWelcomeToolName,
 		Input: `{}`,
 	})
+
+	// Start file watcher if auto-indexing is enabled
+	if a.FileWatcher != nil {
+		if cfg := a.Config.Get(); cfg != nil && cfg.Analysis.RAG.AutoIndexOnChange {
+			// Start watching the working directory
+			go func() {
+				if err := a.FileWatcher.StartWatching(a.workingDir); err != nil {
+					// Log error but don't fail startup
+					_ = err
+				}
+			}()
+		}
+	}
 
 	// Start sidecar/RAG service BEFORE startup scan to avoid conflicts
 	if a.Sidecar != nil {

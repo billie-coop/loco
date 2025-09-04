@@ -3,11 +3,43 @@ package watcher
 import (
 	"context"
 	"fmt"
-	"path/filepath"
-	"strings"
 	"sync"
 	"time"
+
+	"github.com/fsnotify/fsnotify"
+	"github.com/billie-coop/loco/internal/files"
 )
+
+// ChangeType represents the type of file system change
+type ChangeType int
+
+const (
+	ChangeModified ChangeType = iota
+	ChangeCreated
+	ChangeDeleted
+	ChangeRenamed
+)
+
+func (c ChangeType) String() string {
+	switch c {
+	case ChangeModified:
+		return "modified"
+	case ChangeCreated:
+		return "created"
+	case ChangeDeleted:
+		return "deleted"
+	case ChangeRenamed:
+		return "renamed"
+	default:
+		return "unknown"
+	}
+}
+
+// FileChangeEvent represents a file system change event
+type FileChangeEvent struct {
+	Paths []string
+	Type  ChangeType
+}
 
 // FileWatcher monitors file system changes with debouncing.
 // It collects rapid changes and triggers a single analysis after things settle.
@@ -25,9 +57,17 @@ type FileWatcher struct {
 	// Debouncing state
 	timer       *time.Timer
 	timerMu     sync.Mutex
-	pendingPaths map[string]struct{}
+	pendingPaths map[string]ChangeType
 	
-	// Callback when changes are ready
+	// Event subscription
+	subscribers []func(FileChangeEvent)
+	subMu       sync.RWMutex
+	
+	// File system watcher
+	fsWatcher *fsnotify.Watcher
+	watchPath string
+	
+	// Legacy callback when changes are ready
 	onChange func([]string)
 	
 	// Track last analysis ID for superseding
@@ -37,6 +77,7 @@ type FileWatcher struct {
 	// Lifecycle
 	ctx    context.Context
 	cancel context.CancelFunc
+	wg     sync.WaitGroup
 }
 
 // NewWatcher creates a file watcher with the specified debounce delay.
@@ -54,28 +95,102 @@ func NewWatcher(debounceDelay time.Duration, onChange func([]string)) *FileWatch
 	return &FileWatcher{
 		debounceDelay: debounceDelay,
 		ignorePaths:   defaultIgnorePaths(),
-		pendingPaths:  make(map[string]struct{}),
+		pendingPaths:  make(map[string]ChangeType),
 		onChange:      onChange,
 		ctx:           ctx,
 		cancel:        cancel,
 	}
 }
 
-// FileChanged notifies the watcher of a file change.
-// Multiple rapid calls are debounced into a single onChange callback.
-//
-// This is the main entry point called by file system monitors.
-func (w *FileWatcher) FileChanged(path string) {
-	// Check if should ignore
-	if w.shouldIgnore(path) {
+// Subscribe adds a callback for file change events
+// The callback will be called with debounced file changes
+func (w *FileWatcher) Subscribe(callback func(FileChangeEvent)) {
+	w.subMu.Lock()
+	w.subscribers = append(w.subscribers, callback)
+	w.subMu.Unlock()
+}
+
+// StartWatching begins file system monitoring for the given path
+// This integrates with fsnotify to watch the file system
+func (w *FileWatcher) StartWatching(watchPath string) error {
+	w.watchPath = watchPath
+	
+	// Create fsnotify watcher
+	fsWatcher, err := fsnotify.NewWatcher()
+	if err != nil {
+		return fmt.Errorf("failed to create file watcher: %w", err)
+	}
+	w.fsWatcher = fsWatcher
+	
+	// Add the path to watch
+	err = fsWatcher.Add(watchPath)
+	if err != nil {
+		fsWatcher.Close()
+		return fmt.Errorf("failed to watch path %s: %w", watchPath, err)
+	}
+	
+	// Start the event processing goroutine
+	w.wg.Add(1)
+	go w.processFileEvents()
+	
+	return nil
+}
+
+// processFileEvents handles fsnotify events and triggers debouncing
+func (w *FileWatcher) processFileEvents() {
+	defer w.wg.Done()
+	
+	for {
+		select {
+		case event, ok := <-w.fsWatcher.Events:
+			if !ok {
+				return // Watcher closed
+			}
+			
+			// Convert fsnotify event to our ChangeType and trigger debounced processing
+			changeType := w.convertEventType(event.Op)
+			w.fileChanged(event.Name, changeType)
+			
+		case err, ok := <-w.fsWatcher.Errors:
+			if !ok {
+				return // Watcher closed
+			}
+			// TODO: Could emit error events to subscribers if needed
+			_ = err // For now, ignore errors silently
+			
+		case <-w.ctx.Done():
+			return // Context cancelled
+		}
+	}
+}
+
+// convertEventType converts fsnotify operations to our ChangeType
+func (w *FileWatcher) convertEventType(op fsnotify.Op) ChangeType {
+	if op&fsnotify.Create == fsnotify.Create {
+		return ChangeCreated
+	}
+	if op&fsnotify.Remove == fsnotify.Remove {
+		return ChangeDeleted
+	}
+	if op&fsnotify.Rename == fsnotify.Rename {
+		return ChangeRenamed
+	}
+	// Default to modified for Write and Chmod
+	return ChangeModified
+}
+
+// fileChanged handles internal file change events with debouncing
+func (w *FileWatcher) fileChanged(path string, changeType ChangeType) {
+	// Check if should ignore using centralized rules
+	if files.ShouldIgnore(path) {
 		return
 	}
 	
 	w.timerMu.Lock()
 	defer w.timerMu.Unlock()
 	
-	// Add to pending
-	w.pendingPaths[path] = struct{}{}
+	// Add to pending with change type
+	w.pendingPaths[path] = changeType
 	
 	// Reset timer
 	if w.timer != nil {
@@ -84,6 +199,14 @@ func (w *FileWatcher) FileChanged(path string) {
 	
 	// Start new timer
 	w.timer = time.AfterFunc(w.debounceDelay, w.processPending)
+}
+
+// FileChanged notifies the watcher of a file change (legacy API)
+// Multiple rapid calls are debounced into a single onChange callback.
+//
+// This is the main entry point called by file system monitors.
+func (w *FileWatcher) FileChanged(path string) {
+	w.fileChanged(path, ChangeModified)
 }
 
 // FilesChanged notifies the watcher of multiple file changes.
@@ -96,7 +219,7 @@ func (w *FileWatcher) FilesChanged(paths []string) {
 	added := false
 	for _, path := range paths {
 		if !w.shouldIgnore(path) {
-			w.pendingPaths[path] = struct{}{}
+			w.pendingPaths[path] = ChangeModified
 			added = true
 		}
 	}
@@ -139,6 +262,14 @@ func (w *FileWatcher) GetLastAnalysisID() string {
 func (w *FileWatcher) Stop() {
 	w.cancel()
 	
+	// Close fsnotify watcher
+	if w.fsWatcher != nil {
+		w.fsWatcher.Close()
+	}
+	
+	// Wait for goroutines to finish
+	w.wg.Wait()
+	
 	w.timerMu.Lock()
 	if w.timer != nil {
 		w.timer.Stop()
@@ -147,54 +278,56 @@ func (w *FileWatcher) Stop() {
 }
 
 // processPending is called after debounce delay.
-// It triggers the onChange callback with accumulated paths.
+// It triggers both new event subscribers and legacy onChange callback.
 func (w *FileWatcher) processPending() {
 	w.timerMu.Lock()
 	
-	// Collect paths
-	paths := make([]string, 0, len(w.pendingPaths))
-	for path := range w.pendingPaths {
-		paths = append(paths, path)
+	// Group paths by change type
+	pathsByType := make(map[ChangeType][]string)
+	allPaths := make([]string, 0, len(w.pendingPaths))
+	
+	for path, changeType := range w.pendingPaths {
+		pathsByType[changeType] = append(pathsByType[changeType], path)
+		allPaths = append(allPaths, path)
 	}
 	
 	// Clear pending
-	w.pendingPaths = make(map[string]struct{})
+	w.pendingPaths = make(map[string]ChangeType)
 	w.timer = nil
 	
 	w.timerMu.Unlock()
 	
-	// Trigger callback (outside lock)
-	if len(paths) > 0 && w.onChange != nil {
-		w.onChange(paths)
+	// Trigger new event subscribers (outside lock)
+	if len(allPaths) > 0 {
+		w.subMu.RLock()
+		subscribers := make([]func(FileChangeEvent), len(w.subscribers))
+		copy(subscribers, w.subscribers)
+		w.subMu.RUnlock()
+		
+		// Send events grouped by type
+		for changeType, paths := range pathsByType {
+			event := FileChangeEvent{
+				Paths: paths,
+				Type:  changeType,
+			}
+			
+			for _, subscriber := range subscribers {
+				subscriber(event)
+			}
+		}
+		
+		// Trigger legacy callback for backward compatibility
+		if w.onChange != nil {
+			w.onChange(allPaths)
+		}
 	}
 }
 
 // shouldIgnore checks if a path should be ignored.
 // Filters out common non-source files.
 func (w *FileWatcher) shouldIgnore(path string) bool {
-	// Check absolute path components
-	for _, ignore := range w.ignorePaths {
-		if strings.Contains(path, ignore) {
-			return true
-		}
-	}
-	
-	// Check filename patterns
-	base := filepath.Base(path)
-	
-	// Ignore hidden files
-	if strings.HasPrefix(base, ".") {
-		return true
-	}
-	
-	// Ignore common generated files
-	ext := filepath.Ext(base)
-	switch ext {
-	case ".log", ".tmp", ".swp", ".swo", ".DS_Store":
-		return true
-	}
-	
-	return false
+	// Use centralized file rules
+	return files.ShouldIgnore(path)
 }
 
 // defaultIgnorePaths returns standard paths to ignore.

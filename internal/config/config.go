@@ -49,11 +49,13 @@ type AnalysisQuickConfig struct {
 }
 
 type RAGConfig struct {
-	AutoIndex      bool   `json:"autoindex"`       // Index on startup
-	Embedder       string `json:"embedder"`        // "mock" or "lmstudio"
-	BatchSize      int    `json:"batch_size"`      // Files per batch during indexing
-	EmbeddingModel string `json:"embedding_model"` // Model ID for embeddings (e.g., "nomic-embed-text-v1.5-GGUF")
-	DatabasePath   string `json:"database_path"`   // Path to SQLite database (relative to .loco dir)
+	AutoIndex          bool   `json:"autoindex"`           // Index on startup
+	AutoIndexOnChange  bool   `json:"autoindex_on_change"` // Auto-index files when they change
+	DebounceDelayMs    int    `json:"debounce_delay_ms"`   // Milliseconds to wait after file changes before indexing
+	Embedder           string `json:"embedder"`            // "mock" or "lmstudio"
+	BatchSize          int    `json:"batch_size"`          // Files per batch during indexing
+	EmbeddingModel     string `json:"embedding_model"`     // Model ID for embeddings (e.g., "nomic-embed-text-v1.5-GGUF")
+	DatabasePath       string `json:"database_path"`       // Path to SQLite database (relative to .loco dir)
 }
 
 type AnalysisConfig struct {
@@ -146,11 +148,13 @@ func DefaultConfig() *Config {
 			Deep:     TierConfig{Clean: false, Debug: false, AutoRun: false},
 			Full:     TierConfig{Clean: false, Debug: false, AutoRun: false},
 			RAG: RAGConfig{
-				AutoIndex:      true,                                      // Index on startup by default
-				Embedder:       "lmstudio",                                // Use LM Studio for real embeddings
-				BatchSize:      10,                                        // Process 10 files at a time
-				EmbeddingModel: "text-embedding-nomic-embed-text-v1.5@q8_0", // Default embedding model (8-bit quantized)
-				DatabasePath:   "vectors.db",                              // Store in .loco/vectors.db
+				AutoIndex:          true,                                      // Index on startup by default
+				AutoIndexOnChange:  false,                                     // Don't auto-index on change by default (user can enable)
+				DebounceDelayMs:    2000,                                      // Wait 2 seconds after file changes before indexing
+				Embedder:           "lmstudio",                                // Use LM Studio for real embeddings
+				BatchSize:          10,                                        // Process 10 files at a time
+				EmbeddingModel:     "text-embedding-nomic-embed-text-v1.5@q8_0", // Default embedding model (8-bit quantized)
+				DatabasePath:       "vectors.db",                              // Store in .loco/vectors.db
 			},
 		},
 	}

@@ -72,6 +72,17 @@ type FileState struct {
 	Error     string    `json:"error,omitempty"`
 }
 
+// ToolExecutor interface for triggering tool execution
+type ToolExecutor interface {
+	ExecuteFileWatch(call ToolCall)
+}
+
+// ToolCall represents a tool call (simplified interface)
+type ToolCall struct {
+	Name  string `json:"name"`
+	Input string `json:"input"`
+}
+
 // Service provides RAG capabilities.
 type Service interface {
 	// UpdateFile processes and stores embeddings for a file
@@ -88,6 +99,9 @@ type Service interface {
 	
 	// Stop stops watching and cleanup
 	Stop() error
+	
+	// SetToolExecutor sets the tool executor for auto-indexing
+	SetToolExecutor(executor ToolExecutor)
 	
 	// RAG metadata methods (replaces JSON file functionality)
 	SetRAGMetadata(ctx context.Context, metadata RAGMetadata) error

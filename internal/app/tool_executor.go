@@ -77,6 +77,11 @@ func (e *ToolExecutor) ExecuteAgent(call tools.ToolCall) {
 	e.executeWithContext(call, "agent")
 }
 
+// ExecuteFileWatch runs a tool from file watcher context (file-change-initiated).
+func (e *ToolExecutor) ExecuteFileWatch(call tools.ToolCall) {
+	e.executeWithContext(call, "file-watch")
+}
+
 // CancelCurrent cancels any in-flight tool execution.
 func (e *ToolExecutor) CancelCurrent() {
 	e.activeMu.Lock()
