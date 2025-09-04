@@ -3,7 +3,6 @@ package app
 import (
 	"context"
 	"fmt"
-	"os"
 	"path/filepath"
 
 	"github.com/billie-coop/loco/internal/analysis"
@@ -334,13 +333,7 @@ func (a *App) RunStartupAnalysis() {
 		return
 	}
 
-	// Config/environment gate: allow skipping startup scan entirely
-	if cfg := a.Config.Get(); cfg != nil {
-		if os.Getenv("LOCO_DISABLE_STARTUP_SCAN") == "true" || !cfg.Analysis.Startup.Autorun {
-			// Respect config: do nothing when disabled
-			return
-		}
-	}
+	// Note: Individual tools check their own config settings below
 
 	// First show welcome banner (system-initiated tool card)
 	a.ToolExecutor.ExecuteSystem(tools.ToolCall{

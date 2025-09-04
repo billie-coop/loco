@@ -59,6 +59,21 @@ func NewTextErrorResponse(error string) ToolResponse {
 	}
 }
 
+// ProgressPublisher is a function type for reporting progress during tool execution
+type ProgressPublisher func(phase string, total, completed int, current string)
+
+// GetProgressPublisher extracts the progress publisher from context
+// All tools have access to this as a baseline capability
+func GetProgressPublisher(ctx context.Context) ProgressPublisher {
+	if pub := ctx.Value("progress_publisher"); pub != nil {
+		if p, ok := pub.(func(string, int, int, string)); ok {
+			return p
+		}
+	}
+	// Return no-op if no publisher available (shouldn't happen in normal execution)
+	return func(string, int, int, string) {}
+}
+
 // WithResponseMetadata adds metadata to a response.
 func WithResponseMetadata(response ToolResponse, metadata any) ToolResponse {
 	metadataJSON, err := json.Marshal(metadata)

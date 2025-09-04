@@ -199,6 +199,9 @@ func (r *ragIndexTool) Run(ctx context.Context, call ToolCall) (ToolResponse, er
 		return NewTextErrorResponse("RAG service not available"), nil
 	}
 	
+	// Get progress publisher - all tools have access to this as baseline capability
+	publishProgress := GetProgressPublisher(ctx)
+	
 	// Check if embedding model is available in LM Studio
 	embeddingModel := ""
 	if r.llmClient != nil && r.configManager != nil {
@@ -332,14 +335,19 @@ func (r *ragIndexTool) Run(ctx context.Context, call ToolCall) (ToolResponse, er
 	
 	if len(filesToIndex) == 0 {
 		response += "*All files already indexed*\n"
+		publishProgress("Complete", len(files), len(files), "")
 		return NewTextResponse(response), nil
 	}
+	
+	// Emit initial progress
+	publishProgress("Starting", len(filesToIndex), 0, "Preparing to index...")
 	
 	// Add warm-up delay for first batch to let embedding model initialize
 	// This happens whenever we're about to index files (not just first run)
 	// because LM Studio's embedding model needs time to load after being idle
 	if len(filesToIndex) > 0 {
 		response += "⏳ Warming up embedding model...\n"
+		publishProgress("Warming up", len(filesToIndex), 0, "Loading embedding model...")
 		time.Sleep(3 * time.Second) // Give LM Studio more time to load the model
 	}
 	
@@ -370,6 +378,9 @@ func (r *ragIndexTool) Run(ctx context.Context, call ToolCall) (ToolResponse, er
 		if i == 0 && len(batch) > 1 {
 			response += fmt.Sprintf("🔄 Processing first %d files individually...\n", len(batch))
 			for j, file := range batch {
+				relPath := filepath.Base(file)
+				publishProgress("Indexing", len(filesToIndex), indexed, relPath)
+				
 				if err := r.sidecarService.UpdateFiles(ctx, []string{file}); err != nil {
 					failed++
 					response += fmt.Sprintf("  ❌ File %d failed: %v\n", j+1, err)
@@ -391,6 +402,9 @@ func (r *ragIndexTool) Run(ctx context.Context, call ToolCall) (ToolResponse, er
 			}
 		} else {
 			// Process subsequent batches normally
+			batchDesc := fmt.Sprintf("batch %d-%d", i+1, end)
+			publishProgress("Indexing", len(filesToIndex), indexed, batchDesc)
+			
 			if err := r.sidecarService.UpdateFiles(ctx, batch); err != nil {
 				failed += len(batch)
 				response += fmt.Sprintf("❌ Batch %d-%d failed: %v\n", i+1, end, err)
@@ -448,6 +462,9 @@ func (r *ragIndexTool) Run(ctx context.Context, call ToolCall) (ToolResponse, er
 			response += fmt.Sprintf("\n⚠️ Failed to save index state: %s\n", err)
 		}
 	}
+	
+	// Final progress update
+	publishProgress("Complete", len(filesToIndex), indexed, fmt.Sprintf("%d indexed, %d failed", indexed, failed))
 	
 	response += fmt.Sprintf("\n**Complete!**\n")
 	response += fmt.Sprintf("- Indexed: %d files\n", indexed)

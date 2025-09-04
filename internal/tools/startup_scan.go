@@ -123,6 +123,12 @@ func (s *startupScanTool) Run(ctx context.Context, call ToolCall) (ToolResponse,
 	// Always run fresh scan for progressive enhancement
 	// Previous result (if exists) will be used to improve understanding, not as cache
 
+	// Get progress publisher if available
+	progressPublisher := GetProgressPublisher(ctx)
+	if progressPublisher != nil {
+		progressPublisher("Initializing", 0, 0, "")
+	}
+
 	// Get LLM client from analysis service if it supports teams
 	var llmClient llm.Client
 	if teamService, ok := s.analysisService.(*analysis.ServiceWithTeam); ok {
@@ -135,7 +141,7 @@ func (s *startupScanTool) Run(ctx context.Context, call ToolCall) (ToolResponse,
 
 	// Perform the scan with model-based adjudication
 	startTime := time.Now()
-	result, err := s.performConsensusScan(ctx, llmClient)
+	result, err := s.performConsensusScan(ctx, llmClient, progressPublisher)
 	if err != nil {
 		return NewTextErrorResponse(fmt.Sprintf("Startup scan failed: %s", err)), nil
 	}
@@ -150,7 +156,7 @@ func (s *startupScanTool) Run(ctx context.Context, call ToolCall) (ToolResponse,
 }
 
 // performConsensusScan runs 10 parallel analyses and asks the model to adjudicate consensus.
-func (s *startupScanTool) performConsensusScan(ctx context.Context, llmClient llm.Client) (*analysis.StartupScanResult, error) {
+func (s *startupScanTool) performConsensusScan(ctx context.Context, llmClient llm.Client, progressPublisher ProgressPublisher) (*analysis.StartupScanResult, error) {
 	// Load config
 	cfgMgr := config.NewManager(s.workingDir)
 	_ = cfgMgr.Load()
@@ -163,6 +169,10 @@ func (s *startupScanTool) performConsensusScan(ctx context.Context, llmClient ll
 	}
 
 	// Get full file list (git ls-files), no truncation
+	if progressPublisher != nil {
+		progressPublisher("Scanning files", 0, 0, "")
+	}
+	
 	files, err := analysis.GetProjectFiles(s.workingDir)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get project files: %w", err)
@@ -205,6 +215,10 @@ Previous analysis:
 		numAnalyses = 10
 	}
 
+	if progressPublisher != nil {
+		progressPublisher("Running crowd analysis", numAnalyses, 0, "")
+	}
+
 	// Run crowd analyses (capped concurrency)
 	type crowdResult struct {
 		Type      string `json:"type"`
@@ -217,6 +231,7 @@ Previous analysis:
 	var wg sync.WaitGroup
 	var mu sync.Mutex
 	errors := 0
+	completed := 0
 
 	// Cap concurrency to avoid overwhelming the model server
 	maxConcurrent := 10
@@ -253,6 +268,10 @@ Previous analysis:
 				if err := json.Unmarshal([]byte(jsonStr), &r); err == nil {
 					mu.Lock()
 					crowd[index] = r
+					completed++
+					if progressPublisher != nil {
+						progressPublisher("Running crowd analysis", numAnalyses, completed, "")
+					}
 					mu.Unlock()
 					return
 				}
@@ -286,6 +305,10 @@ Previous analysis:
 		}
 	}
 
+	if progressPublisher != nil {
+		progressPublisher("Adjudicating consensus", 0, 0, "")
+	}
+
 	// Final adjudication pass using Small model only, no local tally
 	fileCount := len(files)
 
@@ -306,6 +329,10 @@ Previous analysis:
 				iteration := 1
 				if previousResult != nil {
 					iteration = previousResult.Iteration + 1
+				}
+				
+				if progressPublisher != nil {
+					progressPublisher("Complete", 0, 0, "")
 				}
 				
 				return &analysis.StartupScanResult{
@@ -334,6 +361,10 @@ Previous analysis:
 	iteration := 1
 	if previousResult != nil {
 		iteration = previousResult.Iteration + 1
+	}
+	
+	if progressPublisher != nil {
+		progressPublisher("Complete", 0, 0, "")
 	}
 	
 	return &analysis.StartupScanResult{

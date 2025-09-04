@@ -97,6 +97,10 @@
       
       "batch_size": 10,             // Number of files to process per batch during indexing
       
+      // Storage type: "memory" | "sqlite" 
+      // TODO: Re-enable SQLite once sqlite-vec dependency issues are resolved
+      "storage": "memory",          // Temporarily using memory storage to avoid sqlite-vec warnings
+      
       // Embedding model to use (must be loaded in LM Studio)
       // Common options: 
       // - "text-embedding-nomic-embed-text-v1.5@q8_0" (8-bit, highest quality)

@@ -154,7 +154,46 @@ func (e *ToolExecutor) executeWithContext(call tools.ToolCall, initiator string)
 		ctx = context.WithValue(ctx, "model_team", team)
 	}
 
-	// If analyze tool, wrap context with progress publisher
+	// Provide progress publisher for all tools as baseline capability
+	ctx = context.WithValue(ctx, "progress_publisher", func(phase string, total, completed int, current string) {
+		// For tools other than "analyze", emit SystemMessageEvent to update tool card directly
+		if call.Name != "analyze" {
+			progress := fmt.Sprintf("%s", phase)
+			if total > 0 {
+				progress = fmt.Sprintf("%s (%d/%d)", phase, completed, total)
+			}
+			if current != "" {
+				progress = fmt.Sprintf("%s: %s", progress, current)
+			}
+			
+			e.eventBroker.Publish(events.Event{
+				Type: events.SystemMessageEvent,
+				Payload: events.MessagePayload{
+					Message: llm.Message{
+						Role: "tool",
+						ToolExecution: &llm.ToolExecution{
+							Name:     call.Name,
+							Status:   "running",
+							Progress: progress,
+						},
+					},
+				},
+			})
+		} else {
+			// Keep existing AnalysisProgressEvent for analyze tool
+			e.eventBroker.Publish(events.Event{
+				Type: events.AnalysisProgressEvent,
+				Payload: events.AnalysisProgressPayload{
+					Phase:          phase,
+					TotalFiles:     total,
+					CompletedFiles: completed,
+					CurrentFile:    current,
+				},
+			})
+		}
+	})
+
+	// If analyze tool, also wrap context with analysis-specific progress callback
 	if call.Name == "analyze" {
 		ctx = analysis.WithProgressCallback(ctx, func(p analysis.Progress) {
 			e.eventBroker.Publish(events.Event{
@@ -173,6 +212,12 @@ func (e *ToolExecutor) executeWithContext(call tools.ToolCall, initiator string)
 	if call.Name == "analyze" {
 		// Handle analysis tool specially - run it asynchronously
 		e.handleAnalyzeAsync(call, ctx, initiator)
+		return
+	}
+
+	if call.Name == "rag_index" {
+		// Handle RAG indexing asynchronously for real-time progress updates
+		e.handleRagIndexAsync(call, ctx, initiator)
 		return
 	}
 
@@ -395,6 +440,101 @@ func (e *ToolExecutor) handleAnalyzeAsync(call tools.ToolCall, parentCtx context
 			Payload: events.AnalysisProgressPayload{
 				Phase:       extractTierFromInput(call.Input),
 				CurrentFile: "Analysis complete",
+			},
+		})
+	}()
+}
+
+// handleRagIndexAsync runs the RAG indexing tool asynchronously for real-time progress updates
+func (e *ToolExecutor) handleRagIndexAsync(call tools.ToolCall, parentCtx context.Context, initiator string) {
+	// Create cancelable context for this async job and track it
+	ctx, cancel := context.WithCancel(parentCtx)
+	e.setActiveJob("rag_index", cancel)
+
+	go func() {
+		defer e.clearActiveJob()
+		// Small delay to ensure UI is ready
+		time.Sleep(100 * time.Millisecond)
+
+		// Add tool message to chat showing RAG indexing is starting
+		e.eventBroker.Publish(events.Event{
+			Type: events.SystemMessageEvent,
+			Payload: events.MessagePayload{
+				Message: llm.Message{
+					Role: "tool",
+					ToolExecution: &llm.ToolExecution{
+						Name:     "rag_index",
+						Status:   "running",
+						Progress: "Starting RAG indexing...",
+					},
+				},
+			},
+		})
+
+		// Emit initial progress event
+		e.eventBroker.Publish(events.Event{
+			Type: events.AnalysisProgressEvent,
+			Payload: events.AnalysisProgressPayload{
+				Phase:       "Starting",
+				TotalFiles:  0,
+				CurrentFile: "Initializing RAG indexing...",
+			},
+		})
+
+		// Get the tool
+		tool, exists := e.registry.Get("rag_index")
+		if !exists {
+			e.eventBroker.Publish(events.Event{
+				Type: events.ErrorMessageEvent,
+				Payload: events.StatusMessagePayload{
+					Message: "RAG index tool not available",
+					Type:    "error",
+				},
+			})
+			return
+		}
+
+		// Run the RAG indexing with the context that has progress publisher
+		result, err := tool.Run(ctx, call)
+		if err != nil {
+			e.eventBroker.Publish(events.Event{
+				Type: events.SystemMessageEvent,
+				Payload: events.MessagePayload{
+					Message: llm.Message{
+						Role:    "tool",
+						Content: fmt.Sprintf("RAG indexing failed: %v", err),
+						ToolExecution: &llm.ToolExecution{
+							Name:   "rag_index",
+							Status: "error",
+						},
+					},
+				},
+			})
+			return
+		}
+
+		// Update tool message to show completion
+		e.eventBroker.Publish(events.Event{
+			Type: events.SystemMessageEvent,
+			Payload: events.MessagePayload{
+				Message: llm.Message{
+					Role:    "tool",
+					Content: result.Content,
+					ToolExecution: &llm.ToolExecution{
+						Name:     "rag_index",
+						Status:   "complete",
+						Progress: "RAG indexing complete",
+					},
+				},
+			},
+		})
+
+		// Emit final progress event
+		e.eventBroker.Publish(events.Event{
+			Type: events.AnalysisProgressEvent,
+			Payload: events.AnalysisProgressPayload{
+				Phase:       "Complete",
+				CurrentFile: "RAG indexing complete",
 			},
 		})
 	}()

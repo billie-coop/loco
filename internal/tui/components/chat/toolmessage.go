@@ -7,6 +7,7 @@ import (
 
 	"github.com/billie-coop/loco/internal/llm"
 	"github.com/billie-coop/loco/internal/tui/components/anim"
+	"github.com/billie-coop/loco/internal/tui/components/core"
 	"github.com/billie-coop/loco/internal/tui/styles"
 	tea "github.com/charmbracelet/bubbletea/v2"
 	"github.com/charmbracelet/lipgloss/v2"
@@ -17,6 +18,7 @@ type ToolMessage struct {
 	message   llm.Message
 	width     int
 	spinner   *anim.Spinner
+	timer     *core.Timer
 	expanded  bool
 	startTime time.Time
 }
@@ -29,9 +31,12 @@ func NewToolMessage(msg llm.Message) *ToolMessage {
 		startTime: time.Now(),
 	}
 
-	// Create spinner for pending/running states
+	// Create spinner and timer for pending/running states
 	if msg.ToolExecution != nil && (msg.ToolExecution.Status == "pending" || msg.ToolExecution.Status == "running") {
 		tm.spinner = anim.NewSpinner(anim.SpinnerDots)
+		// Create timer with tool name as ID and 100ms refresh interval
+		tm.timer = core.NewTimer(msg.ToolExecution.Name, 100*time.Millisecond)
+		tm.timer.Start()
 	}
 
 	return tm
@@ -39,21 +44,42 @@ func NewToolMessage(msg llm.Message) *ToolMessage {
 
 // Init implements tea.Model
 func (tm *ToolMessage) Init() tea.Cmd {
+	var cmds []tea.Cmd
+	
 	if tm.spinner != nil {
-		return tm.spinner.Init()
+		cmds = append(cmds, tm.spinner.Init())
 	}
-	return nil
+	
+	if tm.timer != nil {
+		cmds = append(cmds, tm.timer.Start())
+	}
+	
+	return tea.Batch(cmds...)
 }
 
 // Update implements tea.Model
 func (tm *ToolMessage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	var cmds []tea.Cmd
+	
+	// Handle spinner updates for running tools
 	if tm.spinner != nil && tm.message.ToolExecution != nil &&
 		(tm.message.ToolExecution.Status == "pending" || tm.message.ToolExecution.Status == "running") {
 		s, cmd := tm.spinner.Update(msg)
 		if sp, ok := s.(*anim.Spinner); ok {
 			tm.spinner = sp
 		}
-		return tm, cmd
+		if cmd != nil {
+			cmds = append(cmds, cmd)
+		}
+	}
+	
+	// Handle timer updates for running tools
+	if tm.timer != nil && tm.message.ToolExecution != nil &&
+		(tm.message.ToolExecution.Status == "pending" || tm.message.ToolExecution.Status == "running") {
+		cmd := tm.timer.Update(msg)
+		if cmd != nil {
+			cmds = append(cmds, cmd)
+		}
 	}
 
 	switch msg := msg.(type) {
@@ -64,7 +90,7 @@ func (tm *ToolMessage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	}
 
-	return tm, nil
+	return tm, tea.Batch(cmds...)
 }
 
 // View implements tea.Model
@@ -87,7 +113,12 @@ func (tm *ToolMessage) View() string {
 
 	// Add spinner and elapsed time if pending/running
 	if tm.spinner != nil && (tm.message.ToolExecution.Status == "pending" || tm.message.ToolExecution.Status == "running") {
-		elapsed := time.Since(tm.startTime).Round(100 * time.Millisecond)
+		var elapsed time.Duration
+		if tm.timer != nil {
+			elapsed = tm.timer.Elapsed().Round(100 * time.Millisecond)
+		} else {
+			elapsed = time.Since(tm.startTime).Round(100 * time.Millisecond)
+		}
 		header = fmt.Sprintf("%s %s  ⏱ %s", header, tm.spinner.View(), elapsed)
 	}
 
@@ -124,7 +155,12 @@ func (tm *ToolMessage) View() string {
 		Width(max(10, tm.width-1))
 
 	// Footer with timestamp and duration/elapsed
-	elapsed := time.Since(tm.startTime).Round(100 * time.Millisecond)
+	var elapsed time.Duration
+	if tm.timer != nil {
+		elapsed = tm.timer.Elapsed().Round(100 * time.Millisecond)
+	} else {
+		elapsed = time.Since(tm.startTime).Round(100 * time.Millisecond)
+	}
 	footer := theme.S().Subtle.Italic(true).Render(
 		fmt.Sprintf("  %s • %s", tm.startTime.Format("15:04:05"), elapsed),
 	)
@@ -136,9 +172,12 @@ func (tm *ToolMessage) View() string {
 func (tm *ToolMessage) SetMessage(msg llm.Message) {
 	tm.message = msg
 
-	// Stop spinner if completed
+	// Stop spinner and timer if completed
 	if msg.ToolExecution != nil && (msg.ToolExecution.Status == "complete" || msg.ToolExecution.Status == "error") {
 		tm.spinner = nil
+		if tm.timer != nil {
+			tm.timer.Stop()
+		}
 	}
 }
 
