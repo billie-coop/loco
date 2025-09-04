@@ -152,7 +152,7 @@ func (a *analyzeTool) Info() ToolInfo {
 		Commands: []CommandInfo{
 			{
 				Command:     "analyze",
-				Description: "Analyze the current project",
+				Description: "Analyze project",
 				Examples:    []string{"/analyze quick", "/analyze detailed", "/analyze deep"},
 			},
 		},

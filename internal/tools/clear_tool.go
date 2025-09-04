@@ -35,7 +35,7 @@ func (t *ClearTool) Info() ToolInfo {
 		Commands: []CommandInfo{
 			{
 				Command:     "clear",
-				Description: "Clear all messages",
+				Description: "Clear messages",
 				Examples:    []string{"/clear"},
 			},
 		},

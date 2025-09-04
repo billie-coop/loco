@@ -81,7 +81,7 @@ func (r *ragTool) Info() ToolInfo {
 		Commands: []CommandInfo{
 			{
 				Command:     "rag",
-				Description: "Search codebase with semantic query",
+				Description: "Search codebase",
 				Examples:    []string{"/rag how are errors handled", "/rag authentication flow"},
 			},
 		},

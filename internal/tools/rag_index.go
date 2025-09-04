@@ -92,7 +92,7 @@ func (r *ragIndexTool) Info() ToolInfo {
 			{
 				Command:     "rag-index",
 				Aliases:     []string{"index"},
-				Description: "Index files for semantic search",
+				Description: "Index files",
 				Examples:    []string{"/rag-index", "/index"},
 			},
 		},

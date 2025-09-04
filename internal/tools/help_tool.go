@@ -39,7 +39,7 @@ func (t *HelpTool) Info() ToolInfo {
 			{
 				Command:     "help",
 				Aliases:     []string{"h"},
-				Description: "Show available commands",
+				Description: "Help",
 				Examples:    []string{"/help", "/h"},
 			},
 		},

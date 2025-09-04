@@ -55,7 +55,7 @@ func (t *CopyTool) Info() ToolInfo {
 		Commands: []CommandInfo{
 			{
 				Command:     "copy",
-				Description: "Copy the last N messages to clipboard",
+				Description: "Copy messages",
 				Examples:    []string{"/copy 3", "/copy 1"},
 			},
 		},
