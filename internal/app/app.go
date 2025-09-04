@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 
@@ -155,8 +156,52 @@ func New(workingDir string, eventBroker *events.Broker) *App {
 		sidecarEmbedder = lmEmbedder
 	}
 	
-	memoryStore := vectordb.NewMemoryStore(sidecarEmbedder)
-	app.Sidecar = sidecar.NewService(workingDir, sidecarEmbedder, memoryStore)
+	// Create vector store based on configuration
+	var vectorStore sidecar.VectorStore
+	
+	// Get storage type from config
+	storageType := "sqlite" // Default to SQLite for persistence
+	databasePath := "vectors.db"
+	if cfg := app.Config.Get(); cfg != nil {
+		if cfg.Analysis.RAG.Storage != "" {
+			storageType = cfg.Analysis.RAG.Storage
+		}
+		if cfg.Analysis.RAG.DatabasePath != "" {
+			databasePath = cfg.Analysis.RAG.DatabasePath
+		}
+	}
+	
+	switch storageType {
+	case "sqlite":
+		// Use SQLite with sqlite-vec for persistent storage
+		locoDir := filepath.Join(workingDir, ".loco")
+		dbPath := filepath.Join(locoDir, databasePath)
+		sqliteStore, err := vectordb.NewSQLiteStore(dbPath, sidecarEmbedder)
+		if err != nil {
+			// Fallback to memory store if SQLite fails
+			fmt.Printf("Warning: Failed to create SQLite vector store (%v), falling back to memory\n", err)
+			vectorStore = vectordb.NewMemoryStore(sidecarEmbedder)
+		} else {
+			vectorStore = sqliteStore
+		}
+	case "memory":
+		// Use in-memory storage (not persistent)
+		vectorStore = vectordb.NewMemoryStore(sidecarEmbedder)
+	default:
+		// Default to SQLite
+		locoDir := filepath.Join(workingDir, ".loco")
+		dbPath := filepath.Join(locoDir, databasePath)
+		sqliteStore, err := vectordb.NewSQLiteStore(dbPath, sidecarEmbedder)
+		if err != nil {
+			// Fallback to memory store if SQLite fails
+			fmt.Printf("Warning: Failed to create SQLite vector store (%v), falling back to memory\n", err)
+			vectorStore = vectordb.NewMemoryStore(sidecarEmbedder)
+		} else {
+			vectorStore = sqliteStore
+		}
+	}
+	
+	app.Sidecar = sidecar.NewService(workingDir, sidecarEmbedder, vectorStore)
 	
 	// Register RAG tools
 	app.Tools.Register(tools.NewRagTool(app.Sidecar))

@@ -17,6 +17,7 @@ require (
 )
 
 require (
+	github.com/asg017/sqlite-vec-go-bindings v0.1.6 // indirect
 	github.com/atotto/clipboard v0.1.4 // indirect
 	github.com/aymerick/douceur v0.2.0 // indirect
 	github.com/charmbracelet/colorprofile v0.3.1 // indirect
@@ -30,6 +31,7 @@ require (
 	github.com/dlclark/regexp2 v1.11.0 // indirect
 	github.com/gorilla/css v1.0.1 // indirect
 	github.com/mattn/go-runewidth v0.0.16 // indirect
+	github.com/mattn/go-sqlite3 v1.14.32 // indirect
 	github.com/microcosm-cc/bluemonday v1.0.27 // indirect
 	github.com/muesli/cancelreader v0.2.2 // indirect
 	github.com/sahilm/fuzzy v0.1.1 // indirect
