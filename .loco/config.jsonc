@@ -90,7 +90,7 @@
     "rag": {
       "autoindex": true,            // If true, index files on startup (shows progress in UI)
       "autoindex_on_change": true,  // If true, automatically re-index files when they change
-      "debounce_delay_ms": 2000,    // Wait 2 seconds after file changes before indexing
+      "debounce_delay_ms": 500,     // Wait 0.5 seconds after file changes before indexing
       
       // Embedder selection: "mock" | "lmstudio"
       // - "mock": Fast, testing only, no semantic understanding

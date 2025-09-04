@@ -336,7 +336,12 @@ func (r *ragIndexTool) Run(ctx context.Context, call ToolCall) (ToolResponse, er
 			response += "⏳ Warming up embedding model...\n"
 		}
 		publishProgress("Warming up", len(filesToIndex), 0, "Loading embedding model...")
-		time.Sleep(3 * time.Second) // Give LM Studio more time to load the model
+		// Reduce warm-up delay for file-watch triggers to make it feel snappier
+		if trigger == "file-watch" {
+			time.Sleep(1 * time.Second) // Shorter delay for auto-indexing
+		} else {
+			time.Sleep(3 * time.Second) // Full delay for manual/startup indexing
+		}
 	}
 	
 	response += "**Indexing progress:**\n"

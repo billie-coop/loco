@@ -242,7 +242,8 @@ func (s *service) onFileChange(event FileChangeEvent) {
 		
 		input := fmt.Sprintf(`{"trigger": "file-watch", "changed_files": %s}`, toJSON(pathsJSON))
 		
-		// Trigger RAG indexing via tool system
+		// Trigger RAG indexing via tool system immediately - the tool itself will handle any debouncing
+		// This ensures the UI feels snappy while still batching rapid changes at the tool level
 		s.toolExecutor.ExecuteFileWatch(ToolCall{
 			Name:  "rag_index", 
 			Input: input,
