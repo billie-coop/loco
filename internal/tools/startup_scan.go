@@ -80,6 +80,13 @@ func (s *startupScanTool) Info() ToolInfo {
 			},
 		},
 		Required: []string{},
+		Commands: []CommandInfo{
+			{
+				Command:     "scan",
+				Description: "Quick project structure scan",
+				Examples:    []string{"/scan"},
+			},
+		},
 	}
 }
 

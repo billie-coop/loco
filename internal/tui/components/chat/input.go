@@ -3,6 +3,7 @@ package chat
 import (
 	"strings"
 
+	"github.com/billie-coop/loco/internal/tools"
 	"github.com/billie-coop/loco/internal/tui/components/chat/completions"
 	"github.com/billie-coop/loco/internal/tui/components/core"
 	"github.com/billie-coop/loco/internal/tui/styles"
@@ -33,6 +34,7 @@ type InputModel struct {
 	// For completion support
 	completionsOpen bool
 	completionQuery string
+	toolRegistry    *tools.Registry // For dynamic command completion
 }
 
 // Ensure InputModel implements required interfaces
@@ -41,13 +43,14 @@ var _ core.Sizeable = (*InputModel)(nil)
 var _ core.Focusable = (*InputModel)(nil)
 
 // NewInput creates a new input component
-func NewInput() *InputModel {
+func NewInput(toolRegistry *tools.Registry) *InputModel {
 	return &InputModel{
-		value:       "",
-		placeholder: "Type a message or use /help for commands",
-		cursorPos:   0,
-		focused:     true,
-		enabled:     true,
+		value:        "",
+		placeholder:  "Type a message or use /help for commands",
+		cursorPos:    0,
+		focused:      true,
+		enabled:      true,
+		toolRegistry: toolRegistry,
 	}
 }
 
@@ -306,16 +309,24 @@ func (im *InputModel) SetPlaceholder(placeholder string) {
 
 func (im *InputModel) triggerCompletions() tea.Cmd {
 	return func() tea.Msg {
-		// Get available commands
-		commands := []Command{
-			{Name: "/help", Description: "Show available commands"},
-			{Name: "/analyze", Description: "Analyze the current project"},
-			{Name: "/copy", Description: "Copy the last N messages"},
-			{Name: "/clear", Description: "Clear the message history"},
-			{Name: "/model", Description: "Switch to a different model"},
-			{Name: "/team", Description: "Show or select team"},
-			{Name: "/debug", Description: "Toggle debug mode"},
-			{Name: "/quit", Description: "Exit the application"},
+		// Get available commands from tool registry
+		var commands []Command
+		
+		if im.toolRegistry != nil {
+			// Use dynamic command generation from tool registry
+			completionCommands := im.toolRegistry.GetCompletionCommands()
+			for _, cmd := range completionCommands {
+				commands = append(commands, Command{
+					Name:        cmd.Name,
+					Description: cmd.Description,
+				})
+			}
+		} else {
+			// Fallback to basic commands if no registry available
+			commands = []Command{
+				{Name: "/help", Description: "Show available commands"},
+				{Name: "/clear", Description: "Clear the message history"},
+			}
 		}
 		
 		// Calculate position for popup

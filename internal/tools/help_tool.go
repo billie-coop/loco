@@ -35,6 +35,14 @@ func (t *HelpTool) Info() ToolInfo {
 			"type":       "object",
 			"properties": map[string]any{},
 		},
+		Commands: []CommandInfo{
+			{
+				Command:     "help",
+				Aliases:     []string{"h"},
+				Description: "Show available commands",
+				Examples:    []string{"/help", "/h"},
+			},
+		},
 	}
 }
 

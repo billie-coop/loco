@@ -3,6 +3,7 @@ package dialog
 import (
 	"strings"
 
+	"github.com/billie-coop/loco/internal/tools"
 	"github.com/billie-coop/loco/internal/tui/events"
 	"github.com/billie-coop/loco/internal/tui/styles"
 	tea "github.com/charmbracelet/bubbletea/v2"
@@ -26,6 +27,7 @@ type CommandPaletteDialog struct {
 	searchQuery      string
 	selectedIndex    int
 	eventBroker      *events.Broker
+	toolRegistry     *tools.Registry
 
 	// Styling
 	searchStyle       lipgloss.Style
@@ -36,12 +38,13 @@ type CommandPaletteDialog struct {
 }
 
 // NewCommandPaletteDialog creates a new command palette dialog
-func NewCommandPaletteDialog(eventBroker *events.Broker) *CommandPaletteDialog {
+func NewCommandPaletteDialog(eventBroker *events.Broker, toolRegistry *tools.Registry) *CommandPaletteDialog {
 	theme := styles.CurrentTheme()
 	
 	d := &CommandPaletteDialog{
-		BaseDialog:  NewBaseDialog("Command Palette"),
-		eventBroker: eventBroker,
+		BaseDialog:   NewBaseDialog("Command Palette"),
+		eventBroker:  eventBroker,
+		toolRegistry: toolRegistry,
 
 		searchStyle: lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
@@ -64,23 +67,44 @@ func NewCommandPaletteDialog(eventBroker *events.Broker) *CommandPaletteDialog {
 			Foreground(theme.FgMuted),
 	}
 
-	// Initialize default commands
-	d.commands = []Command{
-		{Name: "Help", Description: "Show help message", Shortcut: "/help", Action: "/help"},
-		{Name: "Clear Messages", Description: "Clear all messages", Shortcut: "/clear", Action: "/clear"},
-		{Name: "Select Model", Description: "Choose an LLM model", Shortcut: "/model select", Action: "/model select"},
-		{Name: "Show Current Model", Description: "Display current model", Shortcut: "/model", Action: "/model"},
-		{Name: "Select Team", Description: "Choose a model team", Shortcut: "/team select", Action: "/team select"},
-		{Name: "Show Current Team", Description: "Display current team", Shortcut: "/team", Action: "/team"},
-		{Name: "Settings", Description: "Open settings dialog", Shortcut: "/settings", Action: "/settings"},
-		{Name: "Toggle Debug", Description: "Toggle debug mode", Shortcut: "/debug", Action: "/debug"},
-		{Name: "Quit", Description: "Exit the application", Shortcut: "/quit", Action: "/quit"},
-		{Name: "Clear Messages", Description: "Clear the message history", Shortcut: "Ctrl+L", Action: "ctrl+l"},
-		{Name: "Command Palette", Description: "Open this command palette", Shortcut: "Ctrl+P", Action: "ctrl+p"},
-	}
-
+	// Generate commands dynamically from tool registry
+	d.commands = d.generateCommands()
 	d.filteredCommands = d.commands
 	return d
+}
+
+// generateCommands creates command list from tool registry with fallback
+func (d *CommandPaletteDialog) generateCommands() []Command {
+	var commands []Command
+	
+	if d.toolRegistry != nil {
+		// Generate from tool registry
+		completionCommands := d.toolRegistry.GetCompletionCommands()
+		for _, cmd := range completionCommands {
+			commands = append(commands, Command{
+				Name:        strings.TrimPrefix(cmd.Name, "/"), // Remove slash for display
+				Description: cmd.Description,
+				Shortcut:    cmd.Name, // Keep slash for shortcut display
+				Action:      cmd.Name, // Keep slash for action
+			})
+		}
+	}
+	
+	// Add non-tool commands (keyboard shortcuts)
+	commands = append(commands,
+		Command{Name: "Clear Messages", Description: "Clear the message history", Shortcut: "Ctrl+L", Action: "ctrl+l"},
+		Command{Name: "Command Palette", Description: "Open this command palette", Shortcut: "Ctrl+P", Action: "ctrl+p"},
+	)
+	
+	// Fallback if no commands available
+	if len(commands) == 0 {
+		commands = []Command{
+			{Name: "Help", Description: "Show help message", Shortcut: "/help", Action: "/help"},
+			{Name: "Clear Messages", Description: "Clear all messages", Shortcut: "/clear", Action: "/clear"},
+		}
+	}
+	
+	return commands
 }
 
 // Init initializes the dialog

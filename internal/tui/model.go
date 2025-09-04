@@ -58,9 +58,9 @@ func New(appInstance *app.App, eventBroker *events.Broker) *Model {
 	// Create components
 	sidebarModel := chat.NewSidebar()
 	messageListModel := chat.NewMessageList()
-	inputModel := chat.NewInput()
+	inputModel := chat.NewInput(appInstance.Tools)
 	statusBarModel := status.New()
-	dialogManager := dialog.NewManager(eventBroker)
+	dialogManager := dialog.NewManager(eventBroker, appInstance.Tools)
 	completions := completions.NewCompletions()
 
 	// Create the model

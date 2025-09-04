@@ -78,6 +78,13 @@ func (r *ragTool) Info() ToolInfo {
 			},
 		},
 		Required: []string{"query"},
+		Commands: []CommandInfo{
+			{
+				Command:     "rag",
+				Description: "Search codebase with semantic query",
+				Examples:    []string{"/rag how are errors handled", "/rag authentication flow"},
+			},
+		},
 	}
 }
 

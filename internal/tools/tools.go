@@ -4,6 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strconv"
+	"strings"
+	"time"
 
 	"github.com/billie-coop/loco/internal/permission"
 )
@@ -21,12 +24,21 @@ type BaseTool interface {
 	Run(ctx context.Context, call ToolCall) (ToolResponse, error)
 }
 
-// ToolInfo represents OpenAI-compatible tool information.
+// CommandInfo represents a slash command declaration for a tool.
+type CommandInfo struct {
+	Command     string   `json:"command"`     // The slash command name (e.g., "help", "analyze")
+	Aliases     []string `json:"aliases"`     // Alternative command names (e.g., ["h"] for help)
+	Description string   `json:"description"` // Description shown in completion popup
+	Examples    []string `json:"examples"`    // Usage examples for help text
+}
+
+// ToolInfo represents OpenAI-compatible tool information with command declarations.
 type ToolInfo struct {
 	Name        string         `json:"name"`
 	Description string         `json:"description"`
 	Parameters  map[string]any `json:"parameters"`
 	Required    []string       `json:"required"`
+	Commands    []CommandInfo  `json:"commands,omitempty"` // Slash command declarations
 }
 
 // ToolCall represents a tool invocation request from the LLM.
@@ -185,6 +197,198 @@ func (r *Registry) GetOpenAITools() []map[string]any {
 		tools = append(tools, ConvertToOpenAIFormat(tool))
 	}
 	return tools
+}
+
+// GetCommandRegistry returns a map of command names to tool names.
+// This enables dynamic command routing based on tool declarations.
+func (r *Registry) GetCommandRegistry() map[string]string {
+	commands := make(map[string]string)
+	
+	for _, tool := range r.tools {
+		info := tool.Info()
+		
+		// Register each command declared by the tool
+		for _, cmdInfo := range info.Commands {
+			// Main command name
+			commands[cmdInfo.Command] = info.Name
+			
+			// Register aliases
+			for _, alias := range cmdInfo.Aliases {
+				commands[alias] = info.Name
+			}
+		}
+		
+		// If tool declares no commands, auto-generate from tool name
+		if len(info.Commands) == 0 {
+			commands[info.Name] = info.Name
+		}
+	}
+	
+	return commands
+}
+
+// GetCompletionCommands returns command info for tab completion and auto-suggest.
+// This replaces hardcoded command lists in the UI components.
+func (r *Registry) GetCompletionCommands() []CompletionCommand {
+	var commands []CompletionCommand
+	
+	for _, tool := range r.tools {
+		info := tool.Info()
+		
+		// Add each declared command
+		for _, cmdInfo := range info.Commands {
+			commands = append(commands, CompletionCommand{
+				Name:        "/" + cmdInfo.Command,
+				Description: cmdInfo.Description,
+			})
+			
+			// Add aliases
+			for _, alias := range cmdInfo.Aliases {
+				commands = append(commands, CompletionCommand{
+					Name:        "/" + alias,
+					Description: cmdInfo.Description + " (alias)",
+				})
+			}
+		}
+		
+		// If tool declares no commands, auto-generate from tool name
+		if len(info.Commands) == 0 {
+			commands = append(commands, CompletionCommand{
+				Name:        "/" + info.Name,
+				Description: info.Description,
+			})
+		}
+	}
+	
+	return commands
+}
+
+// CompletionCommand represents a command for tab completion UI.
+type CompletionCommand struct {
+	Name        string `json:"name"`        // The command with slash prefix
+	Description string `json:"description"` // Description for the UI
+}
+
+// ParseCommand parses a user command string into a ToolCall.
+// Supports simple argument parsing based on parameter schemas.
+func (r *Registry) ParseCommand(command string) (*ToolCall, error) {
+	if !strings.HasPrefix(command, "/") {
+		return nil, fmt.Errorf("commands must start with /")
+	}
+	
+	// Remove leading slash
+	command = strings.TrimPrefix(command, "/")
+	
+	// Split into command and arguments
+	parts := strings.Fields(command)
+	if len(parts) == 0 {
+		return nil, fmt.Errorf("empty command")
+	}
+	
+	commandName := parts[0]
+	args := parts[1:]
+	
+	// Look up tool name from command registry
+	commandRegistry := r.GetCommandRegistry()
+	toolName, exists := commandRegistry[commandName]
+	if !exists {
+		return nil, fmt.Errorf("unknown command: %s", commandName)
+	}
+	
+	// Get the tool to access its parameter schema
+	tool, exists := r.Get(toolName)
+	if !exists {
+		return nil, fmt.Errorf("tool not found: %s", toolName)
+	}
+	
+	// Parse arguments based on parameter schema
+	params, err := r.parseArguments(tool.Info(), args)
+	if err != nil {
+		return nil, fmt.Errorf("error parsing arguments: %v", err)
+	}
+	
+	// Convert to JSON string for ToolCall.Input
+	paramJSON, err := json.Marshal(params)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling parameters: %v", err)
+	}
+	
+	return &ToolCall{
+		ID:    generateToolCallID(),
+		Name:  toolName,
+		Input: string(paramJSON),
+	}, nil
+}
+
+// parseArguments parses command line arguments into a parameter map
+// based on the tool's parameter schema.
+func (r *Registry) parseArguments(info ToolInfo, args []string) (map[string]any, error) {
+	params := make(map[string]any)
+	
+	// Get parameter properties from schema
+	properties, ok := info.Parameters["properties"].(map[string]any)
+	if !ok || properties == nil {
+		// No parameters expected, but args provided
+		if len(args) > 0 {
+			return nil, fmt.Errorf("command does not accept arguments")
+		}
+		return params, nil
+	}
+	
+	// Simple positional argument parsing
+	// For now, we'll map arguments to required parameters in order
+	requiredParams := info.Required
+	
+	// Map positional arguments to required parameters
+	for i, arg := range args {
+		if i >= len(requiredParams) {
+			// Extra arguments - ignore for now or could add to an "extra" field
+			continue
+		}
+		
+		paramName := requiredParams[i]
+		paramDef, exists := properties[paramName].(map[string]any)
+		if !exists {
+			continue
+		}
+		
+		// Type conversion based on parameter schema
+		paramType, _ := paramDef["type"].(string)
+		switch paramType {
+		case "integer", "number":
+			if val, err := strconv.Atoi(arg); err == nil {
+				params[paramName] = val
+			} else {
+				return nil, fmt.Errorf("parameter %s must be a number", paramName)
+			}
+		case "boolean":
+			if val, err := strconv.ParseBool(arg); err == nil {
+				params[paramName] = val
+			} else {
+				return nil, fmt.Errorf("parameter %s must be true or false", paramName)
+			}
+		case "array":
+			// Simple array parsing - split on commas
+			params[paramName] = strings.Split(arg, ",")
+		default:
+			// Default to string
+			params[paramName] = arg
+		}
+	}
+	
+	// Check required parameters
+	for _, required := range info.Required {
+		if _, exists := params[required]; !exists {
+			return nil, fmt.Errorf("required parameter missing: %s", required)
+		}
+	}
+	
+	return params, nil
+}
+
+// generateToolCallID creates a unique ID for tool calls
+func generateToolCallID() string {
+	return fmt.Sprintf("cmd_%d", time.Now().UnixNano())
 }
 
 // CreateDefaultRegistry creates a registry with all default tools.

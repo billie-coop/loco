@@ -3,6 +3,7 @@ package dialog
 import (
 	"github.com/billie-coop/loco/internal/llm"
 	"github.com/billie-coop/loco/internal/session"
+	"github.com/billie-coop/loco/internal/tools"
 	"github.com/billie-coop/loco/internal/tui/events"
 	tea "github.com/charmbracelet/bubbletea/v2"
 )
@@ -26,15 +27,17 @@ type Manager struct {
 	dialogs         map[DialogType]Dialog
 	activeDialog    DialogType
 	eventBroker     *events.Broker
+	toolRegistry    *tools.Registry
 	width           int
 	height          int
 }
 
 // NewManager creates a new dialog manager
-func NewManager(eventBroker *events.Broker) *Manager {
+func NewManager(eventBroker *events.Broker, toolRegistry *tools.Registry) *Manager {
 	m := &Manager{
 		dialogs:      make(map[DialogType]Dialog),
 		eventBroker:  eventBroker,
+		toolRegistry: toolRegistry,
 	}
 
 	// Create all dialogs
@@ -43,7 +46,7 @@ func NewManager(eventBroker *events.Broker) *Manager {
 	m.dialogs[SettingsDialogType] = NewSettingsDialog(eventBroker)
 	m.dialogs[PermissionsDialogType] = NewPermissionsDialog(eventBroker)
 	m.dialogs[QuitDialogType] = NewQuitDialog(eventBroker)
-	m.dialogs[CommandPaletteDialogType] = NewCommandPaletteDialog(eventBroker)
+	m.dialogs[CommandPaletteDialogType] = NewCommandPaletteDialog(eventBroker, toolRegistry)
 	m.dialogs[HelpDialogType] = NewHelpDialog(eventBroker)
 	m.dialogs[ThemeSwitcherDialogType] = NewThemeSwitcher()
 

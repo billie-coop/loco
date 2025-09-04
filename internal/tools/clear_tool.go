@@ -32,6 +32,13 @@ func (t *ClearTool) Info() ToolInfo {
 			"type":       "object",
 			"properties": map[string]any{},
 		},
+		Commands: []CommandInfo{
+			{
+				Command:     "clear",
+				Description: "Clear all messages",
+				Examples:    []string{"/clear"},
+			},
+		},
 	}
 }
 

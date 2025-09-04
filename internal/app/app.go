@@ -249,7 +249,7 @@ func New(workingDir string, eventBroker *events.Broker) *App {
 
 	// Create unified tool architecture
 	app.ToolExecutor = NewToolExecutor(app.Tools, eventBroker, app.Sessions, app.LLMService, permissionService)
-	app.InputRouter = NewUserInputRouter(app.ToolExecutor)
+	app.InputRouter = NewUserInputRouter(app.ToolExecutor, app.Tools)
 
 	// Wire ToolExecutor to sidecar service for auto-indexing
 	if app.Sidecar != nil && app.ToolExecutor != nil {
