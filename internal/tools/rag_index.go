@@ -24,10 +24,19 @@ type RagIndexParams struct {
 
 // RagIndexState tracks the state of RAG indexing
 type RagIndexState struct {
-	ContentHash    string    `json:"content_hash"`    // Hash of directory contents
-	IndexedAt      time.Time `json:"indexed_at"`      // When indexing occurred
-	FileCount      int       `json:"file_count"`      // Number of files indexed
-	EmbeddingModel string    `json:"embedding_model"` // Model used for embeddings
+	ContentHash    string              `json:"content_hash"`    // Hash of directory contents
+	IndexedAt      time.Time           `json:"indexed_at"`      // When indexing occurred
+	FileCount      int                 `json:"file_count"`      // Number of files indexed
+	EmbeddingModel string              `json:"embedding_model"` // Model used for embeddings
+	FileStates     map[string]FileState `json:"file_states"`    // Per-file indexing status
+}
+
+// FileState tracks individual file indexing status
+type FileState struct {
+	Hash      string    `json:"hash"`       // Hash of file content
+	IndexedAt time.Time `json:"indexed_at"` // When this file was indexed
+	Success   bool      `json:"success"`    // Whether indexing succeeded
+	Error     string    `json:"error,omitempty"` // Error message if failed
 }
 
 // ragIndexTool implements the RAG indexing tool
@@ -230,16 +239,28 @@ func (r *ragIndexTool) Run(ctx context.Context, call ToolCall) (ToolResponse, er
 			// Log but continue
 			_ = err
 		} else if prevState != nil && prevState.ContentHash == currentHash && prevState.EmbeddingModel == embeddingModel {
-			// Already indexed and nothing changed
-			return NewTextResponse(fmt.Sprintf(
-				"✅ RAG index is up to date\n\n"+
-				"Already indexed %d files at %s\n"+
-				"Content hash: %s\n"+
-				"Use 'force: true' to re-index anyway",
-				prevState.FileCount,
-				prevState.IndexedAt.Format("15:04:05"),
-				currentHash[:12]+"...",
-			)), nil
+			// Check if there are any failed files
+			failedCount := 0
+			for _, state := range prevState.FileStates {
+				if !state.Success {
+					failedCount++
+				}
+			}
+			
+			// Only return "up to date" if ALL files were successful
+			if failedCount == 0 {
+				// Already indexed and nothing changed
+				return NewTextResponse(fmt.Sprintf(
+					"✅ RAG index is up to date\n\n"+
+					"Already indexed %d files at %s\n"+
+					"Content hash: %s\n"+
+					"Use 'force: true' to re-index anyway",
+					prevState.FileCount,
+					prevState.IndexedAt.Format("15:04:05"),
+					currentHash[:12]+"...",
+				)), nil
+			}
+			// Otherwise, continue to retry failed files
 		}
 	}
 	
@@ -272,14 +293,54 @@ func (r *ragIndexTool) Run(ctx context.Context, call ToolCall) (ToolResponse, er
 		return NewTextErrorResponse(fmt.Sprintf("Failed to scan directory: %s", err)), nil
 	}
 	
+	// Load previous state to get per-file tracking
+	prevState, _ := r.loadIndexState()
+	if prevState == nil || prevState.FileStates == nil {
+		prevState = &RagIndexState{
+			FileStates: make(map[string]FileState),
+		}
+	}
+	
+	// Filter out already-indexed files unless force is set
+	var filesToIndex []string
+	var retryCount int
+	if !params.Force {
+		for _, file := range files {
+			fileState, exists := prevState.FileStates[file]
+			// Re-index if: not indexed before, failed last time, or file changed
+			if !exists || !fileState.Success || fileHashChanged(file, fileState.Hash) {
+				filesToIndex = append(filesToIndex, file)
+				// Count how many are retries from previous failures
+				if exists && !fileState.Success {
+					retryCount++
+				}
+			}
+		}
+	} else {
+		filesToIndex = files
+	}
+	
 	// Show progress
 	response := fmt.Sprintf("🔍 **RAG Indexing**\n\n")
 	response += fmt.Sprintf("**Path:** %s\n", indexPath)
-	response += fmt.Sprintf("**Files found:** %d\n\n", len(files))
+	response += fmt.Sprintf("**Total files:** %d\n", len(files))
+	response += fmt.Sprintf("**To index:** %d\n", len(filesToIndex))
+	if retryCount > 0 {
+		response += fmt.Sprintf("**Retrying:** %d failed files\n", retryCount)
+	}
+	response += "\n"
 	
-	if len(files) == 0 {
-		response += "*No indexable files found*\n"
+	if len(filesToIndex) == 0 {
+		response += "*All files already indexed*\n"
 		return NewTextResponse(response), nil
+	}
+	
+	// Add warm-up delay for first batch to let embedding model initialize
+	// This happens whenever we're about to index files (not just first run)
+	// because LM Studio's embedding model needs time to load after being idle
+	if len(filesToIndex) > 0 {
+		response += "⏳ Warming up embedding model...\n"
+		time.Sleep(3 * time.Second) // Give LM Studio more time to load the model
 	}
 	
 	response += "**Indexing progress:**\n"
@@ -288,22 +349,72 @@ func (r *ragIndexTool) Run(ctx context.Context, call ToolCall) (ToolResponse, er
 	batchSize := 10
 	indexed := 0
 	failed := 0
+	newFileStates := make(map[string]FileState)
 	
-	for i := 0; i < len(files); i += batchSize {
+	// Initialize newFileStates with existing states from prevState
+	// We'll update these as we process files
+	for path, state := range prevState.FileStates {
+		newFileStates[path] = state
+	}
+	
+	for i := 0; i < len(filesToIndex); i += batchSize {
 		end := i + batchSize
-		if end > len(files) {
-			end = len(files)
+		if end > len(filesToIndex) {
+			end = len(filesToIndex)
 		}
 		
-		batch := files[i:end]
+		batch := filesToIndex[i:end]
 		
-		// Update files
-		if err := r.sidecarService.UpdateFiles(ctx, batch); err != nil {
-			failed += len(batch)
-			response += fmt.Sprintf("❌ Batch %d-%d failed\n", i+1, end)
+		// For the first batch, process files one at a time to avoid overwhelming the model
+		// This helps ensure the embedding model is properly warmed up
+		if i == 0 && len(batch) > 1 {
+			response += fmt.Sprintf("🔄 Processing first %d files individually...\n", len(batch))
+			for j, file := range batch {
+				if err := r.sidecarService.UpdateFiles(ctx, []string{file}); err != nil {
+					failed++
+					response += fmt.Sprintf("  ❌ File %d failed: %v\n", j+1, err)
+					newFileStates[file] = FileState{
+						Hash:      computeFileHash(file),
+						IndexedAt: time.Now(),
+						Success:   false,
+						Error:     err.Error(),
+					}
+				} else {
+					indexed++
+					response += fmt.Sprintf("  ✅ File %d indexed\n", j+1)
+					newFileStates[file] = FileState{
+						Hash:      computeFileHash(file),
+						IndexedAt: time.Now(),
+						Success:   true,
+					}
+				}
+			}
 		} else {
-			indexed += len(batch)
-			response += fmt.Sprintf("✅ Indexed files %d-%d\n", i+1, end)
+			// Process subsequent batches normally
+			if err := r.sidecarService.UpdateFiles(ctx, batch); err != nil {
+				failed += len(batch)
+				response += fmt.Sprintf("❌ Batch %d-%d failed: %v\n", i+1, end, err)
+				// Mark files as failed
+				for _, file := range batch {
+					newFileStates[file] = FileState{
+						Hash:      computeFileHash(file),
+						IndexedAt: time.Now(),
+						Success:   false,
+						Error:     err.Error(),
+					}
+				}
+			} else {
+				indexed += len(batch)
+				response += fmt.Sprintf("✅ Indexed files %d-%d\n", i+1, end)
+				// Mark files as successful
+				for _, file := range batch {
+					newFileStates[file] = FileState{
+						Hash:      computeFileHash(file),
+						IndexedAt: time.Now(),
+						Success:   true,
+					}
+				}
+			}
 		}
 		
 		// Check context cancellation
@@ -316,12 +427,21 @@ func (r *ragIndexTool) Run(ctx context.Context, call ToolCall) (ToolResponse, er
 	}
 	
 	// Save index state after successful indexing
-	if indexed > 0 {
+	if indexed > 0 || failed > 0 {
+		// Count successful files in the state
+		successCount := 0
+		for _, fs := range newFileStates {
+			if fs.Success {
+				successCount++
+			}
+		}
+		
 		state := &RagIndexState{
 			ContentHash:    currentHash,
 			IndexedAt:      time.Now(),
-			FileCount:      indexed,
+			FileCount:      successCount, // Only count successful files
 			EmbeddingModel: embeddingModel,
+			FileStates:     newFileStates,
 		}
 		if err := r.saveIndexState(state); err != nil {
 			// Log but don't fail
@@ -338,6 +458,25 @@ func (r *ragIndexTool) Run(ctx context.Context, call ToolCall) (ToolResponse, er
 	response += fmt.Sprintf("\nUse `/rag <query>` to search\n")
 	
 	return NewTextResponse(response), nil
+}
+
+// fileHashChanged checks if a file's hash has changed
+func fileHashChanged(filePath string, oldHash string) bool {
+	newHash := computeFileHash(filePath)
+	return newHash != oldHash
+}
+
+// computeFileHash computes a hash of a file's content
+func computeFileHash(filePath string) string {
+	info, err := os.Stat(filePath)
+	if err != nil {
+		return ""
+	}
+	
+	h := sha256.New()
+	h.Write([]byte(filePath))
+	h.Write([]byte(fmt.Sprintf("%d%d", info.Size(), info.ModTime().Unix())))
+	return fmt.Sprintf("%x", h.Sum(nil))
 }
 
 // isIndexableExtension checks if a file extension should be indexed

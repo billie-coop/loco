@@ -5,7 +5,7 @@ import (
 	"time"
 )
 
-// Document represents a chunk of code with its embedding
+// Document represents a chunk of code with its embedding.
 type Document struct {
 	ID        string                 // Unique identifier
 	Path      string                 // File path
@@ -15,17 +15,16 @@ type Document struct {
 	UpdatedAt time.Time              // Last update time
 }
 
-// SimilarDocument includes similarity score
+// SimilarDocument includes similarity score.
 type SimilarDocument struct {
 	Document
 	Score float32 // Similarity score (0-1)
 }
 
-// Embedder generates vector embeddings from text
+// Embedder generates vector embeddings from text.
 type Embedder interface {
 	// Embed generates embedding for single text
 	Embed(ctx context.Context, text string) ([]float32, error)
-	
 	// EmbedBatch generates embeddings for multiple texts
 	EmbedBatch(ctx context.Context, texts []string) ([][]float32, error)
 	
@@ -33,7 +32,7 @@ type Embedder interface {
 	Dimension() int
 }
 
-// VectorStore manages vector embeddings and similarity search
+// VectorStore manages vector embeddings and similarity search.
 type VectorStore interface {
 	// Store saves a document with its embedding
 	Store(ctx context.Context, doc Document) error
@@ -57,7 +56,7 @@ type VectorStore interface {
 	Count(ctx context.Context) (int, error)
 }
 
-// Service provides RAG capabilities
+// Service provides RAG capabilities.
 type Service interface {
 	// UpdateFile processes and stores embeddings for a file
 	UpdateFile(ctx context.Context, path string) error

@@ -11,7 +11,7 @@ import (
 
 )
 
-// service implements the Service interface
+// service implements the Service interface.
 type service struct {
 	workingDir  string
 	embedder    Embedder
@@ -24,7 +24,7 @@ type service struct {
 	stopped     bool
 }
 
-// NewService creates a new sidecar service
+// NewService creates a new sidecar service.
 func NewService(workingDir string, embedder Embedder, store VectorStore) Service {
 	return &service{
 		workingDir:  workingDir,
@@ -35,7 +35,7 @@ func NewService(workingDir string, embedder Embedder, store VectorStore) Service
 	}
 }
 
-// UpdateFile processes and stores embeddings for a file
+// UpdateFile processes and stores embeddings for a file.
 func (s *service) UpdateFile(ctx context.Context, path string) error {
 	// Mark as processing
 	s.mu.Lock()
@@ -103,7 +103,7 @@ func (s *service) UpdateFile(ctx context.Context, path string) error {
 	return nil
 }
 
-// UpdateFiles processes multiple files
+// UpdateFiles processes multiple files.
 func (s *service) UpdateFiles(ctx context.Context, paths []string) error {
 	var wg sync.WaitGroup
 	errCh := make(chan error, len(paths))
@@ -134,18 +134,22 @@ func (s *service) UpdateFiles(ctx context.Context, paths []string) error {
 	}
 	
 	if len(errs) > 0 {
-		return fmt.Errorf("failed to update %d files", len(errs))
+		// Include the first error message for debugging
+		if len(errs) == 1 {
+			return errs[0]
+		}
+		return fmt.Errorf("failed to update %d files: %v (and %d more errors)", len(errs), errs[0], len(errs)-1)
 	}
 	
 	return nil
 }
 
-// QuerySimilar finds similar documents to a query
+// QuerySimilar finds similar documents to a query.
 func (s *service) QuerySimilar(ctx context.Context, query string, k int) ([]SimilarDocument, error) {
 	return s.vectorStore.QueryText(ctx, query, k)
 }
 
-// Start begins watching for file changes
+// Start begins watching for file changes.
 func (s *service) Start(ctx context.Context) error {
 	s.mu.Lock()
 	if s.stopped {
@@ -160,7 +164,7 @@ func (s *service) Start(ctx context.Context) error {
 	return nil
 }
 
-// Stop stops watching and cleanup
+// Stop stops watching and cleanup.
 func (s *service) Stop() error {
 	s.mu.Lock()
 	if s.stopped {
@@ -175,14 +179,14 @@ func (s *service) Stop() error {
 	return nil
 }
 
-// chunk represents a file chunk
+// chunk represents a file chunk.
 type chunk struct {
 	content   string
 	startLine int
 	endLine   int
 }
 
-// chunkFile splits a file into chunks for embedding
+// chunkFile splits a file into chunks for embedding.
 func (s *service) chunkFile(path string, content string) []chunk {
 	// Simple line-based chunking for now
 	// TODO: Implement AST-based chunking for code files
@@ -215,58 +219,8 @@ func (s *service) chunkFile(path string, content string) []chunk {
 	return chunks
 }
 
-// initialIndex performs initial indexing of existing files
-func (s *service) initialIndex(ctx context.Context) {
-	// TODO: Emit progress events instead of printing
-	var files []string
-	
-	// Walk the working directory
-	err := filepath.Walk(s.workingDir, func(path string, info os.FileInfo, err error) error {
-		if err != nil {
-			return nil // Skip errors
-		}
-		
-		// Skip directories
-		if info.IsDir() {
-			// Skip hidden directories
-			if strings.HasPrefix(info.Name(), ".") && info.Name() != "." {
-				return filepath.SkipDir
-			}
-			return nil
-		}
-		
-		// Check if file should be indexed
-		ext := filepath.Ext(path)
-		if isIndexableExtension(ext) {
-			files = append(files, path)
-		}
-		
-		return nil
-	})
-	
-	if err != nil {
-		// TODO: Log error properly
-		return
-	}
-	
-	// Process files in batches
-	batchSize := 10
-	for i := 0; i < len(files); i += batchSize {
-		end := i + batchSize
-		if end > len(files) {
-			end = len(files)
-		}
-		
-		batch := files[i:end]
-		if err := s.UpdateFiles(ctx, batch); err != nil {
-			// TODO: Log error properly
-		}
-	}
-	
-	// TODO: Emit completion event with file count
-}
 
-// isBinary checks if content appears to be binary
+// isBinary checks if content appears to be binary.
 func isBinary(content []byte) bool {
 	if len(content) == 0 {
 		return false
@@ -282,7 +236,7 @@ func isBinary(content []byte) bool {
 	return false
 }
 
-// detectLanguage detects the programming language from file extension
+// detectLanguage detects the programming language from file extension.
 func detectLanguage(path string) string {
 	ext := strings.ToLower(filepath.Ext(path))
 	switch ext {
@@ -313,24 +267,6 @@ func detectLanguage(path string) string {
 	}
 }
 
-// isIndexableExtension checks if a file extension should be indexed
-func isIndexableExtension(ext string) bool {
-	indexable := []string{
-		".go", ".js", ".jsx", ".ts", ".tsx", ".py", ".rs",
-		".java", ".c", ".h", ".cpp", ".cc", ".hpp",
-		".md", ".yaml", ".yml", ".json", ".toml",
-		".sh", ".bash", ".zsh", ".fish",
-		".vim", ".lua", ".rb", ".php",
-	}
-	
-	ext = strings.ToLower(ext)
-	for _, e := range indexable {
-		if ext == e {
-			return true
-		}
-	}
-	return false
-}
 
 func min(a, b int) int {
 	if a < b {

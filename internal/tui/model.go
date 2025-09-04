@@ -160,6 +160,15 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Re-schedule next tick
 		cmds = append(cmds, heartbeatTick())
 
+		// Pass heartbeat to message list to update tool message timers
+		if m.messageList != nil {
+			messageListModel, cmd := m.messageList.Update(msg)
+			if ml, ok := messageListModel.(*chat.MessageListModel); ok {
+				m.messageList = ml
+			}
+			cmds = append(cmds, cmd)
+		}
+
 		// If analysis running but no progress recently, show heartbeats
 		if m.analysisState != nil && m.analysisState.IsRunning {
 			elapsed := time.Since(m.lastProgress)

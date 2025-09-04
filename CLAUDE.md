@@ -97,8 +97,9 @@ Good luck! The compiler is your friend! 🚂
 
 ## Important Notes for Claude
 
-- **Don't run commands automatically** - I prefer to run things myself (like `make run`, `make test`, etc.) unless I specifically ask you to run them
-- Just tell me what command to run and I'll do it!
+- **ONLY run `make build` automatically** - Never run `make run`, `make test`, or other commands unless specifically asked
+- `make build` is safe to run for compilation checks
+- For everything else, just tell me what command to run and I'll do it!
 
 ## Working Style - IMPORTANT
 
