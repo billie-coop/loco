@@ -179,6 +179,50 @@ func (s *service) Stop() error {
 	return nil
 }
 
+// SetRAGMetadata stores RAG metadata using the vector store
+func (s *service) SetRAGMetadata(ctx context.Context, metadata RAGMetadata) error {
+	// Cast to SQLite store to access metadata methods
+	if sqliteStore, ok := s.vectorStore.(interface {
+		SetRAGMetadata(ctx context.Context, metadata RAGMetadata) error
+	}); ok {
+		return sqliteStore.SetRAGMetadata(ctx, metadata)
+	}
+	return fmt.Errorf("vector store does not support metadata operations")
+}
+
+// GetRAGMetadata retrieves RAG metadata using the vector store
+func (s *service) GetRAGMetadata(ctx context.Context) (*RAGMetadata, error) {
+	// Cast to SQLite store to access metadata methods
+	if sqliteStore, ok := s.vectorStore.(interface {
+		GetRAGMetadata(ctx context.Context) (*RAGMetadata, error)
+	}); ok {
+		return sqliteStore.GetRAGMetadata(ctx)
+	}
+	return nil, fmt.Errorf("vector store does not support metadata operations")
+}
+
+// SetFileState stores file state using the vector store
+func (s *service) SetFileState(ctx context.Context, path string, state FileState) error {
+	// Cast to SQLite store to access metadata methods
+	if sqliteStore, ok := s.vectorStore.(interface {
+		SetFileState(ctx context.Context, path string, state FileState) error
+	}); ok {
+		return sqliteStore.SetFileState(ctx, path, state)
+	}
+	return fmt.Errorf("vector store does not support metadata operations")
+}
+
+// GetFileStates retrieves all file states using the vector store
+func (s *service) GetFileStates(ctx context.Context) (map[string]FileState, error) {
+	// Cast to SQLite store to access metadata methods
+	if sqliteStore, ok := s.vectorStore.(interface {
+		GetFileStates(ctx context.Context) (map[string]FileState, error)
+	}); ok {
+		return sqliteStore.GetFileStates(ctx)
+	}
+	return nil, fmt.Errorf("vector store does not support metadata operations")
+}
+
 // chunk represents a file chunk.
 type chunk struct {
 	content   string

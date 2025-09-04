@@ -74,8 +74,22 @@ func (m *messageCmp) ID() string {
 
 // Init implements tea.Model
 func (m *messageCmp) Init() tea.Cmd {
+	var cmds []tea.Cmd
+	
+	// Initialize tool message if present
+	if m.toolMessage != nil {
+		cmd := m.toolMessage.Init()
+		if cmd != nil {
+			cmds = append(cmds, cmd)
+		}
+	}
+	
 	if m.isStreaming {
-		return m.spinner.Tick
+		cmds = append(cmds, m.spinner.Tick)
+	}
+	
+	if len(cmds) > 0 {
+		return tea.Batch(cmds...)
 	}
 	return nil
 }

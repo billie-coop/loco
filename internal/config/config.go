@@ -53,7 +53,6 @@ type RAGConfig struct {
 	Embedder       string `json:"embedder"`        // "mock" or "lmstudio"
 	BatchSize      int    `json:"batch_size"`      // Files per batch during indexing
 	EmbeddingModel string `json:"embedding_model"` // Model ID for embeddings (e.g., "nomic-embed-text-v1.5-GGUF")
-	Storage        string `json:"storage"`         // Storage type: "memory" or "sqlite"
 	DatabasePath   string `json:"database_path"`   // Path to SQLite database (relative to .loco dir)
 }
 
@@ -151,7 +150,6 @@ func DefaultConfig() *Config {
 				Embedder:       "lmstudio",                                // Use LM Studio for real embeddings
 				BatchSize:      10,                                        // Process 10 files at a time
 				EmbeddingModel: "text-embedding-nomic-embed-text-v1.5@q8_0", // Default embedding model (8-bit quantized)
-				Storage:        "sqlite",                                  // Use persistent SQLite storage
 				DatabasePath:   "vectors.db",                              // Store in .loco/vectors.db
 			},
 		},

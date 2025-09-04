@@ -9,7 +9,8 @@ import (
 	"time"
 
 	"github.com/billie-coop/loco/internal/sidecar"
-	sqlite_vec "github.com/asg017/sqlite-vec-go-bindings/ncruces"
+	sqlite_vec "github.com/asg017/sqlite-vec-go-bindings/cgo"
+	_ "github.com/mattn/go-sqlite3"
 )
 
 // SQLiteStore is a SQLite-based vector store implementation using sqlite-vec
@@ -26,11 +27,20 @@ func NewSQLiteStore(dbPath string, embedder sidecar.Embedder) (*SQLiteStore, err
 		return nil, fmt.Errorf("failed to create database directory: %w", err)
 	}
 
-	// Open database using ncruces/go-sqlite3 driver (sqlite-vec is automatically available)
+	// Enable sqlite-vec extension (required for CGO bindings)
+	sqlite_vec.Auto()
+
+	// Open database using mattn/go-sqlite3 driver with sqlite-vec
+	// Add connection parameters for better concurrency and performance
+	dbPath = dbPath + "?_journal_mode=WAL&_busy_timeout=30000&_synchronous=NORMAL&_cache_size=1000"
 	db, err := sql.Open("sqlite3", dbPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open database: %w", err)
 	}
+
+	// Set connection pool settings for better concurrency
+	db.SetMaxOpenConns(10)
+	db.SetMaxIdleConns(5)
 
 	store := &SQLiteStore{
 		db:       db,
@@ -55,6 +65,13 @@ func (s *SQLiteStore) initSchema() error {
 		return fmt.Errorf("sqlite-vec not available: %w", err)
 	}
 
+	// Detect embedding dimensions by creating a test embedding
+	testEmbedding, err := s.embedder.Embed(context.Background(), "test")
+	if err != nil {
+		return fmt.Errorf("failed to detect embedding dimensions: %w", err)
+	}
+	embeddingDim := len(testEmbedding)
+
 	// Create documents table with metadata
 	createDocsTable := `
 	CREATE TABLE IF NOT EXISTS documents (
@@ -76,26 +93,44 @@ func (s *SQLiteStore) initSchema() error {
 
 	// Create virtual table for vector search using sqlite-vec
 	// The vec0 virtual table stores vectors and allows similarity search
-	createVectorTable := `
+	createVectorTable := fmt.Sprintf(`
 	CREATE VIRTUAL TABLE IF NOT EXISTS document_vectors USING vec0(
 		doc_id TEXT PRIMARY KEY,
-		embedding float[1536]  -- Common embedding dimension, will be dynamic
-	)`
+		embedding float[%d]  -- Dynamic embedding dimension: %d
+	)`, embeddingDim, embeddingDim)
 
 	if _, err := s.db.Exec(createVectorTable); err != nil {
 		return fmt.Errorf("failed to create vector table: %w", err)
 	}
 
-	// Create metadata table for directory-level RAG state
+	// Create metadata table for RAG indexing state (replaces JSON file)
 	createMetadataTable := `
 	CREATE TABLE IF NOT EXISTS rag_metadata (
-		key TEXT PRIMARY KEY,
-		value TEXT NOT NULL,
+		id INTEGER PRIMARY KEY CHECK (id = 1),  -- Single row table
+		content_hash TEXT NOT NULL,
+		indexed_at INTEGER NOT NULL,
+		file_count INTEGER NOT NULL,
+		embedding_model TEXT NOT NULL,
 		updated_at INTEGER NOT NULL
 	)`
 
 	if _, err := s.db.Exec(createMetadataTable); err != nil {
 		return fmt.Errorf("failed to create metadata table: %w", err)
+	}
+
+	// Create table for per-file indexing state (replaces JSON file_states)
+	createFileStatesTable := `
+	CREATE TABLE IF NOT EXISTS file_states (
+		path TEXT PRIMARY KEY,
+		file_hash TEXT NOT NULL,
+		indexed_at INTEGER NOT NULL,
+		success BOOLEAN NOT NULL,
+		error_message TEXT,
+		updated_at INTEGER NOT NULL
+	)`
+
+	if _, err := s.db.Exec(createFileStatesTable); err != nil {
+		return fmt.Errorf("failed to create file_states table: %w", err)
 	}
 
 	// Create indexes for better query performance
@@ -419,28 +454,181 @@ func (s *SQLiteStore) Count(ctx context.Context) (int, error) {
 	return count, nil
 }
 
-// SetMetadata stores a key-value pair in the metadata table
-func (s *SQLiteStore) SetMetadata(ctx context.Context, key, value string) error {
-	query := `INSERT OR REPLACE INTO rag_metadata (key, value, updated_at) VALUES (?, ?, ?)`
-	_, err := s.db.ExecContext(ctx, query, key, value, time.Now().Unix())
+// SetRAGMetadata stores the RAG metadata (replaces JSON file functionality)
+func (s *SQLiteStore) SetRAGMetadata(ctx context.Context, metadata sidecar.RAGMetadata) error {
+	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
-		return fmt.Errorf("failed to set metadata %s: %w", key, err)
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	// Insert main metadata (single row table)
+	query := `INSERT OR REPLACE INTO rag_metadata (id, content_hash, indexed_at, file_count, embedding_model, updated_at) 
+	          VALUES (1, ?, ?, ?, ?, ?)`
+	_, err = tx.ExecContext(ctx, query, 
+		metadata.ContentHash,
+		metadata.IndexedAt.Unix(),
+		metadata.FileCount,
+		metadata.EmbeddingModel,
+		time.Now().Unix())
+	if err != nil {
+		return fmt.Errorf("failed to set RAG metadata: %w", err)
+	}
+
+	// Clear existing file states and insert new ones
+	_, err = tx.ExecContext(ctx, "DELETE FROM file_states")
+	if err != nil {
+		return fmt.Errorf("failed to clear file states: %w", err)
+	}
+
+	// Insert file states
+	stmt, err := tx.PrepareContext(ctx, `
+		INSERT INTO file_states (path, file_hash, indexed_at, success, error_message, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?)`)
+	if err != nil {
+		return fmt.Errorf("failed to prepare file states statement: %w", err)
+	}
+	defer stmt.Close()
+
+	for path, state := range metadata.FileStates {
+		var errorMessage interface{}
+		if state.Error != "" {
+			errorMessage = state.Error
+		}
+
+		_, err = stmt.ExecContext(ctx,
+			path,
+			state.Hash,
+			state.IndexedAt.Unix(),
+			state.Success,
+			errorMessage,
+			time.Now().Unix())
+		if err != nil {
+			return fmt.Errorf("failed to insert file state for %s: %w", path, err)
+		}
+	}
+
+	return tx.Commit()
+}
+
+// GetRAGMetadata retrieves the RAG metadata (replaces JSON file functionality)
+func (s *SQLiteStore) GetRAGMetadata(ctx context.Context) (*sidecar.RAGMetadata, error) {
+	// Get main metadata
+	var metadata sidecar.RAGMetadata
+	var indexedAt int64
+	query := `SELECT content_hash, indexed_at, file_count, embedding_model FROM rag_metadata WHERE id = 1`
+	err := s.db.QueryRowContext(ctx, query).Scan(
+		&metadata.ContentHash,
+		&indexedAt,
+		&metadata.FileCount,
+		&metadata.EmbeddingModel)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil // No metadata exists yet
+		}
+		return nil, fmt.Errorf("failed to get RAG metadata: %w", err)
+	}
+	metadata.IndexedAt = time.Unix(indexedAt, 0)
+
+	// Get file states
+	fileStatesQuery := `SELECT path, file_hash, indexed_at, success, error_message FROM file_states`
+	rows, err := s.db.QueryContext(ctx, fileStatesQuery)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query file states: %w", err)
+	}
+	defer rows.Close()
+
+	metadata.FileStates = make(map[string]sidecar.FileState)
+	for rows.Next() {
+		var path, hash string
+		var indexedAt int64
+		var success bool
+		var errorMessage sql.NullString
+
+		err := rows.Scan(&path, &hash, &indexedAt, &success, &errorMessage)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan file state: %w", err)
+		}
+
+		state := sidecar.FileState{
+			Hash:      hash,
+			IndexedAt: time.Unix(indexedAt, 0),
+			Success:   success,
+		}
+		if errorMessage.Valid {
+			state.Error = errorMessage.String
+		}
+
+		metadata.FileStates[path] = state
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating file states: %w", err)
+	}
+
+	return &metadata, nil
+}
+
+// SetFileState stores or updates a single file's indexing state
+func (s *SQLiteStore) SetFileState(ctx context.Context, path string, state sidecar.FileState) error {
+	query := `INSERT OR REPLACE INTO file_states (path, file_hash, indexed_at, success, error_message, updated_at)
+	          VALUES (?, ?, ?, ?, ?, ?)`
+	var errorMessage interface{}
+	if state.Error != "" {
+		errorMessage = state.Error
+	}
+
+	_, err := s.db.ExecContext(ctx, query,
+		path,
+		state.Hash,
+		state.IndexedAt.Unix(),
+		state.Success,
+		errorMessage,
+		time.Now().Unix())
+	if err != nil {
+		return fmt.Errorf("failed to set file state for %s: %w", path, err)
 	}
 	return nil
 }
 
-// GetMetadata retrieves a value from the metadata table
-func (s *SQLiteStore) GetMetadata(ctx context.Context, key string) (string, error) {
-	var value string
-	query := `SELECT value FROM rag_metadata WHERE key = ?`
-	err := s.db.QueryRowContext(ctx, query, key).Scan(&value)
+// GetFileStates returns all file states as a map (for backward compatibility)
+func (s *SQLiteStore) GetFileStates(ctx context.Context) (map[string]sidecar.FileState, error) {
+	query := `SELECT path, file_hash, indexed_at, success, error_message FROM file_states`
+	rows, err := s.db.QueryContext(ctx, query)
 	if err != nil {
-		if err == sql.ErrNoRows {
-			return "", nil // Key doesn't exist
-		}
-		return "", fmt.Errorf("failed to get metadata %s: %w", key, err)
+		return nil, fmt.Errorf("failed to query file states: %w", err)
 	}
-	return value, nil
+	defer rows.Close()
+
+	result := make(map[string]sidecar.FileState)
+	for rows.Next() {
+		var path, hash string
+		var indexedAt int64
+		var success bool
+		var errorMessage sql.NullString
+
+		err := rows.Scan(&path, &hash, &indexedAt, &success, &errorMessage)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan file state: %w", err)
+		}
+
+		state := sidecar.FileState{
+			Hash:      hash,
+			IndexedAt: time.Unix(indexedAt, 0),
+			Success:   success,
+		}
+		if errorMessage.Valid {
+			state.Error = errorMessage.String
+		}
+
+		result[path] = state
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating file states: %w", err)
+	}
+
+	return result, nil
 }
 
 // GetIndexedFiles returns a map of file paths to their hashes and update times

@@ -37,7 +37,8 @@
       "Bash(go list:*)",
       "WebFetch(domain:swimm.io)",
       "Bash(git log:*)",
-      "WebSearch"
+      "WebSearch",
+      "Bash(sqlite3:*)"
     ],
     "deny": []
   }

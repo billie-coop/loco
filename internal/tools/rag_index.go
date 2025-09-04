@@ -22,22 +22,6 @@ type RagIndexParams struct {
 	Force bool   `json:"force,omitempty"` // Force re-indexing
 }
 
-// RagIndexState tracks the state of RAG indexing (legacy - will be replaced by SQLite)
-type RagIndexState struct {
-	ContentHash    string              `json:"content_hash"`    // Hash of directory contents
-	IndexedAt      time.Time           `json:"indexed_at"`      // When indexing occurred
-	FileCount      int                 `json:"file_count"`      // Number of files indexed
-	EmbeddingModel string              `json:"embedding_model"` // Model used for embeddings
-	FileStates     map[string]FileState `json:"file_states"`    // Per-file indexing status
-}
-
-// FileState tracks individual file indexing status (legacy - will be replaced by SQLite)
-type FileState struct {
-	Hash      string    `json:"hash"`       // Hash of file content
-	IndexedAt time.Time `json:"indexed_at"` // When this file was indexed
-	Success   bool      `json:"success"`    // Whether indexing succeeded
-	Error     string    `json:"error,omitempty"` // Error message if failed
-}
 
 // ragIndexTool implements the RAG indexing tool
 type ragIndexTool struct {
@@ -159,38 +143,14 @@ func (r *ragIndexTool) computeDirectoryHash(path string) (string, error) {
 	return fmt.Sprintf("%x", h.Sum(nil)), nil
 }
 
-// loadIndexState loads the previous index state
-func (r *ragIndexTool) loadIndexState() (*RagIndexState, error) {
-	statePath := filepath.Join(r.workingDir, ".loco", "rag_index_state.json")
-	data, err := os.ReadFile(statePath)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil, nil // No previous state
-		}
-		return nil, err
-	}
-	
-	var state RagIndexState
-	if err := json.Unmarshal(data, &state); err != nil {
-		return nil, err
-	}
-	return &state, nil
+// loadIndexState loads the previous index state from SQLite
+func (r *ragIndexTool) loadIndexState(ctx context.Context) (*sidecar.RAGMetadata, error) {
+	return r.sidecarService.GetRAGMetadata(ctx)
 }
 
-// saveIndexState saves the current index state
-func (r *ragIndexTool) saveIndexState(state *RagIndexState) error {
-	locoDir := filepath.Join(r.workingDir, ".loco")
-	if err := os.MkdirAll(locoDir, 0755); err != nil {
-		return err
-	}
-	
-	statePath := filepath.Join(locoDir, "rag_index_state.json")
-	data, err := json.MarshalIndent(state, "", "  ")
-	if err != nil {
-		return err
-	}
-	
-	return os.WriteFile(statePath, data, 0644)
+// saveIndexState saves the current index state to SQLite
+func (r *ragIndexTool) saveIndexState(ctx context.Context, state *sidecar.RAGMetadata) error {
+	return r.sidecarService.SetRAGMetadata(ctx, *state)
 }
 
 // Run executes the RAG indexing
@@ -237,7 +197,7 @@ func (r *ragIndexTool) Run(ctx context.Context, call ToolCall) (ToolResponse, er
 	
 	// Check previous index state
 	if !params.Force {
-		prevState, err := r.loadIndexState()
+		prevState, err := r.loadIndexState(ctx)
 		if err != nil {
 			// Log but continue
 			_ = err
@@ -297,10 +257,10 @@ func (r *ragIndexTool) Run(ctx context.Context, call ToolCall) (ToolResponse, er
 	}
 	
 	// Load previous state to get per-file tracking
-	prevState, _ := r.loadIndexState()
+	prevState, _ := r.loadIndexState(ctx)
 	if prevState == nil || prevState.FileStates == nil {
-		prevState = &RagIndexState{
-			FileStates: make(map[string]FileState),
+		prevState = &sidecar.RAGMetadata{
+			FileStates: make(map[string]sidecar.FileState),
 		}
 	}
 	
@@ -353,11 +313,10 @@ func (r *ragIndexTool) Run(ctx context.Context, call ToolCall) (ToolResponse, er
 	
 	response += "**Indexing progress:**\n"
 	
-	// Index files in batches
-	batchSize := 10
+	// Index files sequentially (batches were failing consistently)
 	indexed := 0
 	failed := 0
-	newFileStates := make(map[string]FileState)
+	newFileStates := make(map[string]sidecar.FileState)
 	
 	// Initialize newFileStates with existing states from prevState
 	// We'll update these as we process files
@@ -365,78 +324,40 @@ func (r *ragIndexTool) Run(ctx context.Context, call ToolCall) (ToolResponse, er
 		newFileStates[path] = state
 	}
 	
-	for i := 0; i < len(filesToIndex); i += batchSize {
-		end := i + batchSize
-		if end > len(filesToIndex) {
-			end = len(filesToIndex)
-		}
+	// Process files one by one for reliability
+	for i, file := range filesToIndex {
+		relPath := filepath.Base(file)
+		publishProgress("Indexing", len(filesToIndex), indexed, fmt.Sprintf("(%d/%d) %s", i+1, len(filesToIndex), relPath))
 		
-		batch := filesToIndex[i:end]
-		
-		// For the first batch, process files one at a time to avoid overwhelming the model
-		// This helps ensure the embedding model is properly warmed up
-		if i == 0 && len(batch) > 1 {
-			response += fmt.Sprintf("🔄 Processing first %d files individually...\n", len(batch))
-			for j, file := range batch {
-				relPath := filepath.Base(file)
-				publishProgress("Indexing", len(filesToIndex), indexed, relPath)
-				
-				if err := r.sidecarService.UpdateFiles(ctx, []string{file}); err != nil {
-					failed++
-					response += fmt.Sprintf("  ❌ File %d failed: %v\n", j+1, err)
-					newFileStates[file] = FileState{
-						Hash:      computeFileHash(file),
-						IndexedAt: time.Now(),
-						Success:   false,
-						Error:     err.Error(),
-					}
-				} else {
-					indexed++
-					response += fmt.Sprintf("  ✅ File %d indexed\n", j+1)
-					newFileStates[file] = FileState{
-						Hash:      computeFileHash(file),
-						IndexedAt: time.Now(),
-						Success:   true,
-					}
-				}
+		if err := r.sidecarService.UpdateFiles(ctx, []string{file}); err != nil {
+			failed++
+			response += fmt.Sprintf("❌ File %d/%d failed: %s - %v\n", i+1, len(filesToIndex), relPath, err)
+			newFileStates[file] = sidecar.FileState{
+				Hash:      computeFileHash(file),
+				IndexedAt: time.Now(),
+				Success:   false,
+				Error:     err.Error(),
 			}
 		} else {
-			// Process subsequent batches normally
-			batchDesc := fmt.Sprintf("batch %d-%d", i+1, end)
-			publishProgress("Indexing", len(filesToIndex), indexed, batchDesc)
-			
-			if err := r.sidecarService.UpdateFiles(ctx, batch); err != nil {
-				failed += len(batch)
-				response += fmt.Sprintf("❌ Batch %d-%d failed: %v\n", i+1, end, err)
-				// Mark files as failed
-				for _, file := range batch {
-					newFileStates[file] = FileState{
-						Hash:      computeFileHash(file),
-						IndexedAt: time.Now(),
-						Success:   false,
-						Error:     err.Error(),
-					}
-				}
-			} else {
-				indexed += len(batch)
-				response += fmt.Sprintf("✅ Indexed files %d-%d\n", i+1, end)
-				// Mark files as successful
-				for _, file := range batch {
-					newFileStates[file] = FileState{
-						Hash:      computeFileHash(file),
-						IndexedAt: time.Now(),
-						Success:   true,
-					}
-				}
+			indexed++
+			if i % 5 == 0 || i == len(filesToIndex)-1 { // Show progress every 5 files or last file
+				response += fmt.Sprintf("✅ File %d/%d indexed: %s\n", i+1, len(filesToIndex), relPath)
+			}
+			newFileStates[file] = sidecar.FileState{
+				Hash:      computeFileHash(file),
+				IndexedAt: time.Now(),
+				Success:   true,
 			}
 		}
 		
-		// Check context cancellation
-		select {
-		case <-ctx.Done():
-			response += "\n⚠️ Indexing cancelled\n"
-			return NewTextResponse(response), nil
-		default:
+		// Check context cancellation every few files
+		if i % 10 == 0 {
+			select {
+			case <-ctx.Done():
+				response += "\n⚠️ Indexing cancelled\n"
+				return NewTextResponse(response), nil
+			default:
+			}
 		}
 	}
 	
@@ -450,14 +371,14 @@ func (r *ragIndexTool) Run(ctx context.Context, call ToolCall) (ToolResponse, er
 			}
 		}
 		
-		state := &RagIndexState{
+		state := &sidecar.RAGMetadata{
 			ContentHash:    currentHash,
 			IndexedAt:      time.Now(),
 			FileCount:      successCount, // Only count successful files
 			EmbeddingModel: embeddingModel,
 			FileStates:     newFileStates,
 		}
-		if err := r.saveIndexState(state); err != nil {
+		if err := r.saveIndexState(ctx, state); err != nil {
 			// Log but don't fail
 			response += fmt.Sprintf("\n⚠️ Failed to save index state: %s\n", err)
 		}
@@ -467,9 +388,14 @@ func (r *ragIndexTool) Run(ctx context.Context, call ToolCall) (ToolResponse, er
 	publishProgress("Complete", len(filesToIndex), indexed, fmt.Sprintf("%d indexed, %d failed", indexed, failed))
 	
 	response += fmt.Sprintf("\n**Complete!**\n")
+	response += fmt.Sprintf("- Total files: %d\n", len(files))
+	response += fmt.Sprintf("- Processed: %d files\n", len(filesToIndex))
 	response += fmt.Sprintf("- Indexed: %d files\n", indexed)
 	if failed > 0 {
 		response += fmt.Sprintf("- Failed: %d files\n", failed)
+	}
+	if len(files) > len(filesToIndex) {
+		response += fmt.Sprintf("- Skipped: %d files (already indexed)\n", len(files)-len(filesToIndex))
 	}
 	response += fmt.Sprintf("- Content hash: %s\n", currentHash[:12]+"...")
 	response += fmt.Sprintf("\nUse `/rag <query>` to search\n")

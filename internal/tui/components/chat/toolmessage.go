@@ -7,20 +7,22 @@ import (
 
 	"github.com/billie-coop/loco/internal/llm"
 	"github.com/billie-coop/loco/internal/tui/components/anim"
-	"github.com/billie-coop/loco/internal/tui/components/core"
 	"github.com/billie-coop/loco/internal/tui/styles"
 	tea "github.com/charmbracelet/bubbletea/v2"
 	"github.com/charmbracelet/lipgloss/v2"
 )
+
+// TickMsg is sent to update the timer display
+type TickMsg time.Time
 
 // ToolMessage represents a tool execution message in the chat
 type ToolMessage struct {
 	message   llm.Message
 	width     int
 	spinner   *anim.Spinner
-	timer     *core.Timer
 	expanded  bool
 	startTime time.Time
+	isRunning bool
 }
 
 // NewToolMessage creates a new tool message component
@@ -31,15 +33,20 @@ func NewToolMessage(msg llm.Message) *ToolMessage {
 		startTime: time.Now(),
 	}
 
-	// Create spinner and timer for pending/running states
+	// Create spinner for pending/running states
 	if msg.ToolExecution != nil && (msg.ToolExecution.Status == "pending" || msg.ToolExecution.Status == "running") {
 		tm.spinner = anim.NewSpinner(anim.SpinnerDots)
-		// Create timer with tool name as ID and 100ms refresh interval
-		tm.timer = core.NewTimer(msg.ToolExecution.Name, 100*time.Millisecond)
-		tm.timer.Start()
+		tm.isRunning = true
 	}
 
 	return tm
+}
+
+// doTick returns a tick command for timer updates
+func (tm *ToolMessage) doTick() tea.Cmd {
+	return tea.Tick(100*time.Millisecond, func(t time.Time) tea.Msg {
+		return TickMsg(t)
+	})
 }
 
 // Init implements tea.Model
@@ -50,8 +57,8 @@ func (tm *ToolMessage) Init() tea.Cmd {
 		cmds = append(cmds, tm.spinner.Init())
 	}
 	
-	if tm.timer != nil {
-		cmds = append(cmds, tm.timer.Start())
+	if tm.isRunning {
+		cmds = append(cmds, tm.doTick())
 	}
 	
 	return tea.Batch(cmds...)
@@ -61,32 +68,28 @@ func (tm *ToolMessage) Init() tea.Cmd {
 func (tm *ToolMessage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmds []tea.Cmd
 	
+	switch msg := msg.(type) {
+	case TickMsg:
+		// Continue ticking if still running
+		if tm.isRunning {
+			cmds = append(cmds, tm.doTick())
+		}
+		
+	case tea.KeyMsg:
+		switch msg.String() {
+		case "enter", " ":
+			tm.expanded = !tm.expanded
+		}
+	}
+	
 	// Handle spinner updates for running tools
-	if tm.spinner != nil && tm.message.ToolExecution != nil &&
-		(tm.message.ToolExecution.Status == "pending" || tm.message.ToolExecution.Status == "running") {
+	if tm.spinner != nil && tm.isRunning {
 		s, cmd := tm.spinner.Update(msg)
 		if sp, ok := s.(*anim.Spinner); ok {
 			tm.spinner = sp
 		}
 		if cmd != nil {
 			cmds = append(cmds, cmd)
-		}
-	}
-	
-	// Handle timer updates for running tools
-	if tm.timer != nil && tm.message.ToolExecution != nil &&
-		(tm.message.ToolExecution.Status == "pending" || tm.message.ToolExecution.Status == "running") {
-		cmd := tm.timer.Update(msg)
-		if cmd != nil {
-			cmds = append(cmds, cmd)
-		}
-	}
-
-	switch msg := msg.(type) {
-	case tea.KeyMsg:
-		switch msg.String() {
-		case "enter", " ":
-			tm.expanded = !tm.expanded
 		}
 	}
 
@@ -113,12 +116,7 @@ func (tm *ToolMessage) View() string {
 
 	// Add spinner and elapsed time if pending/running
 	if tm.spinner != nil && (tm.message.ToolExecution.Status == "pending" || tm.message.ToolExecution.Status == "running") {
-		var elapsed time.Duration
-		if tm.timer != nil {
-			elapsed = tm.timer.Elapsed().Round(100 * time.Millisecond)
-		} else {
-			elapsed = time.Since(tm.startTime).Round(100 * time.Millisecond)
-		}
+		elapsed := time.Since(tm.startTime).Round(100 * time.Millisecond)
 		header = fmt.Sprintf("%s %s  ⏱ %s", header, tm.spinner.View(), elapsed)
 	}
 
@@ -155,12 +153,7 @@ func (tm *ToolMessage) View() string {
 		Width(max(10, tm.width-1))
 
 	// Footer with timestamp and duration/elapsed
-	var elapsed time.Duration
-	if tm.timer != nil {
-		elapsed = tm.timer.Elapsed().Round(100 * time.Millisecond)
-	} else {
-		elapsed = time.Since(tm.startTime).Round(100 * time.Millisecond)
-	}
+	elapsed := time.Since(tm.startTime).Round(100 * time.Millisecond)
 	footer := theme.S().Subtle.Italic(true).Render(
 		fmt.Sprintf("  %s • %s", tm.startTime.Format("15:04:05"), elapsed),
 	)
@@ -175,9 +168,7 @@ func (tm *ToolMessage) SetMessage(msg llm.Message) {
 	// Stop spinner and timer if completed
 	if msg.ToolExecution != nil && (msg.ToolExecution.Status == "complete" || msg.ToolExecution.Status == "error") {
 		tm.spinner = nil
-		if tm.timer != nil {
-			tm.timer.Stop()
-		}
+		tm.isRunning = false
 	}
 }
 
