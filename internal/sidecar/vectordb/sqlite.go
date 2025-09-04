@@ -9,8 +9,7 @@ import (
 	"time"
 
 	"github.com/billie-coop/loco/internal/sidecar"
-	sqlite_vec "github.com/asg017/sqlite-vec-go-bindings/cgo"
-	_ "github.com/mattn/go-sqlite3"
+	sqlite_vec "github.com/asg017/sqlite-vec-go-bindings/ncruces"
 )
 
 // SQLiteStore is a SQLite-based vector store implementation using sqlite-vec
@@ -27,11 +26,8 @@ func NewSQLiteStore(dbPath string, embedder sidecar.Embedder) (*SQLiteStore, err
 		return nil, fmt.Errorf("failed to create database directory: %w", err)
 	}
 
-	// Initialize sqlite-vec
-	sqlite_vec.Auto()
-
-	// Open database
-	db, err := sql.Open("sqlite3", dbPath+"?_foreign_keys=on")
+	// Open database using ncruces/go-sqlite3 driver (sqlite-vec is automatically available)
+	db, err := sql.Open("sqlite3", dbPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open database: %w", err)
 	}

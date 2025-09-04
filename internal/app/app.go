@@ -362,7 +362,7 @@ func (a *App) RunStartupAnalysis() {
 			a.Tools.Replace(tools.NewRagIndexTool(a.workingDir, a.Sidecar, a.LLM, a.Config))
 		}
 		
-		// Conditionally run RAG indexing based on config (BEFORE startup scan)
+		// Conditionally run RAG indexing based on config
 		if cfg := a.Config.Get(); cfg != nil && cfg.Analysis.RAG.AutoIndex {
 			a.ToolExecutor.ExecuteSystem(tools.ToolCall{
 				Name:  "rag_index",
@@ -375,13 +375,16 @@ func (a *App) RunStartupAnalysis() {
 	if a.Tools != nil && a.permissionServiceInternal != nil && a.Analysis != nil {
 		a.Tools.Replace(tools.NewStartupScanTool(a.permissionServiceInternal, a.workingDir, a.Analysis))
 	}
-	// Then run startup scan (AFTER RAG indexing completes)
-	a.ToolExecutor.ExecuteSystem(tools.ToolCall{
-		Name:  "startup_scan",
-		Input: `{}`,
-	})
+	
+	// Conditionally run startup scan based on config
+	if cfg := a.Config.Get(); cfg != nil && cfg.Analysis.Startup.Autorun {
+		a.ToolExecutor.ExecuteSystem(tools.ToolCall{
+			Name:  "startup_scan",
+			Input: `{}`,
+		})
+	}
 
-	// Conditionally auto-run analysis after startup based on config
+	// Conditionally run quick analysis based on config
 	if cfg := a.Config.Get(); cfg != nil && cfg.Analysis.Quick.AutoRun {
 		a.ToolExecutor.ExecuteSystem(tools.ToolCall{
 			Name:  "analyze",
