@@ -4,7 +4,6 @@ import (
 	"strings"
 
 	"github.com/billie-coop/loco/internal/llm"
-	"github.com/billie-coop/loco/internal/tui/events"
 	tea "github.com/charmbracelet/bubbletea/v2"
 )
 
@@ -28,47 +27,11 @@ func (m *Model) handleSendMessage(content string) tea.Cmd {
 		return nil
 	}
 
-	// Route all other input through the InputRouter
+	// Route all input through the unified InputRouter
 	if m.app.InputRouter != nil {
 		m.app.InputRouter.Route(content)
 	} else {
-		// Fallback to old behavior if InputRouter not available
-		if strings.HasPrefix(content, "/") {
-			m.showStatus("Command service not available")
-		} else {
-			// Handle as regular message
-			userMsg := llm.Message{
-				Role:    "user",
-				Content: content,
-			}
-			
-			// Add to TUI state
-			m.messages.Append(userMsg)
-			m.syncStateToComponents()
-			
-			// Add to session
-			if m.app.Sessions != nil {
-				if err := m.app.Sessions.AddMessage(userMsg); err != nil {
-					m.showStatus("⚠️ Failed to save message: " + err.Error())
-				}
-			}
-
-			// Publish user message event
-			m.eventBroker.PublishAsync(events.Event{
-				Type: events.UserMessageEvent,
-				Payload: events.MessagePayload{
-					Message: userMsg,
-				},
-			})
-
-			// Send to LLM service if available
-			if m.app.LLMService != nil {
-				go func() {
-					messages := m.messages.AllAsLLM()
-					m.app.LLMService.HandleUserMessage(messages, content)
-				}()
-			}
-		}
+		m.showStatus("⚠️ Input router not available")
 	}
 
 	return nil

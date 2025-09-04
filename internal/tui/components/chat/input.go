@@ -212,14 +212,29 @@ func (im *InputModel) View() string {
 		Padding(0, 1)
 
 	var display string
-	if im.value == "" && im.placeholder != "" && !im.focused {
-		// Show placeholder with theme colors
-		placeholderStyle := inputStyle.Copy().Foreground(theme.FgSubtle)
-		display = placeholderStyle.Render(im.placeholder)
+	
+	// Always show input field - only cursor visibility depends on focus
+	if im.value == "" {
+		// Empty input - show placeholder regardless of focus
+		if im.placeholder != "" {
+			placeholderStyle := inputStyle.Copy().Foreground(theme.FgSubtle)
+			display = placeholderStyle.Render(im.placeholder)
+		} else {
+			// No placeholder - show empty input with potential cursor
+			if im.focused && im.enabled {
+				cursor := " "
+				cursorStyle := lipgloss.NewStyle().
+					Background(theme.Primary).
+					Foreground(theme.FgInverted)
+				display = inputStyle.Render(cursorStyle.Render(cursor))
+			} else {
+				display = inputStyle.Render(" ") // Empty but visible
+			}
+		}
 	} else {
-		// Show value with cursor
+		// Has content - show with or without cursor
 		if im.focused && im.enabled {
-			// Add cursor
+			// Show with cursor
 			before := im.value[:im.cursorPos]
 			after := ""
 			cursor := " "
@@ -236,6 +251,7 @@ func (im *InputModel) View() string {
 			
 			display = inputStyle.Render(before + cursorStyle.Render(cursor) + after)
 		} else {
+			// Show without cursor
 			display = inputStyle.Render(im.value)
 		}
 	}

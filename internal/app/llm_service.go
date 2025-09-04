@@ -39,11 +39,8 @@ func (s *LLMService) SetClient(client llm.Client) {
 
 // HandleUserMessage processes a user message and streams the response
 func (s *LLMService) HandleUserMessage(messages []llm.Message, userMessage string) {
-	// Enable debug mode for now since we don't have LLM client
-	s.debugMode = true
-
-	// If in debug mode, create debug echo response
-	if s.debugMode {
+	// Check if we have a client before using debug mode
+	if s.client == nil {
 		s.handleDebugEcho(userMessage)
 		return
 	}

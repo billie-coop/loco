@@ -276,6 +276,15 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.showStatus("⏸️ Interrupted")
 				return m, nil
 			}
+		case "enter":
+			// Handle message submission when completions are closed
+			if !m.completions.IsOpen() && !m.dialogManager.IsDialogOpen() {
+				content := m.input.Value()
+				if content != "" {
+					m.input.Reset()
+					return m, m.handleSendMessage(content)
+				}
+			}
 		}
 	}
 

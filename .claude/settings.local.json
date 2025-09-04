@@ -38,7 +38,8 @@
       "WebFetch(domain:swimm.io)",
       "Bash(git log:*)",
       "WebSearch",
-      "Bash(sqlite3:*)"
+      "Bash(sqlite3:*)",
+      "Read(//Users/steve/Dev/github.com/stephenlaughton/crush/**)"
     ],
     "deny": []
   }

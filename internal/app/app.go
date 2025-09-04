@@ -153,6 +153,7 @@ func New(workingDir string, eventBroker *events.Broker) *App {
 
 	// Register command tools
 	app.Tools.Register(tools.NewCopyTool(permissionService, app.Sessions))
+	app.Tools.Register(tools.NewChatTool(app.LLMService, app.Sessions))
 	
 	// Initialize sidecar/RAG service based on config
 	var sidecarEmbedder sidecar.Embedder
