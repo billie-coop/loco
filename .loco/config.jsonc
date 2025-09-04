@@ -25,14 +25,14 @@
       "clean": false,               // If true, purge startup scan cache before running
       "debug": true,                // If true, write artifacts under .loco/debug/startup_scan/<timestamp>/
       "crowd_size": 8,              // Number of parallel worker calls for startup scan
-      "autorun": true              // If false, completely skip startup scan on launch
+      "autorun": false              // If false, completely skip startup scan on launch
     },
 
     // Quick tier: file-list only; workers output NL summaries; adjudicator produces summary.md
     "quick": {
       "clean": true,                 // If true, force re-run quick analysis ignoring cache
       "debug": true,                 // If true, write artifacts under .loco/debug/quick/<timestamp>/
-      "autorun": true,               // If true, auto-run Quick after startup (or on command)
+      "autorun": false,               // If true, auto-run Quick after startup (or on command)
 
       // NL worker mode (current behavior)
       "natural_language_workers": true, // Workers output natural language summaries (no JSON)

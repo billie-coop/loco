@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/billie-coop/loco/internal/sidecar"
 	sqlite_vec "github.com/asg017/sqlite-vec-go-bindings/cgo"
@@ -65,6 +66,7 @@ func (s *SQLiteStore) initSchema() error {
 		path TEXT NOT NULL,
 		content TEXT NOT NULL,
 		updated_at INTEGER NOT NULL,
+		file_hash TEXT NOT NULL,
 		-- Metadata as JSON
 		chunk_index INTEGER,
 		start_line INTEGER,
@@ -86,6 +88,18 @@ func (s *SQLiteStore) initSchema() error {
 
 	if _, err := s.db.Exec(createVectorTable); err != nil {
 		return fmt.Errorf("failed to create vector table: %w", err)
+	}
+
+	// Create metadata table for directory-level RAG state
+	createMetadataTable := `
+	CREATE TABLE IF NOT EXISTS rag_metadata (
+		key TEXT PRIMARY KEY,
+		value TEXT NOT NULL,
+		updated_at INTEGER NOT NULL
+	)`
+
+	if _, err := s.db.Exec(createMetadataTable); err != nil {
+		return fmt.Errorf("failed to create metadata table: %w", err)
 	}
 
 	// Create indexes for better query performance
@@ -114,8 +128,8 @@ func (s *SQLiteStore) Store(ctx context.Context, doc sidecar.Document) error {
 	// Insert document metadata
 	insertDoc := `
 	INSERT OR REPLACE INTO documents (
-		id, path, content, updated_at, chunk_index, start_line, end_line, language
-	) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+		id, path, content, updated_at, file_hash, chunk_index, start_line, end_line, language
+	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
 
 	var chunkIndex, startLine, endLine interface{}
 	var language interface{}
@@ -133,8 +147,14 @@ func (s *SQLiteStore) Store(ctx context.Context, doc sidecar.Document) error {
 		language = lang
 	}
 
+	// Calculate file hash from path and modification time (will be provided by caller)
+	fileHash := fmt.Sprintf("%x", doc.UpdatedAt.Unix()) // Temporary - will be replaced with proper hash
+	if h, ok := doc.Metadata["file_hash"].(string); ok {
+		fileHash = h
+	}
+
 	_, err = tx.ExecContext(ctx, insertDoc,
-		doc.ID, doc.Path, doc.Content, doc.UpdatedAt.Unix(),
+		doc.ID, doc.Path, doc.Content, doc.UpdatedAt.Unix(), fileHash,
 		chunkIndex, startLine, endLine, language)
 	if err != nil {
 		return fmt.Errorf("failed to insert document: %w", err)
@@ -174,8 +194,8 @@ func (s *SQLiteStore) StoreBatch(ctx context.Context, docs []sidecar.Document) e
 	// Prepare statements for better performance
 	stmtDoc, err := tx.PrepareContext(ctx, `
 		INSERT OR REPLACE INTO documents (
-			id, path, content, updated_at, chunk_index, start_line, end_line, language
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
+			id, path, content, updated_at, file_hash, chunk_index, start_line, end_line, language
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`)
 	if err != nil {
 		return fmt.Errorf("failed to prepare document statement: %w", err)
 	}
@@ -207,8 +227,14 @@ func (s *SQLiteStore) StoreBatch(ctx context.Context, docs []sidecar.Document) e
 			language = lang
 		}
 
+		// Get file hash from metadata
+		fileHash := fmt.Sprintf("%x", doc.UpdatedAt.Unix()) // Temporary fallback
+		if h, ok := doc.Metadata["file_hash"].(string); ok {
+			fileHash = h
+		}
+
 		_, err = stmtDoc.ExecContext(ctx,
-			doc.ID, doc.Path, doc.Content, doc.UpdatedAt.Unix(),
+			doc.ID, doc.Path, doc.Content, doc.UpdatedAt.Unix(), fileHash,
 			chunkIndex, startLine, endLine, language)
 		if err != nil {
 			return fmt.Errorf("failed to insert document %s: %w", doc.ID, err)
@@ -395,6 +421,65 @@ func (s *SQLiteStore) Count(ctx context.Context) (int, error) {
 		return 0, fmt.Errorf("failed to count documents: %w", err)
 	}
 	return count, nil
+}
+
+// SetMetadata stores a key-value pair in the metadata table
+func (s *SQLiteStore) SetMetadata(ctx context.Context, key, value string) error {
+	query := `INSERT OR REPLACE INTO rag_metadata (key, value, updated_at) VALUES (?, ?, ?)`
+	_, err := s.db.ExecContext(ctx, query, key, value, time.Now().Unix())
+	if err != nil {
+		return fmt.Errorf("failed to set metadata %s: %w", key, err)
+	}
+	return nil
+}
+
+// GetMetadata retrieves a value from the metadata table
+func (s *SQLiteStore) GetMetadata(ctx context.Context, key string) (string, error) {
+	var value string
+	query := `SELECT value FROM rag_metadata WHERE key = ?`
+	err := s.db.QueryRowContext(ctx, query, key).Scan(&value)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return "", nil // Key doesn't exist
+		}
+		return "", fmt.Errorf("failed to get metadata %s: %w", key, err)
+	}
+	return value, nil
+}
+
+// GetIndexedFiles returns a map of file paths to their hashes and update times
+func (s *SQLiteStore) GetIndexedFiles(ctx context.Context) (map[string]FileInfo, error) {
+	query := `SELECT DISTINCT path, file_hash, updated_at FROM documents ORDER BY path`
+	rows, err := s.db.QueryContext(ctx, query)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query indexed files: %w", err)
+	}
+	defer rows.Close()
+
+	result := make(map[string]FileInfo)
+	for rows.Next() {
+		var path, hash string
+		var updatedAt int64
+		if err := rows.Scan(&path, &hash, &updatedAt); err != nil {
+			return nil, fmt.Errorf("failed to scan indexed file: %w", err)
+		}
+		result[path] = FileInfo{
+			Hash:      hash,
+			IndexedAt: time.Unix(updatedAt, 0),
+		}
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating indexed files: %w", err)
+	}
+
+	return result, nil
+}
+
+// FileInfo represents information about an indexed file
+type FileInfo struct {
+	Hash      string
+	IndexedAt time.Time
 }
 
 // Close closes the database connection

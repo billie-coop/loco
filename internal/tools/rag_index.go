@@ -22,7 +22,7 @@ type RagIndexParams struct {
 	Force bool   `json:"force,omitempty"` // Force re-indexing
 }
 
-// RagIndexState tracks the state of RAG indexing
+// RagIndexState tracks the state of RAG indexing (legacy - will be replaced by SQLite)
 type RagIndexState struct {
 	ContentHash    string              `json:"content_hash"`    // Hash of directory contents
 	IndexedAt      time.Time           `json:"indexed_at"`      // When indexing occurred
@@ -31,7 +31,7 @@ type RagIndexState struct {
 	FileStates     map[string]FileState `json:"file_states"`    // Per-file indexing status
 }
 
-// FileState tracks individual file indexing status
+// FileState tracks individual file indexing status (legacy - will be replaced by SQLite)
 type FileState struct {
 	Hash      string    `json:"hash"`       // Hash of file content
 	IndexedAt time.Time `json:"indexed_at"` // When this file was indexed
