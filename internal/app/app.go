@@ -153,12 +153,6 @@ func New(workingDir string, eventBroker *events.Broker) *App {
 
 	// Register command tools
 	app.Tools.Register(tools.NewCopyTool(permissionService, app.Sessions))
-	app.Tools.Register(tools.NewClearTool(permissionService))
-	app.Tools.Register(tools.NewHelpTool(permissionService, app.Tools))
-	app.Tools.Register(tools.NewChatTool(permissionService))
-
-	// Register startup scan tool
-	app.Tools.Register(tools.NewStartupScanTool(permissionService, workingDir, app.Analysis))
 	
 	// Initialize sidecar/RAG service based on config
 	var sidecarEmbedder sidecar.Embedder
@@ -278,10 +272,7 @@ func (a *App) SetLLMClient(client llm.Client) {
 	a.Analysis = analysis.NewService(client)
 
 	// Register or replace the analyze tool now that we have the service
-	if a.Tools != nil && a.Analysis != nil && a.permissionServiceInternal != nil {
-		// Replace to avoid duplicate registration errors across re-init paths
-		a.Tools.Replace(tools.NewAnalyzeTool(a.permissionServiceInternal, a.workingDir, a.Analysis))
-	}
+	// Analyze tool deleted - no longer needed
 
 	// Register startup_welcome tool if LM Studio client is available
 	if a.Tools != nil {
@@ -438,23 +429,9 @@ func (a *App) RunStartupAnalysis() {
 	}
 
 	// Ensure startup_scan uses the updated analysis service (replace tool)
-	if a.Tools != nil && a.permissionServiceInternal != nil && a.Analysis != nil {
-		a.Tools.Replace(tools.NewStartupScanTool(a.permissionServiceInternal, a.workingDir, a.Analysis))
-	}
+	// Startup scan tool deleted - no longer needed
 	
-	// Conditionally run startup scan based on config
-	if cfg := a.Config.Get(); cfg != nil && cfg.Analysis.Startup.Autorun {
-		a.ToolExecutor.ExecuteSystem(tools.ToolCall{
-			Name:  "startup_scan",
-			Input: `{}`,
-		})
-	}
+	// Startup scan functionality removed - no longer auto-running
 
-	// Conditionally run quick analysis based on config
-	if cfg := a.Config.Get(); cfg != nil && cfg.Analysis.Quick.AutoRun {
-		a.ToolExecutor.ExecuteSystem(tools.ToolCall{
-			Name:  "analyze",
-			Input: `{"tier": "quick", "continue_to": "deep"}`,
-		})
-	}
+	// Analysis functionality removed - no longer auto-running
 }

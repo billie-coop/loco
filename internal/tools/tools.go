@@ -395,18 +395,8 @@ func generateToolCallID() string {
 func CreateDefaultRegistry(permissionService permission.Service, workingDir string, analysisService interface{}) *Registry {
 	registry := NewRegistry()
 
-	// Register all the core tools
-	registry.Register(NewBashTool(permissionService, workingDir))
-	registry.Register(NewViewTool(permissionService, workingDir))
-	registry.Register(NewEditTool(permissionService, workingDir))
-	registry.Register(NewWriteTool(permissionService, workingDir))
-
-	// Register analysis tool if service is provided
-	if analysisService != nil {
-		// Type assert to analysis.Service when available
-		// For now, we'll skip this since we need to set up the service
-		// registry.Register(NewAnalyzeTool(permissionService, workingDir, analysisService))
-	}
+	// Only register the tools we actually use
+	// Main tools are registered in app.go
 
 	return registry
 }
